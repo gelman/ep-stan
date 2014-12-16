@@ -1,5 +1,5 @@
 Python code supplement for "Expectation propagation as a way of life"
-==
+--
 
 Requires `Stan` and `Pystan` (see also beginning of `experiment.py`).
 
@@ -10,4 +10,4 @@ example. See the code for configuration.
 
 License
 --
- [Released under licensed under the 3-clause BSD license.](http://opensource.org/licenses/BSD-3-Clause)
+ [Released under the 3-clause BSD license.](http://opensource.org/licenses/BSD-3-Clause)
