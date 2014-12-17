@@ -1,19 +1,22 @@
+"""Script to compile the stan model and pack it into a Python pickle module.
+This has to be run before the experiment.py can be used.
 
-from pystan import StanModel
-import pickle
+The most recent version of the code can be found on GitHub:
+https://github.com/gelman/ep-stan
+
+"""
 
 # Released under licensed under the 3-clause BSD license.
 # http://opensource.org/licenses/BSD-3-Clause
 #
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
-#
-# The most recent version of the code can be found on GitHub:
-# https://github.com/gelman/ep-stan
 
-# -----------------------------------------
-# Compile stan model for the tilted moments
-# -----------------------------------------
+import pickle
+from pystan import StanModel
+
+
+# Define the model
 model_name = 'hier_log'
 model_code = """
 data {
@@ -40,8 +43,13 @@ model {
     y ~ bernoulli_logit(alpha + X * tail(phi, K));
 }
 """
+
 # Build the model
 sm = StanModel(model_code=model_code, model_name=model_name)
+
 # Save it
 with open(model_name+'.pkl', 'wb') as f:
     pickle.dump(sm, f)
+
+
+

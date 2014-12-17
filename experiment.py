@@ -1,30 +1,35 @@
+"""An experiment for distributed EP algorithm described in an article
+"Expectation propagation as a way of life" (arXiv:1412.4869).
 
-from __future__ import division
-import numpy as np
-from scipy import linalg as sc_linalg
-import pickle
-import matplotlib.pyplot as plt
+The most recent version of the code can be found on GitHub:
+https://github.com/gelman/ep-stan
+
+"""
 
 # Released under licensed under the 3-clause BSD license.
 # http://opensource.org/licenses/BSD-3-Clause
 #
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
-#
-# The most recent version of the code can be found on GitHub:
-# https://github.com/gelman/ep-stan
 
-# ----------------------------------------------------------
-# -------------- Settings start ----------------------------
-# ----------------------------------------------------------
+from __future__ import division
+import pickle
+import numpy as np
+from scipy import linalg as sc_linalg
+import matplotlib.pyplot as plt
 
-# ====== Default sampling parameters =======================
+
+# ------------------------------------------------------------------------------
+# ---------- Settings start ----------------------------------------------------
+# ------------------------------------------------------------------------------
+
+# ========== Default sampling parameters =======================================
 NCHAINS = 2  # Requires NCHAINS cores
 NSAMP = 330
 WARMUP = 30
 THIN = 2
 
-# ====== Smoothing =========================================
+# ========== Smoothing =========================================================
 # A portion of samples from previous iterations to be taken into account in
 # current round. Variable SMOOTH is a list of arbitrary length consisting of
 # positive weights or empty list or None for no smoothing:
@@ -34,41 +39,40 @@ SMOOTH = None
 #SMOOTH = [0.05, 0.01]
 SMOOTH_IGNORE = 1       # Ignore first SMOOTH_IGNORE iterations
 
-# ====== Initialisation ====================================
+# ========== Initialisation ====================================================
 # Choose if the last sample of each iteration is remembered to use as an
 # initialisation for the next iteration or if a random initialisation is used
 # for each iteration.
 INIT_PREV = True
 
-# ====== Seed ==============================================
+# ========== Seed ==============================================================
 # Use seed = None for random seed
 RAND = np.random.RandomState(seed=0)
 
-# ====== Damping factor ====================================
+# ========== Damping factor ====================================================
 DF0_START = 0.6      # Initial damping factor at the second iteration
 DF0_END = 0.1        # Initial damping factor at the infinite iteration
 DF0_SPEED = 0.8      # Speed of the exponential decay from DF0_START to DF0_END
 DF_MULTIPLIER = 0.9  # Reducement multiplier for the damping factor
 DFMIN = 1e-8         # The minimum acceptable damping factor
 
-# ----------------------------------------------------------
-# -------------- Settings end ------------------------------
-# ----------------------------------------------------------
-
+# ------------------------------------------------------------------------------
+# ---------- Settings end ------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 
 # LAPACK positive definite inverse routine
-DPOTRI = sc_linalg.get_lapack_funcs('potri')
+dpotri_routine = sc_linalg.get_lapack_funcs('potri')
 
 
 def main():
-
+    
     # ----------------
     #       Data
     # ----------------
     
     J = 50                               # number of groups
-#    Nj = RAND.randint(50,60,size=J)      # number of observations per group
+    # Nj = RAND.randint(50,60,size=J)    # number of observations per group
     Nj = 50*np.ones(J)                   # number of observations per group
     N = np.sum(Nj)                       # number of observations
     K = 50                               # number of inputs
@@ -79,8 +83,8 @@ def main():
                 if m < J%M else
                 np.arange(J//M*m, J//M*(m+1)) + J%M
                 for m in range(M))
-
-    # observation index limits for J groups
+    
+    # Observation index limits for J groups
     iiJ = np.concatenate(([0], np.cumsum(Nj)))
     
     # Model definition:
@@ -90,21 +94,21 @@ def main():
     # Hyperparameter sigma2_a
     # Fixed parameters beta
     
-    # simulate from the model
+    # Simulate from the model
     sigma2_a = 2**2
     a_sim = RAND.randn(J)*np.sqrt(sigma2_a)
     b_sim = RAND.randn(K)
+    phi_true = np.append(0.5*np.log(sigma2_a), b_sim)
     X = RAND.randn(N,K)
     y = X.dot(b_sim)
     for j in range(J):
         y[iiJ[j]:iiJ[j+1]] += a_sim[j]
     y = 1/(1+np.exp(-y))
     y = (RAND.rand(N) < y).astype(int)
-
-
-    # -------------------------------------------------
-    # Load  pre-built stan model for the tilted moments
-    # -------------------------------------------------
+    
+    # ------------------------------------------------
+    # Load pre-built stan model for the tilted moments
+    # ------------------------------------------------
     model_name = 'hier_log'
     with open(model_name+'.pkl', 'rb') as f:
         sm = pickle.load(f)
@@ -115,46 +119,37 @@ def main():
     # -----------------
     
     niter = 6
-    dphi = K+1
-
-    # Priors for the shared parameters
+    dphi = K+1  # Number of shared parameters
+    
+    # Priors for the hyperparameter
     # sigma2_a = exp(phi[0]) ~ lognpdf(log(1),log(5))
     m0_a = np.log(1)
     V0_a = np.log(5)**2
-
-    #t = np.linspace(1e-6,2,100)
-    #plt.plot(t, sc.stats.lognorm.pdf(t, s=np.sqrt(V0_a), scale=np.exp(m0_a)))
-    #plt.show()
-
-    # prior for coefs
+    # Prior for coefs
     m0_b = 0
     V0_b = 1**2
-
-    # natural parameters of the prior
+    # Natural parameters of the prior
     Q0 = np.diag(np.append(1./V0_a, np.ones(K)/V0_b)).T
     r0 = np.append(m0_a/V0_a, np.ones(K)*(m0_b/V0_b))
     
-    # natural parameters
-    Q = Q0.copy(order='F')
-    r = r0.copy(order='F')
-    
-    # mean cov of (Q,r)
+    # Allocate space for calculations
+    # Mean and cov of the approximation
     C_phi = np.empty((dphi,dphi), order='F')
     m_phi = np.empty(dphi)
-    
-    
-    # natural site parameters
+    # Natural parameters of the approximation
+    Q = Q0.copy(order='F')
+    r = r0.copy(order='F')
+    # Natural site parameters
     Qi = np.zeros((dphi,dphi,J), order='F')
     ri = np.zeros((dphi,J), order='F')
-    # natural site proposal parameters
+    # Natural site proposal parameters
     Qi2 = np.zeros((dphi,dphi,J), order='F')
     ri2 = np.zeros((dphi,J), order='F')
+    # Site parameter updates
+    dQi = np.zeros((dphi,dphi,J), order='F')
+    dri = np.zeros((dphi,J), order='F')
     
-    # site parameter updates
-    dQi = np.empty((dphi,dphi,J), order='F')
-    dri = np.empty((dphi,J), order='F')
-    
-    # check positive definitness for each cavity distribution
+    # Array for positive definitness checking of each cavity distribution
     posdefs = np.empty(J, dtype=np.bool_)
     
     # Exponentially decreasing initial damping factor for posterior
@@ -162,7 +157,7 @@ def main():
     df0 = np.hstack((1, np.exp(-DF0_SPEED*np.arange(niter-1))
                         *(DF0_START-DF0_END) + DF0_END))
     
-    # Worker objects
+    # Worker instances
     workers = [worker(dphi,
                       X[iiJ[ji]:iiJ[ji+1],:],
                       y[iiJ[ji]:iiJ[ji+1]],
@@ -175,47 +170,37 @@ def main():
     # Convergence analysis
     dm = np.zeros((niter,J,dphi))
     dV = np.zeros((niter,J,dphi))
+    
+    # Results
     m_phi_s = np.zeros((niter+1, dphi))
     var_phi_s = np.zeros((niter+1, dphi))
     err = np.zeros((niter+1, dphi))
-    # Plotting variables
-    phi_t = np.append(0.5*np.log(sigma2_a), b_sim)
-    inds = np.arange(1,K+2)
     
-    
+    # Plotting setup
     plot_intermediate = False
-    print_results = False
-    print_n_first = 4
-    
-    
-    # -----------------------------------------------------------------
-    # This part can be re-evaluated to continue from the previous stage
-    # -----------------------------------------------------------------
 
     for i1 in range(niter):
         
-        df = df0[i1]
+        df = df0[i1] # Initial damping factor
         print 'Iter {}, starting df {:.3g} ...'.format(i1+1, df)
         while True:
             
-            # -------------
             # Try EP update
+            # -------------
             
-            if i1 > 0:
-                # skip this in the first round because required quantities
-                # are computed later
-                np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
-                np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
-                
-                np.add(Qi2.sum(2, out=Q), Q0, out=Q)
-                np.add(ri2.sum(1, out=r), r0, out=r)
+            # These 4 lines could be run in parallel also
+            np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
+            np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
+            np.add(Qi2.sum(2, out=Q), Q0, out=Q)
+            np.add(ri2.sum(1, out=r), r0, out=r)
+            # N.B. In the first iteration Q=Q0 and r=r0
             
-            # check for positive definiteness
+            # Check for positive definiteness
             np.copyto(C_phi, Q)
             try:
                 sc_linalg.cho_factor(C_phi, overwrite_a=True)
             except sc_linalg.LinAlgError:
-                # not positive definite -> reduce damping factor
+                # Not positive definite -> reduce damping factor
                 df *= DF_MULTIPLIER
                 print 'Neg def posterior cov,', \
                       'reducing df to {:.3}'.format(df)
@@ -227,20 +212,18 @@ def main():
                     return False
                 continue
             
+            # Cavity distributions (parallel)
             # -------------------------------
-            # cavity distributions (parallel)
-            # check positive definitness for each cavity distribution
+            # Check positive definitness for each cavity distribution
             for m in range(M):
-                # run jobs in parallel
+                # Run jobs in parallel
                 for j in range(len(iiM[m])):
-                    ji = iiM[m][j] # group to update
-                    
+                    ji = iiM[m][j] # Group to update
                     posdefs[ji] = workers[ji].cavity(Q, Qi2[:,:,ji],
-                                                          r, ri2[:,ji])
-
+                                                     r, ri2[:,ji])
+            
             if np.all(posdefs):
                 # All cavity distributions are positive definite.
-                
                 # Accept step (switch Qi-Qi2 and ri-ri2)
                 temp = Qi
                 Qi = Qi2
@@ -251,9 +234,9 @@ def main():
                 
                 # N.B. The following inversion could be done while parallel jobs
                 # are running, thus saving time. Also this is only needed for
-                # convergence analysis.
+                # convergence analysis and final results.
                 # Invert Q
-                _, info = DPOTRI(C_phi, overwrite_c=True)
+                _, info = dpotri_routine(C_phi, overwrite_c=True)
                 if info:
                     # Inversion failed
                     print "DPOTRI failed with error code {}".format(info)
@@ -267,7 +250,7 @@ def main():
                 break
                 
             else:
-                # Not all cavity distributions are positive definite
+                # Not all cavity distributions are positive definite ...
                 # reduce the damping factor
                 df *= DF_MULTIPLIER
                 ndef_ind = np.nonzero(~posdefs)[0]
@@ -280,27 +263,20 @@ def main():
                     print 'Damping factor reached minimum'
                     return False
         
-        # Check approximation        
+        # Check approximation
+        # -------------------       
         m_phi_s[i1] = m_phi
         var_phi_s[i1] = np.diag(C_phi)
-        np.subtract(m_phi, phi_t, out=err[i1])
+        np.subtract(m_phi, phi_true, out=err[i1])
         if plot_intermediate:
-            plt.plot(inds, phi_t, 'b',
-                     inds, m_phi, 'r',
-                     inds, m_phi+1.96*np.sqrt(np.diag(C_phi)), 'r--',
-                     inds, m_phi-1.96*np.sqrt(np.diag(C_phi)), 'r--')
-            plt.show()
+            pass # TODO: Plot the same plots as in the end
         
+        # Tilted distributions (parallel)
         # -------------------------------
-        # tilted distributions (parallel)
         for m in range(M):
             for j in range(len(iiM[m])):
-                # compute tilted moments for each group
-                ji = iiM[m][j] # group to update
-                
-                # print 'Iter {}, sample tilted moments for group {} of {}' \
-                #       .format(i1, ji+1, J)
-                
+                # Compute tilted moments for each group
+                ji = iiM[m][j] # Group to update
                 if i1 != niter-1:
                     dm[i1,ji,:], dV[i1,ji,:] = \
                         workers[ji].tilted(dQi[:,:,ji], dri[:,ji], C_phi, m_phi)
@@ -313,11 +289,9 @@ def main():
                   .format(i1+1, np.max(dm[i1]), np.max(np.sqrt(dV[i1])))
         else:
             print 'Iter {} done'.format(i1+1)
-            print 'Form final distribution by mixing the samples', \
-                  'from all the sites'
-                  
     
     # Form final approximation by mixing samples from all the sites
+    print 'Form final distribution by mixing the samples from all the sites'
     # N.B. calculated variable by variable for memory reasons
     prcs_p = [2.5, 25, 50, 75, 97.5]
     prcs = np.empty((dphi,len(prcs_p)))
@@ -326,47 +300,13 @@ def main():
         m_phi_s[-1,i] = np.mean(comb)
         var_phi_s[-1,i] = np.var(comb, ddof=1)
         np.percentile(comb, prcs_p, overwrite_input=True, out=prcs[i])
-    np.subtract(m_phi_s[-1,:], phi_t, out=err[-1])
+    np.subtract(m_phi_s[-1,:], phi_true, out=err[-1])
     
-    if print_results:
-        print '\nResults:'
-        print (' '*7+'{:>10}'*2+'{:>9}%'*len(prcs_p)) \
-              .format('real', 'mean', *prcs_p)
-        for i in range(dphi):
-            print ('{:7}'+'{:>10.3}'*2+'{:>10.3}'*len(prcs_p)) \
-                  .format('phi[{}]'.format(i+1), phi_t[i], m_phi_s[-1,i], *prcs[i])
-        
-        # print ('\nFinal error\n'+'{:>10.3}'*dphi).format(*err[-1])
-        
-        print '\nmax diff for each group tilted mean'
-        for i in xrange(niter-1):
-            print ('iter {:>2}: '+'{:>10.3}'*J).format(i+1, *dm[i].max(1))
-        print '\nmax diff for each group tilted cov'
-        for i in xrange(niter-1):
-            print ('iter {:>2}: '+'{:>10.3}'*J).format(i+1, *np.sqrt(dV[i].max(1)))
-        
-        print '\neach parameters error to the real'
-        for i in xrange(niter+1):
-            print ('iter {:>2}: '+'{:>10.3}'*dphi).format(i+1, *err[i])
-
-    if print_n_first:
-        pn = print_n_first
-        print '\nTotal difference in the tilted distribution', \
-              'in the first {} groups:'.format(pn)
-        print 'mean'
-        for i in xrange(niter-1):
-            print ('iter {:>2}: '+'{:>10.3}'*pn).format(i+1, *dm[i,:pn,:].sum(1))
-        print 'std'
-        for i in xrange(niter-1):
-            print ('iter {:>2}: '+'{:>10.3}'*pn) \
-                  .format(i+1, *np.sqrt(dV[i,:pn,:].sum(1)))
-            
-
-#    plt.plot(np.arange(niter+1), err)
-#    plt.hold(True)
-#    plt.plot(np.arange(niter+1), np.zeros(niter+1), 'k')
-#    plt.show()
+    # ----------------
+    #   Plot results
+    # ----------------
     
+    # Mean and variance as a function of the iteration
     fig, axs = plt.subplots(2, 1, sharex=True)
     fig.subplots_adjust(hspace=0.1)
     axs[0].plot(np.arange(niter+1), m_phi_s)
@@ -374,17 +314,17 @@ def main():
     axs[1].plot(np.arange(niter+1), np.sqrt(var_phi_s))
     axs[1].set_ylabel('Std of params')
     axs[1].set_xlabel('Iteration')
-    # plt.xlim([0,6])
     
+    # Estimates vs true values
     plt.figure()
-    ax = plt.plot(m_phi_s[-1], phi_t, 'bo')[0].get_axes()
+    ax = plt.plot(m_phi_s[-1], phi_true, 'bo')[0].get_axes()
     limits = (min(ax.get_xlim()[0], ax.get_ylim()[0]),
               max(ax.get_xlim()[1], ax.get_ylim()[1]))
     ax.set_xlim(limits)
     ax.set_ylim(limits)
     ax.plot(np.vstack((m_phi_s[-1]+3*np.sqrt(var_phi_s[-1]),
                        m_phi_s[-1]-3*np.sqrt(var_phi_s[-1]))),
-            np.tile(phi_t, (2,1)),
+            np.tile(phi_true, (2,1)),
             'b-')
     ax.plot(limits, limits, 'r-')
     ax.set_ylabel('True values')
@@ -393,12 +333,8 @@ def main():
     plt.show()
 
 
-
-
-
-
 class worker(object):
-    
+    """Worker for each site."""
     
     def __init__(self, dphi, X, y, sm, pars=None, nchains=NCHAINS, nsamp=NSAMP,
                  warmup=WARMUP, thin=THIN):
@@ -408,9 +344,10 @@ class worker(object):
         self.M = np.empty((dphi,dphi), order='F')
         self.v = np.empty(dphi)
         self.v2 = np.empty(dphi)
-        # The following are commented out because shared memory is used
-        # self.Q = np.empty((dphi,dphi), order='F')
-        # self.r = np.empty(dphi)
+        
+        # Current iteration global approximations
+        self.Q = None
+        self.r = None
         
         # Data for stan model in method tilted
         self.data = dict(N=X.shape[0],
@@ -453,36 +390,22 @@ class worker(object):
     
     def cavity(self, Q, Qi, r, ri):
         
-        # >>> Simulating parallel programs with separate memory
-        # np.copyto(self.Q, Q)
-        # np.copyto(self.M, Qi)
-        # np.copyto(self.r, r)
-        # np.copyto(self.v, ri)
-        # np.subtract(self.Q, self.M, out=self.M)
-        # np.subtract(self.r, self.v, out=self.v2)
-        # <<< Simulating parallel programs with separate memory
-        # >>> ... or using shared memory
+        # 
         self.Q = Q
         self.r = r
         np.subtract(self.Q, Qi, out=self.M)
         np.subtract(self.r, ri, out=self.v2)
-        # <<< ... or using shared memory
         
-        
-        
-        # use mean-cov parameters because of Stan
-        # it would be nice if Stan would support natural parameters
-        # ... and upper triangulars only
+        # Convert to mean-cov parameters for Stan
         try:
             sc_linalg.cho_factor(self.M, overwrite_a=True)
         except sc_linalg.LinAlgError:
             # Not positive definite
-            # print "Neg def cavity cov"
             return False
         
         # Positive definite
         # Invert self.M
-        _, info = DPOTRI(self.M, overwrite_c=True)
+        _, info = dpotri_routine(self.M, overwrite_c=True)
         if info:
             # Inversion failed
             print "DPOTRI failed with error code {}".format(info)
@@ -497,9 +420,8 @@ class worker(object):
         
         
     def tilted(self, dQi, dri, C_phi, m_phi):
-        # This method uses shared memory with the master and needs to be
-        # modified if parallelised.
-
+        # This method uses shared memory with the master
+        
         # Sample from the model
         with suppress_stdout():
             samp = self.sm.sampling(data=self.data, chains=self.nchains,
@@ -635,7 +557,7 @@ class worker(object):
         
         # Positive definite
         # Invert St
-        _, info = DPOTRI(St, overwrite_c=True)
+        _, info = dpotri_routine(St, overwrite_c=True)
         if info:
             # Inversion failed
             print "DPOTRI failed with error code {}".format(info)
@@ -672,8 +594,8 @@ class worker(object):
                                     thin=self.thin, seed=RAND, pars=self.pars,
                                     init=self.init)
         self.samp = samp.extract(pars='phi')['phi']
-        
-        
+
+
 
 def get_last_sample(fit, out=None):
     """Extract the last sample from the PyStan fit object.
@@ -723,7 +645,6 @@ def get_last_sample(fit, out=None):
                             [namefield.format(*it.multi_index)][-1]
                     it.iternext()
     return out
-
 
 
 # >>> Temp solution to suppres output from STAN model (remove when fixed)
