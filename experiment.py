@@ -30,9 +30,15 @@ THIN = 2
 # positive weights or empty list or None for no smoothing:
 # SMOOTH[0] is a weight for the previous tilted distribution,
 # SMOOTH[1] is a weight for the distribution two iterations ago, ...
-#SMOOTH = None
-SMOOTH = [0.05, 0.01]
+SMOOTH = None
+#SMOOTH = [0.05, 0.01]
 SMOOTH_IGNORE = 1       # Ignore first SMOOTH_IGNORE iterations
+
+# ====== Initialisation ====================================
+# Choose if the last sample of each iteration is remembered to use as an
+# initialisation for the next iteration or if a random initialisation is used
+# for each iteration.
+INIT_PREV = True
 
 # ====== Seed ==============================================
 # Use seed = None for random seed
@@ -102,7 +108,7 @@ def main():
     model_name = 'hier_log'
     with open(model_name+'.pkl', 'rb') as f:
         sm = pickle.load(f)
-    
+    pars = ('phi', 'eta')  # Parameters of interest
     
     # -----------------
     # Initialise the EP
@@ -160,7 +166,7 @@ def main():
     workers = [worker(dphi,
                       X[iiJ[ji]:iiJ[ji+1],:],
                       y[iiJ[ji]:iiJ[ji+1]],
-                      sm)
+                      sm, pars=pars)
                for ji in range(J)]
     
     # Utility variable for copying the upper triangular to bottom
@@ -394,7 +400,7 @@ def main():
 class worker(object):
     
     
-    def __init__(self, dphi, X, y, sm, nchains=NCHAINS, nsamp=NSAMP,
+    def __init__(self, dphi, X, y, sm, pars=None, nchains=NCHAINS, nsamp=NSAMP,
                  warmup=WARMUP, thin=THIN):
         
         # Allocate space for calculations
@@ -415,13 +421,17 @@ class worker(object):
                          Sigma_cavity=self.M.T)
                          # M transposed in order to get C-order
         
-        # Stan model
+        # Model and parameters
         self.sm = sm
+        self.pars = pars
         self.nchains = nchains
         self.nsamp = nsamp
         self.warmup = warmup
         self.thin = thin
-        
+        # The iteration number
+        self.iteration = 0
+        # The initialisation method
+        self.init = 'random'
         # Utilities
         self.upind = np.triu_indices(dphi,1)
         self.dphi = dphi
@@ -493,8 +503,17 @@ class worker(object):
         # Sample from the model
         with suppress_stdout():
             samp = self.sm.sampling(data=self.data, chains=self.nchains,
-                                     iter=self.nsamp, warmup=self.warmup,
-                                     thin=self.thin, seed=RAND)
+                                    iter=self.nsamp, warmup=self.warmup,
+                                    thin=self.thin, seed=RAND, pars=self.pars,
+                                    init=self.init)
+        
+        if INIT_PREV:
+            # Store the last sample of each chain
+            if self.iteration == 0:
+                # First iteration ... initialise list of dicts
+                self.init = get_last_sample(samp)
+            else:
+                get_last_sample(samp, out=self.init)
         
         # >>> This would be more efficient if samp.extract would not copy data
         # samp = samp.extract(permuted=False)[:,:,:self.dphi]
@@ -506,6 +525,7 @@ class worker(object):
         #        )
         # <<< This would be more efficient if samp.extract would not copy data
         samp = samp.extract(pars='phi')['phi']
+        # TODO: Make a non-copying extract
         
         # Reuse memory
         St = self.M
@@ -518,6 +538,7 @@ class worker(object):
         
         if SMOOTH:
             # Memorise and combine previous St and mt
+            # TODO: Move to own method
             
             if self.prev_stored < 0:
                 # Skip some first iterations ... no smoothing yet
@@ -609,6 +630,7 @@ class worker(object):
             if SMOOTH:
                 # Reset tilted memory
                 self.prev_stored = 0
+            self.iteration += 1
             return (dm, dV)
         
         # Positive definite
@@ -622,6 +644,7 @@ class worker(object):
             if SMOOTH:
                 # Reset tilted memory
                 self.prev_stored = 0
+            self.iteration += 1
             return (dm, dV)
         # Copy the upper triangular into the bottom
         # This could be made faster and more memory efficient ... cython?
@@ -633,22 +656,75 @@ class worker(object):
         rt = self.v2
         np.dot(Qt, mt, out=rt)
         
+        # Calculate the difference into the output array
         np.subtract(Qt, self.Q, out=dQi)
         np.subtract(rt, self.r, out=dri)
+        
+        self.iteration += 1
         return (dm, dV)
         
         
-    
-    
     def tilted_final(self):
         # Sample from the model
         with suppress_stdout():
             samp = self.sm.sampling(data=self.data, chains=self.nchains,
-                                     iter=self.nsamp, warmup=self.warmup,
-                                     thin=self.thin, seed=RAND)
+                                    iter=self.nsamp, warmup=self.warmup,
+                                    thin=self.thin, seed=RAND, pars=self.pars,
+                                    init=self.init)
         self.samp = samp.extract(pars='phi')['phi']
         
         
+
+def get_last_sample(fit, out=None):
+    """Extract the last sample from the PyStan fit object.
+    
+    Parameters
+    ----------
+    fit :  StanFit4<model_name>
+        Instance containing the fitted results.
+    out : list of dict, optional
+        The list into which the output is placed. By default a new list is
+        created. Must be of appropriate shape and content (see Returns).
+	    
+	Returns
+	-------
+	list of dict
+		List of nchains dicts for which each parameter name yields an ndarray
+        corresponding to the sample values (similary to the init argument for
+        the method StanModel.sampling).
+    
+    """
+    
+    # The following works at least for pystan version 2.5.0.0
+    if not out:
+        # Initialise list of dicts
+        out = [{fit.model_pars[i] : np.empty(fit.par_dims[i], order='F')
+                for i in range(len(fit.model_pars))} 
+               for _ in range(fit.sim['chains'])]
+    # Extract the sample for each chain and parameter
+    for c in range(fit.sim['chains']):         # For each chain
+        for i in range(len(fit.model_pars)):   # For each parameter
+            p = fit.model_pars[i]
+            if not fit.par_dims[i]:
+                # Zero dimensional (scalar) parameter
+                out[c][p][()] = fit.sim['samples'][c]['chains'][p][-1]
+            elif len(fit.par_dims[i]) == 1:
+                # One dimensional (vector) parameter
+                for d in xrange(fit.par_dims[i][0]):
+                    out[c][p][d] = fit.sim['samples'][c]['chains'] \
+                                   [u'{}[{}]'.format(p,d)][-1]
+            else:
+                # Multidimensional parameter
+                namefield = p + u'[{}' + u',{}'*(len(fit.par_dims[i])-1) + u']'
+                it = np.nditer(out[c][p], flags=['multi_index'],
+                               op_flags=['writeonly'], order='F')
+                while not it.finished:
+                    it[0] = fit.sim['samples'][c]['chains'] \
+                            [namefield.format(*it.multi_index)][-1]
+                    it.iternext()
+    return out
+
+
 
 # >>> Temp solution to suppres output from STAN model (remove when fixed)
 # This part of the code is by jeremiahbuddha from:
