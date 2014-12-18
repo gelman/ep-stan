@@ -1,0 +1,3 @@
+[submodule "cpp/stan"]
+	path = cpp/stan
+	url = https://github.com/stan-dev/stan.git
