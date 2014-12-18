@@ -1,2 +1,7 @@
 # Compiled stan model (pickle files)
 *.pkl
+
+# Compiled files for Cython module util
+util.so
+util.c
+build/*

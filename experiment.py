@@ -15,7 +15,7 @@ https://github.com/gelman/ep-stan
 from __future__ import division
 import pickle
 import numpy as np
-from scipy import linalg as sc_linalg
+from scipy import linalg
 import matplotlib.pyplot as plt
 
 
@@ -62,7 +62,7 @@ DFMIN = 1e-8         # The minimum acceptable damping factor
 
 
 # LAPACK positive definite inverse routine
-dpotri_routine = sc_linalg.get_lapack_funcs('potri')
+dpotri_routine = linalg.get_lapack_funcs('potri')
 
 
 def main():
@@ -71,11 +71,11 @@ def main():
     #       Data
     # ----------------
     
-    J = 50                               # number of groups
+    J = 5                               # number of groups
     # Nj = RAND.randint(50,60,size=J)    # number of observations per group
     Nj = 50*np.ones(J)                   # number of observations per group
     N = np.sum(Nj)                       # number of observations
-    K = 50                               # number of inputs
+    K = 10                               # number of inputs
     
     M = 2                                # number of workers
     # Evenly distributed group indices for M parallel jobs
@@ -158,7 +158,7 @@ def main():
                         *(DF0_START-DF0_END) + DF0_END))
     
     # Worker instances
-    workers = [worker(dphi,
+    workers = [Worker(dphi,
                       X[iiJ[ji]:iiJ[ji+1],:],
                       y[iiJ[ji]:iiJ[ji+1]],
                       sm, pars=pars)
@@ -178,7 +178,11 @@ def main():
     
     # Plotting setup
     plot_intermediate = False
-
+    
+    # ---------------------------------------------
+    # Run the update algorithm for niter iterations
+    # ---------------------------------------------
+    
     for i1 in range(niter):
         
         df = df0[i1] # Initial damping factor
@@ -198,8 +202,8 @@ def main():
             # Check for positive definiteness
             np.copyto(C_phi, Q)
             try:
-                sc_linalg.cho_factor(C_phi, overwrite_a=True)
-            except sc_linalg.LinAlgError:
+                linalg.cho_factor(C_phi, overwrite_a=True)
+            except linalg.LinAlgError:
                 # Not positive definite -> reduce damping factor
                 df *= DF_MULTIPLIER
                 print 'Neg def posterior cov,', \
@@ -333,8 +337,8 @@ def main():
     plt.show()
 
 
-class worker(object):
-    """Worker for each site."""
+class Worker(object):
+    """Worker responsible of calculations for each site."""
     
     def __init__(self, dphi, X, y, sm, pars=None, nchains=NCHAINS, nsamp=NSAMP,
                  warmup=WARMUP, thin=THIN):
@@ -398,8 +402,8 @@ class worker(object):
         
         # Convert to mean-cov parameters for Stan
         try:
-            sc_linalg.cho_factor(self.M, overwrite_a=True)
-        except sc_linalg.LinAlgError:
+            linalg.cho_factor(self.M, overwrite_a=True)
+        except linalg.LinAlgError:
             # Not positive definite
             return False
         
@@ -543,8 +547,8 @@ class worker(object):
         
         # Check if St is positive definite
         try:
-            sc_linalg.cho_factor(St, overwrite_a=True)
-        except sc_linalg.LinAlgError:
+            linalg.cho_factor(St, overwrite_a=True)
+        except linalg.LinAlgError:
             # Not positive definite -> discard update
             print 'Neg def tilted covariance'
             dQi.fill(0)
