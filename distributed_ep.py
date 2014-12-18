@@ -24,52 +24,69 @@ from util import copy_triu_to_tril
 dpotri_routine = linalg.get_lapack_funcs('potri')
 
 
-def invert_spd(A, out=None):
-    """Invert a symmetric positive-definite matrix.
+def invert_normal_params(A, b, out_A=None, out_b=None):
+    """Invert moment parameters into natural parameters or vice versa.
+    
+    Switch between moment parameters (S,m) and natural parameters (Q,r) of
+    a multivariate normal distribution. Providing (S,m) yields (Q,r) and vice
+    versa.
     
     Parameters
     ----------
     A : ndarray
-        A real symmetric positive-definite matrix to be inverted.
+        A symmetric positive-definite matrix to be inverted. Either the
+        covariance matrix S or the precision matrix Q.
     
-    out : {None, ndarray, 'in_place'}
+    b : ndarray
+        Either the mean vector m or the natural parameter vector r.
+    
+    out_A, out_b : {None, ndarray, 'in_place'}
         Spesifies where the output is calculate into; None (default) indicates
         that a new array is created, providing a string 'in_place' overwrites
-        the input matrix `A`.
+        the corresponding input array.
     
     Returns
     -------
-    out : ndarray
-        The output array (in F-order).
+    out_A, out_b : ndarray
+        The corresponding output arrays (out_A in F-order).
     
     Raises
     ------
     LinAlgError
-        If the array is not positive definite.
+        If the provided array A is not positive definite.
     
     """
     # Process parameters
-    if out == 'in_place':
-        out = A
-    elif not out:
-        out = A.copy(order='F')
+    if out_A == 'in_place':
+        out_A = A
+    elif out_A is None:
+        out_A = A.copy(order='F')
     else:
-        np.copyto(out, A)
-    if not out.flags.farray:
+        np.copyto(out_A, A)
+    if not out_A.flags.farray:
         # Convert from C-order to F-order by transposing (note symmetric)
-        out = out.T
-        if not out.flags.farray:
-            raise ValueError('Provided array is inappropriate')
+        out_A = out_A.T
+        if not out_A.flags.farray:
+            raise ValueError('Provided array A is inappropriate')
+    if out_b == 'in_place':
+        out_b = b
+    elif out_b is None:
+        out_b = b.copy()
+    else:
+        np.copyto(out_b, b)
     # Invert
-    linalg.cho_factor(out, overwrite_a=True) # TODO: Combine linalg.solve here
-    _, info = dpotri_routine(out, overwrite_c=True)
+    # N.B. The following two lines could also be done with linalg.solve but this
+    # shows more clearly what is happening.
+    cho = linalg.cho_factor(out_A, overwrite_a=True)
+    linalg.cho_solve(cho, out_b, overwrite_b=True)
+    _, info = dpotri_routine(out_A, overwrite_c=True)
     if info:
         # This should never occour because cho_factor was succesful ... I think
         raise linalg.LinAlgError(
                 "dpotri LAPACK routine failed with error code {}".format(info))
     # Copy the upper triangular into the bottom
-    copy_triu_to_tril(out)
-    return out
+    copy_triu_to_tril(out_A)
+    return out_A, out_b
     
 
 class DistributedEP(object):
@@ -95,7 +112,7 @@ class DistributedEP(object):
     prior : dict
         The parameters of the multivariate normal prior distribution for `phi`
         provided in a dict containing either:
-            1)  mean parameters with keys 'm' and 'S'
+            1)  moment parameters with keys 'm' and 'S'
             2)  natural parameters with keys 'r' and 'Q'.
         The matrix 'Q' should be F contiguous (copy made if not).
     
@@ -120,8 +137,7 @@ class DistributedEP(object):
                 self.r0 = prior['r']
             elif prior.has_key('S') and prior.has_key('m'):
                 # Convert into natural format
-                self.Q0 = invert_spd(prior['S'])
-                self.r0 = np.dot(self.Q0, prior['m'])
+                self.Q0, self.r0 = invert_normal_params(prior['S'], prior['m'])
             else:
                 raise ValueError("Argument `prior` is not appropriate")
     
