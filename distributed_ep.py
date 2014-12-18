@@ -102,8 +102,11 @@ class DistributedEP(object):
     
     X : ndarray
         Explanatory variable data in an ndarray of shape (N,K), where N is the
-        number of observations and K is the number of variables. X should be
-        C contiguous (copy made if not).
+        number of observations and K is the number of variables. `X` should be
+        C contiguous (copy made if not). N.B. `X` can not be one dimensional
+        because then it would not be possible to know, if the data has one
+        variables and many observations or many variables and one observation,
+        even though the latter is unreasonable.
     
     y : ndarray
         Response variable data in an ndarray of shape (N,), where N is the
@@ -120,8 +123,19 @@ class DistributedEP(object):
     
     def __init__(self, site_model, X, y, prior=None):
         
-        # Ensure C contiguous
+        # Validate X
+        if len(X.shape) != 2:
+            raise ValueError("Argument `X` should be two dimensional")
+        self.N = X.shape[0]
+        self.K = X.shape[1]
         self.X = np.ascontiguousarray(X)
+        
+        # Validate y
+        if len(y.shape) != 1:
+            raise ValueError("Argument `y` should be one dimensional")
+        if y.shape[0] != self.N
+            raise ValueError("The shapes of `y` and `X` does not match")
+        self.y = y
         
         # Initialise prior
         if not prior:
