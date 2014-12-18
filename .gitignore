@@ -1,4 +1,5 @@
 *~
 /cpp/bin
-/cpp/*.hpp
 /cpp/make
+/cpp/*
+/cpp/!*.*
