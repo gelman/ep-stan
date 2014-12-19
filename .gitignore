@@ -1,3 +1,5 @@
+*.pyc
+
 # Compiled stan model (pickle files)
 *.pkl
 
