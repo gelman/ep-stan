@@ -75,7 +75,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
         out_A = out_A.T
         if not out_A.flags.farray:
             raise ValueError('Provided array A is inappropriate')
-    if b:
+    if not b is None:
         if out_b == 'in_place':
             out_b = b
         elif out_b is None:
@@ -91,7 +91,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     else:
         # Already in upper Cholesky form
         cho = (out_A, False)
-    if out_b:
+    if not out_b is None:
         linalg.cho_solve(cho, out_b, overwrite_b=True)
     _, info = dpotri_routine(out_A, overwrite_c=True)
     if info:
@@ -186,8 +186,8 @@ class Worker(object):
     }
     
     DEFAULT_STAN_PARAMS = {
-        'nchains'       : 4,
-        'nsamp'         : 1000,
+        'chains'        : 4,
+        'iter'          : 1000,
         'warmup'        : None,
         'thin'          : 2,
         'init'          : 'random'
@@ -246,7 +246,9 @@ class Worker(object):
                                  "`init_prev` is True")
         
         self.smooth = options['smooth']
-        if self.smooth:
+        if not self.smooth is None and len(self.smooth) == 0:
+            self.smooth = None
+        if not self.smooth is None:
             # Memorise previous tilted distributions
             self.smooth = np.asarray(options['smooth'])
             # Skip some first iterations
@@ -314,7 +316,7 @@ class Worker(object):
         samp -= mt
         np.dot(samp.T, samp, out=St.T)
         
-        if self.smooth:
+        if not self.smooth is None:
             # Smoothen the distribution
             # Use dri and dQi as a temporary arrays
             St, mt = apply_smooth(dri, dQi)
@@ -333,7 +335,7 @@ class Worker(object):
             pos_def = False
             dQi.fill(0)
             dri.fill(0)
-            if self.smooth:
+            if not self.smooth is None:
                 # Reset tilted memory
                 self.prev_stored = 0
             if self.init_prev:
@@ -614,7 +616,7 @@ class DistributedEP(object):
         # Nj     : number of samples per group
         # jj     : group index of each sample
         # jj_lim : sample index limits
-        if kwargs['group_sizes']:
+        if not kwargs['group_sizes'] is None:
             # Size of each group provided
             self.Nj = kwargs['group_sizes']
             self.J = len(self.Nj)
@@ -624,7 +626,7 @@ class DistributedEP(object):
                 self.jj[self.jj_lim[j]:self.jj_lim[j+1]] = j
             # Ensure that X is C contiguous
             self.X = np.ascontiguousarray(X)
-        elif kwargs['group_ind_ord']:
+        elif not kwargs['group_ind_ord'] is None:
             # Sorted array of group indices provided
             self.jj = kwargs['group_ind_ord']
             self.Nj = np.bincount(self.jj)
@@ -632,7 +634,7 @@ class DistributedEP(object):
             self.jj_lim = np.concatenate(([0], np.cumsum(self.Nj)))
             # Ensure that X is C contiguous X
             self.X = np.ascontiguousarray(X)
-        elif kwargs['group_ind']:
+        elif not kwargs['group_ind'] is None:
             # Unsorted array of group indices provided
             jj = kwargs['group_ind']
             jj_sort = jj.argsort(kind='mergesort') # Stable sort
@@ -676,10 +678,10 @@ class DistributedEP(object):
                 raise ValueError("Arg. `dphi` does not match with `prior`")
         
         # Random State
-        if isinstance(kwargs['df0'], np.random.RandomState):
-            self.rand_state = kwargs['df0']
+        if isinstance(kwargs['seed'], np.random.RandomState):
+            self.rand_state = kwargs['seed']
         else:
-            self.rand_state = np.random.RandomState(seed=kwargs['df0'])
+            self.rand_state = np.random.RandomState(seed=kwargs['seed'])
         
         # Damping factor
         self.df_decay = kwargs['df_decay']
@@ -720,7 +722,7 @@ class DistributedEP(object):
                 self.rand_state,
                 **worker_options
             )
-            for j in xrange(J)
+            for j in xrange(self.J)
         )
         
         # Allocate space for calculations
@@ -790,10 +792,14 @@ class DistributedEP(object):
             var_phi_s = np.zeros((niter, self.dphi))
         
         # Iterate niter rounds
-        while self.iter < self.iter + niter:
+        target_iter = self.iter + niter
+        while self.iter < target_iter:
             i1 = self.iter
             # Initial dampig factor
-            df = df0[i1]
+            if i1 != 0:
+                df = self.df0(i1-1)
+            else:
+                df = 1
             if verbose:
                 print 'Iter {}, starting df {:.3g}.'.format(i1, df)
             
@@ -803,8 +809,8 @@ class DistributedEP(object):
                 # These 4 lines could be run in parallel also
                 np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
                 np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
-                np.add(Qi2.sum(2, out=Q), Q0, out=Q)
-                np.add(ri2.sum(1, out=r), r0, out=r)
+                np.add(Qi2.sum(2, out=Q), self.Q0, out=Q)
+                np.add(ri2.sum(1, out=r), self.r0, out=r)
                 # N.B. In the first iteration Q=Q0 and r=r0
                 
                 # Check for positive definiteness
@@ -883,7 +889,7 @@ class DistributedEP(object):
             # Tilted distributions (parallelisable)
             # -------------------------------
             for j in xrange(self.J):
-                posdefs[j] = workers[j].tilted(dQi[:,:,j], dri[:,j])
+                posdefs[j] = self.workers[j].tilted(dQi[:,:,j], dri[:,j])
             if verbose and not np.all(posdefs):
                 print 'Neg.def. tilted in site(s) {}.' \
                       .format(np.nonzero(~posdefs)[0])
@@ -892,8 +898,11 @@ class DistributedEP(object):
                 print 'Iter {} done, max var in the posterior: {}' \
                       .format(i1, np.max(var_phi_s[i1]))
         
-        # Advance iterator and continue
-        self.iter += 1
+            # Advance iterator and continue
+            self.iter += 1
+        
+        if calc_moments:
+            return m_phi_s, var_phi_s
     
     
     def mix_samples(self, out_S=None, out_m=None):
