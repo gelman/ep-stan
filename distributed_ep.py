@@ -1,6 +1,8 @@
 """An implementation of a distributed EP algorithm described in an article
 "Expectation propagation as a way of life" (arXiv:1412.4869).
 
+Currently the implementation works serially with shared memory between workers.
+
 The most recent version of the code can be found on GitHub:
 https://github.com/gelman/ep-stan
 
@@ -24,7 +26,7 @@ from util import copy_triu_to_tril
 dpotri_routine = linalg.get_lapack_funcs('potri')
 
 
-def invert_normal_params(A, b, out_A=None, out_b=None):
+def invert_normal_params(A, b=None, out_A=None, out_b=None):
     """Invert moment parameters into natural parameters or vice versa.
     
     Switch between moment parameters (S,m) and natural parameters (Q,r) of
@@ -37,10 +39,11 @@ def invert_normal_params(A, b, out_A=None, out_b=None):
         A symmetric positive-definite matrix to be inverted. Either the
         covariance matrix S or the precision matrix Q.
     
-    b : ndarray
-        Either the mean vector m or the natural parameter vector r.
+    b : {None, ndarray}, optional
+        The mean vector m, the natural parameter vector r, or None (default)
+        if `out_b` is not requested.
     
-    out_A, out_b : {None, ndarray, 'in_place'}
+    out_A, out_b : {None, ndarray, 'in_place'}, optional
         Spesifies where the output is calculate into; None (default) indicates
         that a new array is created, providing a string 'in_place' overwrites
         the corresponding input array.
@@ -48,7 +51,8 @@ def invert_normal_params(A, b, out_A=None, out_b=None):
     Returns
     -------
     out_A, out_b : ndarray
-        The corresponding output arrays (out_A in F-order).
+        The corresponding output arrays (`out_A` in F-order). If `b` was not
+        provided, `out_b` is None.
     
     Raises
     ------
@@ -68,17 +72,22 @@ def invert_normal_params(A, b, out_A=None, out_b=None):
         out_A = out_A.T
         if not out_A.flags.farray:
             raise ValueError('Provided array A is inappropriate')
-    if out_b == 'in_place':
-        out_b = b
-    elif out_b is None:
-        out_b = b.copy()
+    if b:
+        if out_b == 'in_place':
+            out_b = b
+        elif out_b is None:
+            out_b = b.copy()
+        else:
+            np.copyto(out_b, b)
     else:
-        np.copyto(out_b, b)
+        out_b = None
+    
     # Invert
     # N.B. The following two lines could also be done with linalg.solve but this
     # shows more clearly what is happening.
     cho = linalg.cho_factor(out_A, overwrite_a=True)
-    linalg.cho_solve(cho, out_b, overwrite_b=True)
+    if out_b:
+        linalg.cho_solve(cho, out_b, overwrite_b=True)
     _, info = dpotri_routine(out_A, overwrite_c=True)
     if info:
         # This should never occour because cho_factor was succesful ... I think
@@ -87,7 +96,353 @@ def invert_normal_params(A, b, out_A=None, out_b=None):
     # Copy the upper triangular into the bottom
     copy_triu_to_tril(out_A)
     return out_A, out_b
+
+
+def get_last_sample(fit, out=None):
+    """Extract the last sample from a PyStan fit object.
     
+    Parameters
+    ----------
+    fit :  StanFit4<model_name>
+        Instance containing the fitted results.
+    out : list of dict, optional
+        The list into which the output is placed. By default a new list is
+        created. Must be of appropriate shape and content (see Returns).
+	    
+	Returns
+	-------
+	list of dict
+		List of nchains dicts for which each parameter name yields an ndarray
+        corresponding to the sample values (similary to the init argument for
+        the method StanModel.sampling).
+    
+    """
+    
+    # The following works at least for pystan version 2.5.0.0
+    if not out:
+        # Initialise list of dicts
+        out = [{fit.model_pars[i] : np.empty(fit.par_dims[i], order='F')
+                for i in range(len(fit.model_pars))} 
+               for _ in range(fit.sim['chains'])]
+    # Extract the sample for each chain and parameter
+    for c in range(fit.sim['chains']):         # For each chain
+        for i in range(len(fit.model_pars)):   # For each parameter
+            p = fit.model_pars[i]
+            if not fit.par_dims[i]:
+                # Zero dimensional (scalar) parameter
+                out[c][p][()] = fit.sim['samples'][c]['chains'][p][-1]
+            elif len(fit.par_dims[i]) == 1:
+                # One dimensional (vector) parameter
+                for d in xrange(fit.par_dims[i][0]):
+                    out[c][p][d] = fit.sim['samples'][c]['chains'] \
+                                   [u'{}[{}]'.format(p,d)][-1]
+            else:
+                # Multidimensional parameter
+                namefield = p + u'[{}' + u',{}'*(len(fit.par_dims[i])-1) + u']'
+                it = np.nditer(out[c][p], flags=['multi_index'],
+                               op_flags=['writeonly'], order='F')
+                while not it.finished:
+                    it[0] = fit.sim['samples'][c]['chains'] \
+                            [namefield.format(*it.multi_index)][-1]
+                    it.iternext()
+    return out
+
+
+class Worker(object):
+    """Worker responsible of calculations for each site.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The C contiguous part of the explanatory variable.
+    
+    y : ndarray
+        Part of the response variable.
+    
+    dphi : int
+        The length of the parameter vector phi.
+    
+    stan_model : StanModel
+        The StanModel instance responsible for the mcmc sampling.
+    
+    rand_state : RandomState
+        np.random.RandomState instance used for seeding the sampler.
+    
+    Other parameters
+    ----------------
+    See the class DistributedEP
+    
+    """
+    
+    DEFAULT_OPTIONS = {
+        'init_prev'     : True,
+        'smooth'        : None,
+        'smooth_ignore' : 1
+    }
+    
+    DEFAULT_STAN_PARAMS = {
+        'nchains'       : 4,
+        'nsamp'         : 1000,
+        'warmup'        : None,
+        'thin'          : 2,
+        'init'          : 'random'
+    }
+    
+    def __init__(self, X, y, dphi, stan_model, rand_state, **options):
+        
+        # Parse options
+        self.stan_params = self.DEFAULT_STAN_PARAMS.copy()
+        for (kw, val) in options.iteritems():
+            if self.DEFAULT_STAN_PARAMS.has_key(kw):
+                self.stan_params[kw] = val
+            elif not self.DEFAULT_OPTIONS.has_key(kw):
+                # Unrecognised option
+                raise TypeError("Unexpected option '{}'".format(kw))
+        # Set missing options to defaults
+        for (kw, default) in self.DEFAULT_OPTIONS.iteritems():
+            if not options.has_key(kw):
+                options[kw] = default
+        
+        # Allocate space for calculations
+        # N.B. these arrays are used for various variables
+        self.M = np.empty((dphi,dphi), order='F')
+        self.v = np.empty(dphi)
+        self.v2 = np.empty(dphi)
+        
+        # Current iteration global approximations
+        self.Q = None
+        self.r = None
+        
+        # Data for stan model in method tilted
+        self.data = dict(N=X.shape[0],
+                         K=X.shape[1],
+                         X=X,
+                         y=y,
+                         mu_cavity=self.v,
+                         Sigma_cavity=self.M.T)
+                         # M transposed in order to get C-order
+        
+        # Store other instance variables
+        self.dphi = dphi
+        self.stan_model = stan_model
+        self.rand_state = rand_state
+        self.iteration = 0
+        self.init_prev = options['init_prev']
+        
+        if self.init_prev:
+            # Store the original init method so that it can be reset, when
+            # an iteration fails
+            self.init_orig = self.stan_params['init']
+            if not isinstance(self.init_orig, basestring):
+                # If init_prev is used, init option has to be a string
+                raise ValueError("Arg. `init` has to be a string if "
+                                 "`init_prev` is True")
+        
+        self.smooth = options['smooth']
+        if self.smooth:
+            # Memorise previous tilted distributions
+            self.smooth = np.asarray(options['smooth'])
+            # Skip some first iterations
+            if options['smooth_ignore'] < 0:
+                raise ValueError("Arg. `smooth_ignore` has to be non-negative")
+            self.prev_stored = -options['smooth_ignore']
+            # Temporary array for calculations
+            self.prev_M = np.empty((dphi,dphi), order='F')
+            # Arrays from the previous iterations
+            self.prev_St = [np.empty((dphi,dphi), order='F')
+                            for _ in range(len(self.smooth))]
+            self.prev_mt = [np.empty(dphi)
+                            for _ in range(len(self.smooth))]
+        
+        # Final tilted samples
+        self.samp = None
+    
+    
+    def cavity(self, Q, Qi, r, ri):
+        
+        self.Q = Q
+        self.r = r
+        np.subtract(self.Q, Qi, out=self.M)
+        np.subtract(self.r, ri, out=self.v2)
+        
+        # Convert to mean-cov parameters for Stan
+        try:
+            invert_normal_params(self.M, self.v2,
+                                 out_A='in_place', out_b=self.v)
+        except linalg.LinAlgError:
+            # Not positive definite
+            return False
+        return True
+        
+        
+    def tilted(self, dQi, dri, store_samples=False, S_phi=None, m_phi=None):
+        
+        # Sample from the model
+        with suppress_stdout():
+            samp = self.stan_model.sampling(
+                    data=self.data,
+                    seed=self.rand_state,
+                    pars=('phi'),
+                    **self.stan_params
+            )
+        
+        if self.init_prev:
+            # Store the last sample of each chain
+            if isinstance(self.stan_params['init'], basestring):
+                # No samples stored before ... initialise list of dicts
+                self.stan_params['init'] = get_last_sample(samp)
+            else:
+                get_last_sample(samp, out=self.stan_params['init'])
+        
+        # TODO: Make a non-copying extract
+        samp = samp.extract(pars='phi')['phi']
+        if store_samples:
+            self.samp = samp
+        
+        # Assign arrays
+        St = self.M
+        mt = self.v
+        
+        # Sample mean and covariance
+        np.mean(samp, 0, out=mt)
+        samp -= mt
+        np.dot(samp.T, samp, out=St.T)
+        
+        if self.smooth:
+            # Smoothen the distribution
+            # Use dri and dQi as a temporary arrays
+            St, mt = apply_smooth(samp.shape[0], dri, dQi)
+        else:
+            # No smoothing at all ... normalise St
+            St /= (samp.shape[0] - 1)
+        
+        # Default return value
+        ret = True
+        
+        # Calculate KL-divergence between the posterior and the tilted
+        # N.B. Not optimal ... allocates memory and wastes resouces in general
+        # Intended for debug purposes only
+        if S_phi and m_phi:
+            try:
+                cho_St = linalg.cho_factor(St)
+                cho_S_phi = linalg.cho_factor(S_phi)
+                dif_m = mt - m_phi
+                ret = 0.5 * (   np.trace(linalg.cho_solve(cho_St, S_phi))
+                              + np.sum(linalg.cho_solve(cho_St, dif_m)*dif_m)
+                              - self.dphi
+                              - 2*np.sum(   np.log(np.diag(cho_S_phi[0]))
+                                          - np.log(np.diag(cho_St[0]))
+                                        )
+                            )
+            except linalg.LinAlgError:
+                # Failed update
+                ret = np.nan
+        
+        # Convert (St,mt) to natural parameters
+        Qt = self.M  # Same as St
+        rt = self.v2
+        try:
+            invert_normal_params(St, mt, out_A='in_place', out_b=rt)
+        except linalg.LinAlgError:
+            # Not positive definite
+            ret = False
+            dQi.fill(0)
+            dri.fill(0)
+            if self.smooth:
+                # Reset tilted memory
+                self.prev_stored = 0
+            if self.init_prev:
+                # Reset initialisation method
+                self.init = self.init_orig
+        else:
+            # Positive definite
+            # Unbiased natural parameter estimates
+            unbias_k = (samp.shape[0]-self.dphi-2)/(samp.shape[0]-1)
+            Qt *= unbias_k
+            rt *= unbias_k
+            # Calculate the difference into the output array
+            np.subtract(Qt, self.Q, out=dQi)
+            np.subtract(rt, self.r, out=dri)
+        
+        self.iteration += 1
+        return ret
+    
+    
+    def apply_smooth(self, nsamp, temp_v, temp_M):
+        """Memorise and combine previous St and mt."""
+        
+        St = self.M
+        mt = self.v
+        
+        if self.prev_stored < 0:
+            # Skip some first iterations ... no smoothing yet
+            self.prev_stored += 1
+            # Normalise St
+            St /= (nsamp - 1)
+        
+        elif self.prev_stored == 0:
+            # Store the first St and mt ... no smoothing yet
+            self.prev_stored += 1
+            np.copyto(self.prev_mt[0], mt)
+            np.copyto(self.prev_St[0], St)
+            # Normalise St
+            St /= (nsamp - 1)
+        
+        else:
+            # Smooth
+            pmt = self.prev_mt
+            pSt = self.prev_St
+            ps = self.prev_stored                
+            mt_new = self.v2
+            St_new = self.prev_M
+            # Calc combined mean
+            np.multiply(pmt[ps-1], self.smooth[ps-1], out=mt_new)
+            for i in range(ps-2,-1,-1):
+                np.multiply(pmt[i], self.smooth[i], out=temp_v)
+                mt_new += temp_v
+            mt_new += mt
+            mt_new /= 1 + self.smooth[:ps].sum()
+            # Calc combined covariance matrix
+            np.subtract(pmt[ps-1], mt_new, out=temp_v)
+            np.multiply(temp_v[:,np.newaxis], temp_v, out=St_new)
+            St_new *= self.smooth[ps-1]
+            for i in range(ps-2,-1,-1):
+                np.subtract(pmt[i], mt_new, out=temp_v)
+                np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
+                temp_M *= self.smooth[i]
+                St_new += temp_M
+            np.subtract(mt, mt_new, out=temp_v)
+            np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
+            St_new += temp_M
+            St_new *= nsamp
+            for i in range(ps-1,-1,-1):
+                np.multiply(pSt[i], self.smooth[i], out=temp_M)
+                St_new += temp_M
+            St_new += St
+            # Normalise St_new
+            St_new /= ((1 + self.smooth[:ps].sum())*nsamp - 1)
+            
+            # Rotate array pointers
+            temp_M2 = pSt[-1]
+            temp_v2 = pmt[-1]
+            for i in range(len(self.smooth)-1,0,-1):
+                pSt[i] = pSt[i-1]
+                pmt[i] = pmt[i-1]
+            pSt[0] = St
+            pmt[0] = mt
+            # Redirect other pointers in the object
+            self.prev_M = temp_M2
+            self.v2 = temp_v2
+            self.M = St_new
+            self.v = mt_new
+            self.data['mu_cavity'] = self.v
+            self.data['Sigma_cavity'] = self.M.T                
+            
+            if self.prev_stored < len(self.smooth):
+                self.prev_stored += 1
+            
+            return St_new, mt_new
+
 
 class DistributedEP(object):
     """Manages the distributed EP algorithm.
@@ -142,11 +497,6 @@ class DistributedEP(object):
         `dphi` can be ommited if a prior is given. If prior is not given, the
         standard normal distribution is used.
     
-    init_prev : bool, optional
-        Indicates if the last sample of each chain in the group mcmc sampling is
-        used as the starting point for the next iteration sampling. Default is
-        True.
-    
     Other parameters
     ----------------
     nchains : int, optional
@@ -189,6 +539,17 @@ class DistributedEP(object):
         The treshold value for the damping factor. If the damping factor decays
         below this value, the algorithm is stopped. Default is 1e-8.
     
+    init_prev : bool, optional
+        Indicates if the last sample of each chain in the group mcmc sampling is
+        used as the starting point for the next iteration sampling. Default is
+        True.
+    
+    init : {'random', '0', 0, function returning dict, list of dict}, optional
+        Specifies how the initialisation is performed for the sampler (see 
+        StanModel.sampling). If `init_prev` is True, this parameter affects only
+        the sampling on the first iteration, and strings 'random' and '0' are
+        the only acceptable values for this argument.
+    
     smooth : {None, array_like}, optional
         A portion of samples from previous iterations to be taken into account
         in current round. A list of arbitrary length consisting of positive
@@ -207,6 +568,21 @@ class DistributedEP(object):
     
     """
     
+    DEFAULT_KWARGS = {
+        'group_ind'         : None,
+        'group_ind_ord'     : None,
+        'group_sizes'       : None,
+        'dphi'              : None,
+        'prior'             : None,
+        'seed'              : None,
+        'df0'               : None,
+        'df0_exp_start'     : 0.6,
+        'df0_exp_end'       : 0.1,
+        'df0_exp_speed'     : 0.8,
+        'df_decay'          : 0.9,
+        'df_treshold'       : 1e-8
+    }
+    
     def __init__(self, group_model, X, y, **kwargs):
         """Constructor populates the instance with the following attributes:
                 iter, group_model, dphi, X, y, N, K, J, Nj, jj, jj_lim, Q0, r0,
@@ -215,33 +591,17 @@ class DistributedEP(object):
         
         """
         # Parse keyword arguments
-        default_kwargs = {
-            'group_ind'         : None,
-            'group_ind_ord'     : None,
-            'group_sizes'       : None,
-            'dphi'              : None,
-            'prior'             : None,
-            'nchains'           : 4,
-            'nsamp'             : 1000,
-            'warmup'            : None,
-            'thin'              : 2,
-            'init_prev'         : True,
-            'seed'              : None,
-            'df0'               : None,
-            'df0_exp_start'     : 0.6,
-            'df0_exp_end'       : 0.1,
-            'df0_exp_speed'     : 0.8,
-            'df_decay'          : 0.9,
-            'df_treshold'       : 1e-8,
-            'smooth'            : False,
-            'smooth_ignore'     : 1
-        }
-        # Check for given unrecognised options
-        for kw in kwargs.iterkeys():
-            if not default_kwargs.has_key(kw):
+        worker_options = {}
+        for (kw, val) in kwargs.iteritems():
+            if (    Worker.DEFAULT_OPTIONS.has_key(kw)
+                 or Worker.DEFAULT_STAN_PARAMS.has_key(kw)
+               ):
+                worker_options[kw] = val
+            elif not self.DEFAULT_KWARGS.has_key(kw):
+                # Unrecognised keyword argument
                 raise TypeError("Unexpected keyword argument '{}'".format(kw))
         # Set missing options to defaults
-        for (kw, default) in default_kwargs.iteritems():
+        for (kw, default) in self.DEFAULT_KWARGS.iteritems():
             if not kwargs.has_key(kw):
                 kwargs[kw] = default
         
@@ -326,9 +686,9 @@ class DistributedEP(object):
         
         # Random State
         if isinstance(kwargs['df0'], np.random.RandomState):
-            self.rand = kwargs['df0']
+            self.rand_state = kwargs['df0']
         else:
-            self.rand = np.random.RandomState(seed=kwargs['df0'])
+            self.rand_state = np.random.RandomState(seed=kwargs['df0'])
         
         # Damping factor
         self.df_decay = kwargs['df_decay']
@@ -350,20 +710,6 @@ class DistributedEP(object):
             # Use provided initial damping factor function
             self.df0 = kwargs['df0']
         
-        # Smoothing
-        self.smooth = kwargs['smooth']
-        if self.smooth:
-            self.smooth_ignore = kwargs['smooth_ignore']
-            if self.smooth_ignore < 0:
-                raise ValueError("Arg. `smooth_ignore` has to be non-negative")
-        
-        # Extract stan model parameters
-        stan_param_names = ('nchains', 'nsamp', 'warmup', 'thin')
-        self.stan_params = dict((k,v) for (k,v) in kwargs.iteritems()
-                                      if k in stan_param_names)
-        if self.stan_params['warmup'] is None:
-            self.stan_params['warmup'] = self.stan_params['nsamp']//2
-        
         # Get Stan model
         if isinstance(group_model, basestring):
             # From file
@@ -373,11 +719,70 @@ class DistributedEP(object):
             self.group_model = group_model
         
         # Populate self with other parameters
-        self.iter = 0
+        self.iteration = 0
+        
+        # Initialise the workers
+        self.workers = tuple(
+            Worker(
+                X[self.jj_lim[ji]:self.jj_lim[ji+1],:],
+                y[self.jj_lim[ji]:self.jj_lim[ji+1]],
+                self.dphi,
+                self.group_model,
+                self.rand_state,
+                **worker_options
+            )
+            for ji in range(J)
+        )
+        
+    
+    def run(self, iterations, plot_intermediate=False):
+        """Run the distributed EP algorithm.
+        
+        Parameters
+        ----------
+        iterations : int
+            Number of iterations to run.
+        
+        plot_intermediate : bool, optional
+            If true, the diagnostic plot is drawn between each iteration.
+            Default is False.
+        
+        """
+        pass # TODO
 
 
+# >>> Temp solution to suppres output from STAN model (remove when fixed)
+# This part of the code is by jeremiahbuddha from:
+# http://stackoverflow.com/questions/11130156/suppress-stdout-stderr-print-from-python-functions
+import os
+class suppress_stdout(object):
+    '''
+    A context manager for doing a "deep suppression" of stdout and stderr in 
+    Python, i.e. will suppress all print, even if the print originates in a 
+    compiled C/Fortran sub-function.
+       This will not suppress raised exceptions, since exceptions are printed
+    to stderr just before a script exits, and after the context manager has
+    exited (at least, I think that is why it lets exceptions through).      
 
+    '''
+    def __init__(self):
+        # Open a pair of null files
+        self.null_fds =  [os.open(os.devnull,os.O_RDWR) for x in range(2)]
+        # Save the actual stdout (1) and stderr (2) file descriptors.
+        self.save_fds = (os.dup(1), os.dup(2))
 
+    def __enter__(self):
+        # Assign the null pointers to stdout and stderr.
+        os.dup2(self.null_fds[0],1)
+        os.dup2(self.null_fds[1],2)
 
+    def __exit__(self, *_):
+        # Re-assign the real stdout/stderr back to (1) and (2)
+        os.dup2(self.save_fds[0],1)
+        os.dup2(self.save_fds[1],2)
+        # Close the null files
+        os.close(self.null_fds[0])
+        os.close(self.null_fds[1])
+# <<< Temp solution to suppres output from STAN model (remove when fixed)
 
 
