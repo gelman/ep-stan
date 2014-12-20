@@ -26,7 +26,7 @@ from util import copy_triu_to_tril
 dpotri_routine = linalg.get_lapack_funcs('potri')
 
 
-def invert_normal_params(A, b=None, out_A=None, out_b=None):
+def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     """Invert moment parameters into natural parameters or vice versa.
     
     Switch between moment parameters (S,m) and natural parameters (Q,r) of
@@ -47,6 +47,9 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None):
         Spesifies where the output is calculate into; None (default) indicates
         that a new array is created, providing a string 'in_place' overwrites
         the corresponding input array.
+    
+    cho_form : bool
+        If True, `A` is assumed to be the upper Cholesky of the real S or Q.
     
     Returns
     -------
@@ -83,14 +86,16 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None):
         out_b = None
     
     # Invert
-    # N.B. The following two lines could also be done with linalg.solve but this
-    # shows more clearly what is happening.
-    cho = linalg.cho_factor(out_A, overwrite_a=True)
+    if not cho_form:
+        cho = linalg.cho_factor(out_A, overwrite_a=True)
+    else:
+        # Already in upper Cholesky form
+        cho = (out_A, False)
     if out_b:
         linalg.cho_solve(cho, out_b, overwrite_b=True)
     _, info = dpotri_routine(out_A, overwrite_c=True)
     if info:
-        # This should never occour because cho_factor was succesful ... I think
+        # This should never occour if cho_factor was succesful ... I think
         raise linalg.LinAlgError(
                 "dpotri LAPACK routine failed with error code {}".format(info))
     # Copy the upper triangular into the bottom
@@ -204,10 +209,11 @@ class Worker(object):
                 options[kw] = default
         
         # Allocate space for calculations
-        # N.B. these arrays are used for various variables
+        # After calling cavity(), these arrays are the natural parameters of
+        # the cavity distribution, and after calling tilted(), these are the
+        # moment parameters of the tilted distributions.
         self.M = np.empty((dphi,dphi), order='F')
         self.v = np.empty(dphi)
-        self.v2 = np.empty(dphi)
         
         # Current iteration global approximations
         self.Q = None
@@ -227,8 +233,9 @@ class Worker(object):
         self.stan_model = stan_model
         self.rand_state = rand_state
         self.iteration = 0
-        self.init_prev = options['init_prev']
+        self.nsamp = None
         
+        self.init_prev = options['init_prev']
         if self.init_prev:
             # Store the original init method so that it can be reset, when
             # an iteration fails
@@ -248,34 +255,34 @@ class Worker(object):
             self.prev_stored = -options['smooth_ignore']
             # Temporary array for calculations
             self.prev_M = np.empty((dphi,dphi), order='F')
+            self.prev_v = np.empty((dphi,dphi), order='F')
             # Arrays from the previous iterations
             self.prev_St = [np.empty((dphi,dphi), order='F')
                             for _ in range(len(self.smooth))]
             self.prev_mt = [np.empty(dphi)
                             for _ in range(len(self.smooth))]
         
-        # Final tilted samples
-        self.samp = None
     
-    
-    def cavity(self, Q, Qi, r, ri):
+    def cavity(self, Q, r, Qi, ri):
+        # TODO docstring here
         
         self.Q = Q
         self.r = r
         np.subtract(self.Q, Qi, out=self.M)
-        np.subtract(self.r, ri, out=self.v2)
+        np.subtract(self.r, ri, out=self.v)
         
         # Convert to mean-cov parameters for Stan
         try:
-            invert_normal_params(self.M, self.v2,
-                                 out_A='in_place', out_b=self.v)
+            invert_normal_params(self.M, self.v,
+                                 out_A='in_place', out_b='in_place')
         except linalg.LinAlgError:
             # Not positive definite
             return False
         return True
         
         
-    def tilted(self, dQi, dri, store_samples=False, S_phi=None, m_phi=None):
+    def tilted(self, dQi, dri):
+        # TODO docstring here
         
         # Sample from the model
         with suppress_stdout():
@@ -296,8 +303,7 @@ class Worker(object):
         
         # TODO: Make a non-copying extract
         samp = samp.extract(pars='phi')['phi']
-        if store_samples:
-            self.samp = samp
+        self.nsamp = samp.shape[0]
         
         # Assign arrays
         St = self.M
@@ -311,41 +317,20 @@ class Worker(object):
         if self.smooth:
             # Smoothen the distribution
             # Use dri and dQi as a temporary arrays
-            St, mt = apply_smooth(samp.shape[0], dri, dQi)
+            St, mt = apply_smooth(dri, dQi)
         else:
             # No smoothing at all ... normalise St
-            St /= (samp.shape[0] - 1)
+            np.divide(St, self.nsamp-1, out=dQi)
         
-        # Default return value
-        ret = True
-        
-        # Calculate KL-divergence between the posterior and the tilted
-        # N.B. Not optimal ... allocates memory and wastes resouces in general
-        # Intended for debug purposes only
-        if S_phi and m_phi:
-            try:
-                cho_St = linalg.cho_factor(St)
-                cho_S_phi = linalg.cho_factor(S_phi)
-                dif_m = mt - m_phi
-                ret = 0.5 * (   np.trace(linalg.cho_solve(cho_St, S_phi))
-                              + np.sum(linalg.cho_solve(cho_St, dif_m)*dif_m)
-                              - self.dphi
-                              - 2*np.sum(   np.log(np.diag(cho_S_phi[0]))
-                                          - np.log(np.diag(cho_St[0]))
-                                        )
-                            )
-            except linalg.LinAlgError:
-                # Failed update
-                ret = np.nan
-        
-        # Convert (St,mt) to natural parameters
-        Qt = self.M  # Same as St
-        rt = self.v2
+        # Convert (St,mt) to natural parameters, St and mt are preserved
+        # Make rest of the matrix calculations in place
+        Qt = dQi
+        rt = dri
         try:
-            invert_normal_params(St, mt, out_A='in_place', out_b=rt)
+            invert_normal_params(dQi, mt, out_A='in_place', out_b=rt)
         except linalg.LinAlgError:
             # Not positive definite
-            ret = False
+            pos_def = False
             dQi.fill(0)
             dri.fill(0)
             if self.smooth:
@@ -356,6 +341,7 @@ class Worker(object):
                 self.init = self.init_orig
         else:
             # Positive definite
+            pos_def = True
             # Unbiased natural parameter estimates
             unbias_k = (samp.shape[0]-self.dphi-2)/(samp.shape[0]-1)
             Qt *= unbias_k
@@ -365,10 +351,10 @@ class Worker(object):
             np.subtract(rt, self.r, out=dri)
         
         self.iteration += 1
-        return ret
+        return pos_def
     
     
-    def apply_smooth(self, nsamp, temp_v, temp_M):
+    def apply_smooth(self, temp_v, temp_M):
         """Memorise and combine previous St and mt."""
         
         St = self.M
@@ -378,7 +364,8 @@ class Worker(object):
             # Skip some first iterations ... no smoothing yet
             self.prev_stored += 1
             # Normalise St
-            St /= (nsamp - 1)
+            np.divide(St, self.nsamp-1, out=temp_M)
+            return St, mt
         
         elif self.prev_stored == 0:
             # Store the first St and mt ... no smoothing yet
@@ -386,14 +373,15 @@ class Worker(object):
             np.copyto(self.prev_mt[0], mt)
             np.copyto(self.prev_St[0], St)
             # Normalise St
-            St /= (nsamp - 1)
-        
+            np.divide(St, self.nsamp-1, out=temp_M)
+            return St, mt
+            
         else:
             # Smooth
             pmt = self.prev_mt
             pSt = self.prev_St
             ps = self.prev_stored                
-            mt_new = self.v2
+            mt_new = self.prev_v
             St_new = self.prev_M
             # Calc combined mean
             np.multiply(pmt[ps-1], self.smooth[ps-1], out=mt_new)
@@ -414,13 +402,15 @@ class Worker(object):
             np.subtract(mt, mt_new, out=temp_v)
             np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
             St_new += temp_M
-            St_new *= nsamp
+            St_new *= self.nsamp
             for i in range(ps-1,-1,-1):
                 np.multiply(pSt[i], self.smooth[i], out=temp_M)
                 St_new += temp_M
             St_new += St
             # Normalise St_new
-            St_new /= ((1 + self.smooth[:ps].sum())*nsamp - 1)
+            np.divide(St_new,
+                      (1 + self.smooth[:ps].sum())*self.nsamp - 1,
+                      out=temp_M)
             
             # Rotate array pointers
             temp_M2 = pSt[-1]
@@ -432,7 +422,7 @@ class Worker(object):
             pmt[0] = mt
             # Redirect other pointers in the object
             self.prev_M = temp_M2
-            self.v2 = temp_v2
+            self.prev_v = temp_v2
             self.M = St_new
             self.v = mt_new
             self.data['mu_cavity'] = self.v
@@ -568,6 +558,12 @@ class DistributedEP(object):
     
     """
     
+    # Return codes for method run
+    INVALID_PRIOR = -1
+    DF_TRESHOLD_REACHED_GLOBAL = -2
+    DF_TRESHOLD_REACHED_CAVITY = -3
+    
+    # List of constructor default keyword arguments
     DEFAULT_KWARGS = {
         'group_ind'         : None,
         'group_ind_ord'     : None,
@@ -584,12 +580,7 @@ class DistributedEP(object):
     }
     
     def __init__(self, group_model, X, y, **kwargs):
-        """Constructor populates the instance with the following attributes:
-                iter, group_model, dphi, X, y, N, K, J, Nj, jj, jj_lim, Q0, r0,
-                stan_params, init_prev, rand, df0, df_decay, df_treshold,
-                smooth [, smooth_ignore]
         
-        """
         # Parse keyword arguments
         worker_options = {}
         for (kw, val) in kwargs.iteritems():
@@ -718,38 +709,242 @@ class DistributedEP(object):
         else:
             self.group_model = group_model
         
-        # Populate self with other parameters
-        self.iteration = 0
-        
         # Initialise the workers
+        self.worker_options = worker_options
         self.workers = tuple(
             Worker(
-                X[self.jj_lim[ji]:self.jj_lim[ji+1],:],
-                y[self.jj_lim[ji]:self.jj_lim[ji+1]],
+                X[self.jj_lim[j]:self.jj_lim[j+1],:],
+                y[self.jj_lim[j]:self.jj_lim[j+1]],
                 self.dphi,
                 self.group_model,
                 self.rand_state,
                 **worker_options
             )
-            for ji in range(J)
+            for j in xrange(J)
         )
         
+        # Allocate space for calculations
+        # Mean and cov of the approximation
+        self.S = np.empty((self.dphi,self.dphi), order='F')
+        self.m = np.empty(self.dphi)
+        # Natural parameters of the approximation
+        self.Q = self.Q0.copy(order='F')
+        self.r = self.r0.copy()
+        # Natural site parameters
+        self.Qi = np.zeros((self.dphi,self.dphi,self.J), order='F')
+        self.ri = np.zeros((self.dphi,self.J), order='F')
+        # Natural site proposal parameters
+        self.Qi2 = np.zeros((self.dphi,self.dphi,self.J), order='F')
+        self.ri2 = np.zeros((self.dphi,self.J), order='F')
+        # Site parameter updates
+        self.dQi = np.zeros((self.dphi,self.dphi,self.J), order='F')
+        self.dri = np.zeros((self.dphi,self.J), order='F')
+        
+        # Track iterations
+        self.iter = 0
     
-    def run(self, iterations, plot_intermediate=False):
+    
+    def run(self, niter, calc_moments=True, verbose=True):
         """Run the distributed EP algorithm.
         
         Parameters
         ----------
-        iterations : int
+        niter : int
             Number of iterations to run.
         
-        plot_intermediate : bool, optional
-            If true, the diagnostic plot is drawn between each iteration.
-            Default is False.
+        calc_moments : bool, optional
+            If True, the moment parameters (mean and covariance) of the
+            posterior approximation is calculated every iteration.
+        
+        store_last_samples : bool, optional
+            If True, the obtained mcmc samples are stored at the last iteration.
+        
+        verbose : bool, optional
+            If true, some progress information is printed. Default is True.
         
         """
-        pass # TODO
-
+        
+        # Localise some instance variables
+        # Mean and cov of the posterior approximation
+        S = self.S
+        m = self.m
+        # Natural parameters of the approximation
+        Q = self.Q
+        r = self.r
+        # Natural site parameters
+        Qi = self.Qi
+        ri = self.ri
+        # Natural site proposal parameters
+        Qi2 = self.Qi2
+        ri2 = self.ri2
+        # Site parameter updates
+        dQi = self.dQi
+        dri = self.dri
+        
+        # Array for positive definitness checking of each cavity distribution
+        posdefs = np.empty(self.J, dtype=bool)
+        
+        if calc_moments:
+            # Allocate memory for results
+            m_phi_s = np.zeros((niter, self.dphi))
+            var_phi_s = np.zeros((niter, self.dphi))
+        
+        # Iterate niter rounds
+        while self.iter < self.iter + niter:
+            i1 = self.iter
+            # Initial dampig factor
+            df = df0[i1]
+            if verbose:
+                print 'Iter {}, starting df {:.3g}.'.format(i1, df)
+            
+            while True:
+                # Try to update the global posterior approximation
+                
+                # These 4 lines could be run in parallel also
+                np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
+                np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
+                np.add(Qi2.sum(2, out=Q), Q0, out=Q)
+                np.add(ri2.sum(1, out=r), r0, out=r)
+                # N.B. In the first iteration Q=Q0 and r=r0
+                
+                # Check for positive definiteness
+                cho_Q = S
+                np.copyto(cho_Q, Q)
+                try:
+                    linalg.cho_factor(cho_Q, overwrite_a=True)
+                except linalg.LinAlgError:
+                    # Not positive definite -> reduce damping factor
+                    df *= self.df_decay
+                    if verbose:
+                        print 'Neg def posterior cov,', \
+                              'reducing df to {:.3}'.format(df)
+                    if i1 == 0:
+                        if verbose:
+                            print 'Invalid prior.'
+                        return self.INVALID_PRIOR
+                    if df < self.df_treshold:
+                        if verbose:
+                            print 'Damping factor reached minimum.'
+                        return self.DF_TRESHOLD_REACHED_GLOBAL
+                    continue
+                
+                # Cavity distributions (parallelisable)
+                # -------------------------------
+                # Check positive definitness for each cavity distribution
+                for j in xrange(self.J):
+                    posdefs[j] = \
+                        self.workers[j].cavity(Q, r, Qi2[:,:,j], ri2[:,j])
+                    # Early stopping criterion (when in serial)
+                    if not posdefs[j]:
+                        break
+                
+                if np.all(posdefs):
+                    # All cavity distributions are positive definite.
+                    # Accept step (switch Qi-Qi2 and ri-ri2)
+                    temp = Qi
+                    Qi = Qi2
+                    Qi2 = temp
+                    temp = ri
+                    ri = ri2
+                    ri2 = temp
+                    self.Qi = Qi
+                    self.Qi2 = Qi2
+                    self.ri = ri
+                    self.ri2 = ri2
+                    
+                    if calc_moments:
+                        # Invert Q (chol was already calculated)
+                        # N.B. The following inversion could be done while
+                        # parallel jobs are running, thus saving time.
+                        invert_normal_params(cho_Q, r, out_A='in_place',
+                                             out_b=m, cho_form=True)
+                    
+                    break
+                    
+                else:
+                    # Not all cavity distributions are positive definite ...
+                    # reduce the damping factor
+                    df *= self.df_decay
+                    if verbose:
+                        print 'Neg.def. cavity', \
+                              '(first encountered in site {}),' \
+                              .format(np.nonzero(~posdefs)[0][0]), \
+                              'reducing df to {:.3}.'.format(df)
+                    if df < self.df_treshold:
+                        if verbose:
+                            print 'Damping factor reached minimum.'
+                        return self.DF_TRESHOLD_REACHED_CAVITY
+            
+            if calc_moments:
+                # Store the approximation moments
+                np.copyto(m_phi_s[i1], m)
+                np.copyto(var_phi_s[i1], np.diag(S))
+            
+            # Tilted distributions (parallelisable)
+            # -------------------------------
+            for j in xrange(self.J):
+                posdefs[j] = workers[j].tilted(dQi[:,:,j], dri[:,j])
+            if verbose and not np.all(posdefs):
+                print 'Neg.def. tilted in site(s) {}.' \
+                      .format(np.nonzero(~posdefs)[0])
+            
+            if verbose and calc_moments:
+                print 'Iter {} done, max var in the posterior: {}' \
+                      .format(i1, np.max(var_phi_s[i1]))
+        
+        # Advance iterator and continue
+        self.iter += 1
+    
+    
+    def mix_samples(self, out_S=None, out_m=None):
+        """Form the posterior approximation by mixing the last samples.
+        
+        Mixes the last obtained mcmc samples from the tilted distributions to
+        obtain an approximation to the posterior.
+        
+        Parameters
+        ----------
+        out_S, out_m : ndarray, optional
+            The output arrays into which the approximation covariance and mean
+            are stored.
+        
+        Returns
+        -------
+        S, m : ndarray
+            The combined covariance matrix and the mean vector.
+        
+        """
+        if self.iter == 0:
+            raise RuntimeError("Can not mix samples before at least one "
+                               "iteration has been done.")
+        if not out_S:
+            out_S = np.empty((self.dphi,self.dphi), order='F')
+        if not out_m:
+            out_m = np.empty(self.dphi)
+        temp_M = np.empty((self.dphi,self.dphi), order='F')
+        temp_v = np.empty(self.dphi)
+        
+        # Combine mt from every site
+        np.copyto(out_m, self.workers[0].v)
+        for j in xrange(1,self.J):
+            np.add(out_m, self.workers[j].v)
+        out_m /= self.J
+        
+        # Combine St from every site
+        np.subtract(self.workers[0].v, out_m, out = temp_v)
+        np.multiply(temp_v[:,np.newaxis], temp_v, out=out_S)
+        for j in xrange(1,self.J):
+            np.subtract(self.workers[j].v, out_m, out = temp_v)
+            np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
+            out_S += temp_M
+        out_S *= self.workers[0].nsamp
+        for j in xrange(self.J):
+            out_S += self.workers[j].M
+        out_S /= self.J*self.workers[0].nsamp - 1
+        
+        return out_S, out_m
+        
+        
 
 # >>> Temp solution to suppres output from STAN model (remove when fixed)
 # This part of the code is by jeremiahbuddha from:
