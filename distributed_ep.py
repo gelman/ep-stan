@@ -98,7 +98,7 @@ class DistributedEP(object):
         Model for sampling from the tilted distribution of a group. Can be
         provided either directly as a PyStan model instance or as filename
         string pointing to a pickled model. The model has a restricted
-        structure; see Notes.
+        structure (see Notes).
     
     X : ndarray
         Explanatory variable data in an ndarray of shape (N,K), where N is the
@@ -112,17 +112,98 @@ class DistributedEP(object):
         Response variable data in an ndarray of shape (N,), where N is the
         number of observations (same N as for X).
     
-    group_ind, group_ind_ord, group_sizes : ndarray
-        Arrays indicating which sample belong to which group.
+    group_ind, group_ind_ord, group_sizes : ndarray, optional
+        Arrays indicating which sample belong to which group. Providing one of
+        these keyword arguments is enough. If none of these are provided, a
+        clustering is performed. Description of individual arguments:
+            group_ind     : Array of length N containing the group number
+                            (non-negative integer) of each point.
+            group_ind_ord : Similary as `group_ind` but the groups are in order,
+                            i.e. the samples are sorted.
+            group_sizes   : Array of size J, where J is the number og groups,
+                            indicating the number of samples in each group.
+                            When this argument is provided, the samples are
+                            assumed to be in order (similary as for argument
+                            `group_ind_ord`).
+        Providing `group_ind_ord` or `group_sizes` is preferable over
+        `group_ind` because then the data arrays `X` and `y` does not have to be
+        copied.
     
-    ... TODO
+    dphi : int, optional
+        Number of parameters for the group model, i.e. the length of phi
+        (see Notes). Has to be given if prior is not provided.
     
-    prior : dict
-        The parameters of the multivariate normal prior distribution for `phi`
+    prior : dict, optional
+        The parameters of the multivariate normal prior distribution for phi
         provided in a dict containing either:
             1)  moment parameters with keys 'm' and 'S'
             2)  natural parameters with keys 'r' and 'Q'.
-        The matrix 'Q' should be F contiguous (copy made if not).
+        The matrix 'Q' should be F contiguous (copy made if not). Argument
+        `dphi` can be ommited if a prior is given. If prior is not given, the
+        standard normal distribution is used.
+    
+    init_prev : bool, optional
+        Indicates if the last sample of each chain in the group mcmc sampling is
+        used as the starting point for the next iteration sampling. Default is
+        True.
+    
+    Other parameters
+    ----------------
+    nchains : int, optional
+        The number of chains in the group_model mcmc sampling. Default is 4.
+    
+    nsamp : int, optional
+        The number of samples in the group_model mcmc sampling. Default
+        is 1000.
+    
+    warmup : int, optional
+        The number of samples to be discarded from the begining of each chain
+        in the group_model mcmc sampling. Default is nsamp//2.
+    
+    thin : int, optional
+        Thinning parameter for the group_model mcmc sampling. Default is 2.
+    
+    seed : {int, RandomState}, optional
+        The random seed used in the sampling. If not provided, a random seed is
+        used.
+    
+    df0 : float or function, optional
+        The initial damping factor for each iteration. Must be a number in the
+        range (0,1]. If a number is given, a constant initial damping factor for
+        each iteration is used. If a function is given, it must return the
+        desired initial damping factor when called with the iteration number.
+        If not provided, an exponentially decaying function from `df0_exp_start`
+        to `df0_exp_end` with speed `df0_exp_speed` is used (see the respective
+        parameters).
+    
+    df0_exp_start, df0_exp_end, df0_exp_speed : float, optional
+        The parameters for the default exponentially decreasing initial damping
+        factor (see `df0`).
+    
+    df_decay : float, optional
+        The decay multiplier for the damping factor used if the resulting
+        posterior covariance or cavity distributions are not positive definite.
+        Default value is 0.9.
+    
+    df_treshold : float, optional
+        The treshold value for the damping factor. If the damping factor decays
+        below this value, the algorithm is stopped. Default is 1e-8.
+    
+    smooth : {None, array_like}, optional
+        A portion of samples from previous iterations to be taken into account
+        in current round. A list of arbitrary length consisting of positive
+        weights so that smooth[0] is a weight for the previous tilted
+        distribution, smooth[1] is a weight for the distribution two iterations
+        ago, etc. Empty list or None indicates that no smoothing is done
+        (default behaviour).
+    
+    smooth_ignore : int, optional
+        If smoothing is applied, this non-negative integer indicates how many
+        iterations are performed before the smoothing is started. Default is 1.
+    
+    Notes
+    -----
+    TODO: Describe the structure of the site model.
     
     """
     
@@ -130,7 +211,7 @@ class DistributedEP(object):
         """Constructor populates the instance with the following attributes:
                 iter, group_model, dphi, X, y, N, K, J, Nj, jj, jj_lim, Q0, r0,
                 stan_params, init_prev, rand, df0, df_decay, df_treshold,
-                smooth, smooth_ignore
+                smooth [, smooth_ignore]
         
         """
         # Parse keyword arguments
@@ -243,11 +324,6 @@ class DistributedEP(object):
             if self.Q0.shape[0] != self.dphi or self.r0.shape[0] != self.dphi:
                 raise ValueError("Arg. `dphi` does not match with `prior`")
         
-        # Populate self with other parameters
-        self.iter = 0
-        self.smooth = kwargs['smooth']
-        self.smooth_ignore = kwargs['smooth_ignore']
-        
         # Random State
         if isinstance(kwargs['df0'], np.random.RandomState):
             self.rand = kwargs['df0']
@@ -274,6 +350,13 @@ class DistributedEP(object):
             # Use provided initial damping factor function
             self.df0 = kwargs['df0']
         
+        # Smoothing
+        self.smooth = kwargs['smooth']
+        if self.smooth:
+            self.smooth_ignore = kwargs['smooth_ignore']
+            if self.smooth_ignore < 0:
+                raise ValueError("Arg. `smooth_ignore` has to be non-negative")
+        
         # Extract stan model parameters
         stan_param_names = ('nchains', 'nsamp', 'warmup', 'thin')
         self.stan_params = dict((k,v) for (k,v) in kwargs.iteritems()
@@ -288,6 +371,9 @@ class DistributedEP(object):
                 self.group_model = pickle.load(f)
         else:
             self.group_model = group_model
+        
+        # Populate self with other parameters
+        self.iter = 0
 
 
 
