@@ -1,4 +1,4 @@
-"""Compile Cython module util in file `util.pyx` into file `util.so`.
+"""Compile Cython module util in file `util.pyx`.
 
 Compile with:
 $ python setup.py build_ext --inplace

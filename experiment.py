@@ -6,7 +6,7 @@ https://github.com/gelman/ep-stan
 
 """
 
-# Released under licensed under the 3-clause BSD license.
+# Licensed under the 3-clause BSD license.
 # http://opensource.org/licenses/BSD-3-Clause
 #
 # Copyright (C) 2014 Tuomas Sivula

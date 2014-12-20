@@ -1,12 +1,11 @@
 """Script to compile the stan model and pack it into a Python pickle module.
-This has to be run before the experiment.py can be used.
 
 The most recent version of the code can be found on GitHub:
 https://github.com/gelman/ep-stan
 
 """
 
-# Released under licensed under the 3-clause BSD license.
+# Licensed under the 3-clause BSD license.
 # http://opensource.org/licenses/BSD-3-Clause
 #
 # Copyright (C) 2014 Tuomas Sivula
