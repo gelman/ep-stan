@@ -233,17 +233,21 @@ class Worker(object):
     def __init__(self, stan_model, dphi, X, y, **options):
         
         # Parse options
-        self.stan_params = self.DEFAULT_STAN_PARAMS.copy()
+        # Set missing options to defaults
+        for (kw, default) in self.DEFAULT_OPTIONS.iteritems():
+            if not options.has_key(kw):
+                options[kw] = default
+        for (kw, default) in self.DEFAULT_STAN_PARAMS.iteritems():
+            if not options.has_key(kw):
+                options[kw] = default
+        # Extranct stan parameters
+        self.stan_params = {}
         for (kw, val) in options.iteritems():
             if self.DEFAULT_STAN_PARAMS.has_key(kw):
                 self.stan_params[kw] = val
             elif not self.DEFAULT_OPTIONS.has_key(kw):
                 # Unrecognised option
                 raise TypeError("Unexpected option '{}'".format(kw))
-        # Set missing options to defaults
-        for (kw, default) in self.DEFAULT_OPTIONS.iteritems():
-            if not options.has_key(kw):
-                options[kw] = default
         
         # Allocate space for calculations
         # After calling cavity(), these arrays are the natural parameters of
@@ -627,10 +631,17 @@ class DistributedEP(object):
             elif not self.DEFAULT_KWARGS.has_key(kw):
                 # Unrecognised keyword argument
                 raise TypeError("Unexpected keyword argument '{}'".format(kw))
-        # Set missing options to defaults
+        # Set missing kwargs to defaults
         for (kw, default) in self.DEFAULT_KWARGS.iteritems():
             if not kwargs.has_key(kw):
                 kwargs[kw] = default
+        # Set missing worker options to defaults
+        for (kw, default) in Worker.DEFAULT_OPTIONS.iteritems():
+            if not self.worker_options.has_key(kw):
+                self.worker_options[kw] = default
+        for (kw, default) in Worker.DEFAULT_STAN_PARAMS.iteritems():
+            if not self.worker_options.has_key(kw):
+                self.worker_options[kw] = default
         
         # Validate X
         if len(X.shape) != 2:
