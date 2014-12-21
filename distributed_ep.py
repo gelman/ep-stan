@@ -26,6 +26,42 @@ from util import copy_triu_to_tril
 dpotri_routine = linalg.get_lapack_funcs('potri')
 
 
+def compare_plot(a, b, a_err=None, b_err=None, a_label='A', b_label='B'):
+    
+    a = np.asarray(a)
+    b = np.asarray(b)
+    
+    plt.figure()
+    ax = plt.plot(b, a, 'bo')[0].get_axes()
+    limits = (min(ax.get_xlim()[0], ax.get_ylim()[0]),
+              max(ax.get_xlim()[1], ax.get_ylim()[1]))
+    ax.set_xlim(limits)
+    ax.set_ylim(limits)
+    if not a_err is None:
+        a_err = np.asarray(a_err)
+        if len(a_err.shape) == 2:
+            a_p = a_err[0]
+            a_m = a_err[1]
+        else:
+            a_p = a_err
+            a_m = a_err
+        ax.plot(np.tile(b, (2,1)), np.vstack((a+a_p, a-a_m)), 'b-')
+    if not b_err is None:
+        b_err = np.asarray(b_err)
+        if len(b_err.shape) == 2:
+            b_p = b_err[0]
+            b_m = b_err[1]
+        else:
+            b_p = b_err
+            b_m = b_err
+        ax.plot(np.vstack((b+b_p, b-b_m)), np.tile(a, (2,1)), 'b-')
+    ax.plot(limits, limits, 'r-')
+    ax.set_ylabel(a_label)
+    ax.set_xlabel(b_label)
+    
+    plt.show()
+
+
 def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     """Invert moment parameters into natural parameters or vice versa.
     
@@ -190,10 +226,11 @@ class Worker(object):
         'iter'          : 1000,
         'warmup'        : None,
         'thin'          : 2,
-        'init'          : 'random'
+        'init'          : 'random',
+        'seed'          : None
     }
     
-    def __init__(self, X, y, dphi, stan_model, rand_state, **options):
+    def __init__(self, stan_model, dphi, X, y, **options):
         
         # Parse options
         self.stan_params = self.DEFAULT_STAN_PARAMS.copy()
@@ -229,9 +266,8 @@ class Worker(object):
                          # M transposed in order to get C-order
         
         # Store other instance variables
-        self.dphi = dphi
         self.stan_model = stan_model
-        self.rand_state = rand_state
+        self.dphi = dphi
         self.iteration = 0
         self.nsamp = None
         
@@ -290,7 +326,6 @@ class Worker(object):
         with suppress_stdout():
             samp = self.stan_model.sampling(
                     data=self.data,
-                    seed=self.rand_state,
                     pars=('phi'),
                     **self.stan_params
             )
@@ -505,7 +540,7 @@ class DistributedEP(object):
     thin : int, optional
         Thinning parameter for the group_model mcmc sampling. Default is 2.
     
-    seed : {int, RandomState}, optional
+    seed : {None, int, RandomState}, optional
         The random seed used in the sampling. If not provided, a random seed is
         used.
     
@@ -572,7 +607,6 @@ class DistributedEP(object):
         'group_sizes'       : None,
         'dphi'              : None,
         'prior'             : None,
-        'seed'              : None,
         'df0'               : None,
         'df0_exp_start'     : 0.6,
         'df0_exp_end'       : 0.1,
@@ -584,12 +618,12 @@ class DistributedEP(object):
     def __init__(self, group_model, X, y, **kwargs):
         
         # Parse keyword arguments
-        worker_options = {}
+        self.worker_options = {}
         for (kw, val) in kwargs.iteritems():
             if (    Worker.DEFAULT_OPTIONS.has_key(kw)
                  or Worker.DEFAULT_STAN_PARAMS.has_key(kw)
                ):
-                worker_options[kw] = val
+                self.worker_options[kw] = val
             elif not self.DEFAULT_KWARGS.has_key(kw):
                 # Unrecognised keyword argument
                 raise TypeError("Unexpected keyword argument '{}'".format(kw))
@@ -677,12 +711,6 @@ class DistributedEP(object):
             if self.Q0.shape[0] != self.dphi or self.r0.shape[0] != self.dphi:
                 raise ValueError("Arg. `dphi` does not match with `prior`")
         
-        # Random State
-        if isinstance(kwargs['seed'], np.random.RandomState):
-            self.rand_state = kwargs['seed']
-        else:
-            self.rand_state = np.random.RandomState(seed=kwargs['seed'])
-        
         # Damping factor
         self.df_decay = kwargs['df_decay']
         self.df_treshold = kwargs['df_treshold']
@@ -692,7 +720,7 @@ class DistributedEP(object):
             df0_start = kwargs['df0_exp_start']
             df0_end = kwargs['df0_exp_end']
             self.df0 = lambda i: \
-                    np.exp(-df0_speed*i) * (df0_start - df0_end) + df0_end
+                    np.exp(-df0_speed*(i-1)) * (df0_start - df0_end) + df0_end
         elif isinstance(kwargs['df0'], (float, int)):
             # Use constant initial damping factor
             if kwargs['df0'] <= 0 or kwargs['df0'] > 1:
@@ -711,16 +739,19 @@ class DistributedEP(object):
         else:
             self.group_model = group_model
         
+        # Process seed in worker options
+        if not isinstance(self.worker_options['seed'], np.random.RandomState):
+            self.worker_options['seed'] = \
+                np.random.RandomState(seed=self.worker_options['seed'])
+        
         # Initialise the workers
-        self.worker_options = worker_options
         self.workers = tuple(
             Worker(
+                self.group_model,
+                self.dphi,
                 X[self.jj_lim[j]:self.jj_lim[j+1],:],
                 y[self.jj_lim[j]:self.jj_lim[j+1]],
-                self.dphi,
-                self.group_model,
-                self.rand_state,
-                **worker_options
+                **self.worker_options
             )
             for j in xrange(self.J)
         )
@@ -756,13 +787,17 @@ class DistributedEP(object):
         
         calc_moments : bool, optional
             If True, the moment parameters (mean and covariance) of the
-            posterior approximation is calculated every iteration.
-        
-        store_last_samples : bool, optional
-            If True, the obtained mcmc samples are stored at the last iteration.
+            posterior approximation are calculated every iteration and returned.
+            Default is True.
         
         verbose : bool, optional
             If true, some progress information is printed. Default is True.
+        
+        Returns
+        -------
+        m_phi, var_phi : ndarray
+            Mean and variance of the posterior approximation at every iteration.
+            Returned only if `calc_moments` is True.
         
         """
         
@@ -792,16 +827,16 @@ class DistributedEP(object):
             var_phi_s = np.zeros((niter, self.dphi))
         
         # Iterate niter rounds
-        target_iter = self.iter + niter
-        while self.iter < target_iter:
-            i1 = self.iter
+        for cur_iter in xrange(niter):
+            self.iter += 1
             # Initial dampig factor
-            if i1 != 0:
-                df = self.df0(i1-1)
+            if self.iter > 1:
+                df = self.df0(self.iter)
             else:
+                # At the first round (rond zero) there is nothing to damp yet
                 df = 1
             if verbose:
-                print 'Iter {}, starting df {:.3g}.'.format(i1, df)
+                print 'Iter {}, starting df {:.3g}.'.format(self.iter, df)
             
             while True:
                 # Try to update the global posterior approximation
@@ -824,7 +859,7 @@ class DistributedEP(object):
                     if verbose:
                         print 'Neg def posterior cov,', \
                               'reducing df to {:.3}'.format(df)
-                    if i1 == 0:
+                    if self.iter == 1:
                         if verbose:
                             print 'Invalid prior.'
                         return self.INVALID_PRIOR
@@ -883,8 +918,8 @@ class DistributedEP(object):
             
             if calc_moments:
                 # Store the approximation moments
-                np.copyto(m_phi_s[i1], m)
-                np.copyto(var_phi_s[i1], np.diag(S))
+                np.copyto(m_phi_s[cur_iter], m)
+                np.copyto(var_phi_s[cur_iter], np.diag(S))
             
             # Tilted distributions (parallelisable)
             # -------------------------------
@@ -896,10 +931,7 @@ class DistributedEP(object):
             
             if verbose and calc_moments:
                 print 'Iter {} done, max var in the posterior: {}' \
-                      .format(i1, np.max(var_phi_s[i1]))
-        
-            # Advance iterator and continue
-            self.iter += 1
+                      .format(self.iter, np.max(var_phi_s[cur_iter]))
         
         if calc_moments:
             return m_phi_s, var_phi_s
