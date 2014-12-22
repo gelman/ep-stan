@@ -250,11 +250,21 @@ class Worker(object):
                 raise TypeError("Unexpected option '{}'".format(kw))
         
         # Allocate space for calculations
-        # After calling cavity(), these arrays are the natural parameters of
-        # the cavity distribution, and after calling tilted(), these are the
-        # moment parameters of the tilted distributions.
+        # After calling the method cavity, these arrays hold the moment
+        # parameters of the cavity distribution, and after calling the method
+        # tilted, these hold the moment parameters of the tilted distributions.
         self.M = np.empty((dphi,dphi), order='F')
         self.v = np.empty(dphi)
+        # The instance variable self.phase indicates if self.M and self.v
+        # contains the cavity or tilted distribution parameters:
+        #     0: neither
+        #     1: cavity
+        #     2: tilted
+        self.phase = 0
+        # In the case of tilted distribution, the instance variable self.nsamp
+        # indicates how many samples has contributed into the unnormalised
+        # covariance matrix in self.M
+        self.nsamp = None
         
         # Current iteration global approximations
         self.Q = None
@@ -273,7 +283,6 @@ class Worker(object):
         self.stan_model = stan_model
         self.dphi = dphi
         self.iteration = 0
-        self.nsamp = None
         
         self.init_prev = options['init_prev']
         if self.init_prev:
@@ -290,7 +299,7 @@ class Worker(object):
             self.smooth = None
         if not self.smooth is None:
             # Memorise previous tilted distributions
-            self.smooth = np.asarray(options['smooth'])
+            self.smooth = np.asarray(self.smooth)
             # Skip some first iterations
             if options['smooth_ignore'] < 0:
                 raise ValueError("Arg. `smooth_ignore` has to be non-negative")
@@ -306,7 +315,23 @@ class Worker(object):
         
     
     def cavity(self, Q, r, Qi, ri):
-        # TODO docstring here
+        """Form the cavity distribution and convert them to moment parameters.
+        
+        Parameters
+        ----------
+        Q, r : ndarray
+            Natural parameters of the global approximation
+        
+        Qi, ri : ndarray
+            Natural site parameters
+        
+        Returns
+        -------
+        pos_def
+            True if the cavity distribution covariance matrix is positive
+            definite. False otherwise.
+        
+        """
         
         self.Q = Q
         self.r = r
@@ -319,12 +344,41 @@ class Worker(object):
                                  out_A='in_place', out_b='in_place')
         except linalg.LinAlgError:
             # Not positive definite
+            self.phase = 0
             return False
-        return True
+        else:
+            self.phase = 1
+            return True
         
         
     def tilted(self, dQi, dri):
-        # TODO docstring here
+        """Estimate the tilted distribution parameters.
+        
+        This method estimates the tilted distribution parameters and calculates
+        the resulting site parameter updates into the given arrays. The cavity
+        distribution has to be calculated before this method is called, i.e. the
+        method cavity has to be run before this.
+        
+        After calling this method the instance variables self.M and self.v hold
+        the tilted distribution moment parameters (note however that the
+        covariance matrix is unnormalised and the number of samples contributing
+        to this matrix is stored in the instance variable self.nsamp).
+        
+        Parameters
+        ----------
+        dQi, dri : ndarray
+            Output arrays where the site parameter updates are placed.
+        
+        Returns
+        -------
+        pos_def
+            True if the estimated tilted distribution covariance matrix is
+            positive definite. False otherwise.
+        
+        """
+        
+        if self.phase != 1:
+            raise RuntimeError('Cavity has to be calculated before tilted.')
         
         # Sample from the model
         with suppress_stdout():
@@ -344,7 +398,7 @@ class Worker(object):
         
         # TODO: Make a non-copying extract
         samp = samp.extract(pars='phi')['phi']
-        self.nsamp = samp.shape[0]
+        nsamp = samp.shape[0]
         
         # Assign arrays
         St = self.M
@@ -358,10 +412,11 @@ class Worker(object):
         if not self.smooth is None:
             # Smoothen the distribution
             # Use dri and dQi as a temporary arrays
-            St, mt = apply_smooth(dri, dQi)
+            St, mt = apply_smooth(nsamp, dri, dQi)
         else:
             # No smoothing at all ... normalise St
-            np.divide(St, self.nsamp-1, out=dQi)
+            self.nsamp = nsamp
+            np.divide(St, self.nsamp - 1, out=dQi)
         
         # Convert (St,mt) to natural parameters, St and mt are preserved
         # Make rest of the matrix calculations in place
@@ -372,6 +427,7 @@ class Worker(object):
         except linalg.LinAlgError:
             # Not positive definite
             pos_def = False
+            self.phase = 0
             dQi.fill(0)
             dri.fill(0)
             if not self.smooth is None:
@@ -383,6 +439,7 @@ class Worker(object):
         else:
             # Positive definite
             pos_def = True
+            self.phase = 2
             # Unbiased natural parameter estimates
             unbias_k = (samp.shape[0]-self.dphi-2)/(samp.shape[0]-1)
             Qt *= unbias_k
@@ -395,7 +452,7 @@ class Worker(object):
         return pos_def
     
     
-    def apply_smooth(self, temp_v, temp_M):
+    def apply_smooth(self, nsamp, temp_v, temp_M):
         """Memorise and combine previous St and mt."""
         
         St = self.M
@@ -405,7 +462,8 @@ class Worker(object):
             # Skip some first iterations ... no smoothing yet
             self.prev_stored += 1
             # Normalise St
-            np.divide(St, self.nsamp-1, out=temp_M)
+            self.nsamp = nsamp
+            np.divide(St, self.nsamp - 1, out=temp_M)
             return St, mt
         
         elif self.prev_stored == 0:
@@ -414,7 +472,8 @@ class Worker(object):
             np.copyto(self.prev_mt[0], mt)
             np.copyto(self.prev_St[0], St)
             # Normalise St
-            np.divide(St, self.nsamp-1, out=temp_M)
+            self.nsamp = nsamp
+            np.divide(St, self.nsamp - 1, out=temp_M)
             return St, mt
             
         else:
@@ -443,15 +502,16 @@ class Worker(object):
             np.subtract(mt, mt_new, out=temp_v)
             np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
             St_new += temp_M
-            St_new *= self.nsamp
+            # N.B. This assumes that the same number of samples has been drawn
+            # in each iteration
+            St_new *= nsamp
             for i in range(ps-1,-1,-1):
                 np.multiply(pSt[i], self.smooth[i], out=temp_M)
                 St_new += temp_M
             St_new += St
             # Normalise St_new
-            np.divide(St_new,
-                      (1 + self.smooth[:ps].sum())*self.nsamp - 1,
-                      out=temp_M)
+            self.nsamp = (1 + self.smooth[:ps].sum())*nsamp
+            np.divide(St_new, self.nsamp - 1, out=temp_M)
             
             # Rotate array pointers
             temp_M2 = pSt[-1]
@@ -985,14 +1045,17 @@ class DistributedEP(object):
         # Combine St from every site
         np.subtract(self.workers[0].v, out_m, out = temp_v)
         np.multiply(temp_v[:,np.newaxis], temp_v, out=out_S)
+        out_S *= self.workers[0].nsamp
         for j in xrange(1,self.J):
             np.subtract(self.workers[j].v, out_m, out = temp_v)
             np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
+            temp_M *= self.workers[j].nsamp
             out_S += temp_M
-        out_S *= self.workers[0].nsamp
+        nsamp_tot = 0
         for j in xrange(self.J):
             out_S += self.workers[j].M
-        out_S /= self.J*self.workers[0].nsamp - 1
+            nsamp_tot += self.workers[j].nsamp
+        out_S /= nsamp_tot - 1
         
         return out_S, out_m
         
