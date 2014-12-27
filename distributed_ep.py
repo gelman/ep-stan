@@ -218,7 +218,8 @@ class Worker(object):
     DEFAULT_OPTIONS = {
         'init_prev'     : True,
         'smooth'        : None,
-        'smooth_ignore' : 1
+        'smooth_ignore' : 1,
+        'tmp_fix_32bit' : False # FIXME: Temp fix for RandState problem
     }
     
     DEFAULT_STAN_PARAMS = {
@@ -314,6 +315,13 @@ class Worker(object):
             self.prev_mt = [np.empty(dphi)
                             for _ in range(len(self.smooth))]
         
+        # FIXME: Temp fix for RandomState problem in 32-bit Python
+        if options['tmp_fix_32bit']:
+            self.fix32bit = True
+            self.rstate = self.stan_params['seed']
+        else:
+            self.fix32bit = False
+        
     
     def cavity(self, Q, r, Qi, ri):
         """Form the cavity distribution and convert them to moment parameters.
@@ -380,6 +388,10 @@ class Worker(object):
         
         if self.phase != 1:
             raise RuntimeError('Cavity has to be calculated before tilted.')
+        
+        # FIXME: Temp fix for RandomState problem in 32-bit Python
+        if self.fix32bit:
+            self.stan_params['seed'] = self.rstate.randint(2**31-1)
         
         # Sample from the model
         with suppress_stdout():
