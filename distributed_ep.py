@@ -52,7 +52,7 @@ class Worker(object):
         'init_prev'     : True,
         'smooth'        : None,
         'smooth_ignore' : 1,
-        'tmp_fix_32bit' : False # FIXME: Temp fix for RandState problem
+        'tmp_fix_32bit' : False # FIXME: Temp fix for RandomState problem
     }
     
     DEFAULT_STAN_PARAMS = {
@@ -812,14 +812,6 @@ class DistributedEP(object):
                     self.Qi2 = Qi2
                     self.ri = ri
                     self.ri2 = ri2
-                    
-                    if calc_moments:
-                        # Invert Q (chol was already calculated)
-                        # N.B. The following inversion could be done while
-                        # parallel jobs are running, thus saving time.
-                        invert_normal_params(cho_Q, r, out_A='in_place',
-                                             out_b=m, cho_form=True)
-                    
                     break
                     
                 else:
@@ -837,6 +829,11 @@ class DistributedEP(object):
                         return self.DF_TRESHOLD_REACHED_CAVITY
             
             if calc_moments:
+                # Invert Q (chol was already calculated)
+                # N.B. The following inversion could be done while
+                # parallel jobs are running, thus saving time.
+                invert_normal_params(cho_Q, r, out_A='in_place', out_b=m,
+                                     cho_form=True)
                 # Store the approximation moments
                 np.copyto(m_phi_s[cur_iter], m)
                 np.copyto(var_phi_s[cur_iter], np.diag(S))
