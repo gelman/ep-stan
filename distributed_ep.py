@@ -194,20 +194,20 @@ class Worker(object):
     
     Parameters
     ----------
+    index : integer
+        The index of this site
+    
+    stan_model : StanModel
+        The StanModel instance responsible for the mcmc sampling.
+    
+    dphi : int
+        The length of the parameter vector phi.
+    
     X : ndarray
         The C contiguous part of the explanatory variable.
     
     y : ndarray
         Part of the response variable.
-    
-    dphi : int
-        The length of the parameter vector phi.
-    
-    stan_model : StanModel
-        The StanModel instance responsible for the mcmc sampling.
-    
-    rand_state : RandomState
-        np.random.RandomState instance used for seeding the sampler.
     
     Other parameters
     ----------------
@@ -230,7 +230,7 @@ class Worker(object):
         'seed'          : None
     }
     
-    def __init__(self, stan_model, dphi, X, y, **options):
+    def __init__(self, index, stan_model, dphi, X, y, **options):
         
         # Parse options
         # Set missing options to defaults
@@ -280,6 +280,7 @@ class Worker(object):
                          # M transposed in order to get C-order
         
         # Store other instance variables
+        self.index = index
         self.stan_model = stan_model
         self.dphi = dphi
         self.iteration = 0
@@ -306,7 +307,7 @@ class Worker(object):
             self.prev_stored = -options['smooth_ignore']
             # Temporary array for calculations
             self.prev_M = np.empty((dphi,dphi), order='F')
-            self.prev_v = np.empty((dphi,dphi), order='F')
+            self.prev_v = np.empty(dphi)
             # Arrays from the previous iterations
             self.prev_St = [np.empty((dphi,dphi), order='F')
                             for _ in range(len(self.smooth))]
@@ -412,7 +413,7 @@ class Worker(object):
         if not self.smooth is None:
             # Smoothen the distribution
             # Use dri and dQi as a temporary arrays
-            St, mt = apply_smooth(nsamp, dri, dQi)
+            St, mt = self.apply_smooth(nsamp, dri, dQi)
         else:
             # No smoothing at all ... normalise St
             self.nsamp = nsamp
@@ -791,7 +792,7 @@ class DistributedEP(object):
             df0_start = kwargs['df0_exp_start']
             df0_end = kwargs['df0_exp_end']
             self.df0 = lambda i: \
-                    np.exp(-df0_speed*(i-1)) * (df0_start - df0_end) + df0_end
+                    np.exp(-df0_speed*(i-2)) * (df0_start - df0_end) + df0_end
         elif isinstance(kwargs['df0'], (float, int)):
             # Use constant initial damping factor
             if kwargs['df0'] <= 0 or kwargs['df0'] > 1:
@@ -818,6 +819,7 @@ class DistributedEP(object):
         # Initialise the workers
         self.workers = tuple(
             Worker(
+                j,
                 self.group_model,
                 self.dphi,
                 X[self.jj_lim[j]:self.jj_lim[j+1],:],
