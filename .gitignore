@@ -4,6 +4,6 @@
 *.pkl
 
 # Compiled files for Cython module util
-util.so
-util.c
+*.so
+cython_util.c
 build/*
