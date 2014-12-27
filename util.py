@@ -22,13 +22,13 @@ from cython_util import copy_triu_to_tril
 dpotri_routine = linalg.get_lapack_funcs('potri')
 
 
-def compare_plot(a, b, a_err=None, b_err=None, a_label='A', b_label='B'):
+def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None):
     """Compare values of a in the ones in b."""
     
     a = np.asarray(a)
     b = np.asarray(b)
     
-    plt.figure()
+    fig = plt.figure()
     ax = plt.plot(b, a, 'bo')[0].get_axes()
     limits = (min(ax.get_xlim()[0], ax.get_ylim()[0]),
               max(ax.get_xlim()[1], ax.get_ylim()[1]))
@@ -53,10 +53,12 @@ def compare_plot(a, b, a_err=None, b_err=None, a_label='A', b_label='B'):
             b_m = b_err
         ax.plot(np.vstack((b+b_p, b-b_m)), np.tile(a, (2,1)), 'b-')
     ax.plot(limits, limits, 'r-')
-    ax.set_ylabel(a_label)
-    ax.set_xlabel(b_label)
+    if not a_label is None:
+        ax.set_ylabel(a_label)
+    if not b_label is None:
+        ax.set_xlabel(b_label)
     
-    plt.show()
+    return fig
 
 
 def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
