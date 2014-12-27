@@ -88,7 +88,7 @@ options = {
 }
 
 # Temp fix for the RandomState seed problem with pystan in 32bit Python
-# Uncomment this with 32bit Python
+# Uncomment the following line with 32bit Python:
 # options['tmp_fix_32bit'] = True
 
 # Create the model instance
