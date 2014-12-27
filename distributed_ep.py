@@ -228,7 +228,7 @@ class Worker(object):
         
         # Sample from the model
         with suppress_stdout():
-            samp = self.stan_model.sampling(
+            fit = self.stan_model.sampling(
                     data=self.data,
                     pars=('phi'),
                     **self.stan_params
@@ -238,13 +238,15 @@ class Worker(object):
             # Store the last sample of each chain
             if isinstance(self.stan_params['init'], basestring):
                 # No samples stored before ... initialise list of dicts
-                self.stan_params['init'] = get_last_sample(samp)
+                self.stan_params['init'] = get_last_sample(fit)
             else:
-                get_last_sample(samp, out=self.stan_params['init'])
+                get_last_sample(fit, out=self.stan_params['init'])
         
         # TODO: Make a non-copying extract
-        samp = samp.extract(pars='phi')['phi']
+        samp = fit.extract(pars='phi')['phi']
         nsamp = samp.shape[0]
+        # After this the fit object can be deleted
+        del fit
         
         # Assign arrays
         St = self.M
@@ -886,7 +888,7 @@ class DistributedEP(object):
         # Combine mt from every site
         np.copyto(out_m, self.workers[0].v)
         for j in xrange(1,self.J):
-            np.add(out_m, self.workers[j].v)
+            out_m += self.workers[j].v
         out_m /= self.J
         
         # Combine St from every site
@@ -905,6 +907,6 @@ class DistributedEP(object):
         out_S /= nsamp_tot - 1
         
         return out_S, out_m
-        
+
 
 
