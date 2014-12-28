@@ -233,6 +233,7 @@ def load_stan(filename, overwrite=False):
         sm = StanModel(file=filename+'.stan', model_name=model_name)
         with open(filename+'.pkl', 'wb') as f:
             pickle.dump(sm, f)
+        print "Compiling and saving done."
     else:
         raise IOError("File {} or {} not found"
                       .format(filename+'.stan', filename+'.pkl'))

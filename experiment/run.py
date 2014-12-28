@@ -18,7 +18,9 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Add parent_dir to sys.path if not present already
+# Add parent dir to sys.path if not present already. This is only done because
+# of easy importing of the package dep. Adding the parent directory into the
+# PYTHONPATH works as well.
 parent_dir = os.path.abspath(os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
                 os.pardir))
@@ -28,23 +30,15 @@ if os.path.exists(os.path.join(parent_dir, 'dep')):
         os.sys.path.insert(0, parent_dir)
 
 from dep.serial import Master
-from dep.util import compare_plot
+from dep.util import compare_plot, load_stan, suppress_stdout
 
 # Use seed = None for random seed
 RAND = np.random.RandomState(seed=0)
 
 
-# ---------------
-#  Simulate Data
-# ---------------
-
-# Parameters
-J = 50                               # number of groups
-Nj = 50*np.ones(J)                   # number of observations per group
-N = np.sum(Nj)                       # number of observations
-K = 50                               # number of inputs
-# Observation index limits for J groups
-iiJ = np.concatenate(([0], np.cumsum(Nj)))
+# ------------------------------------------------------------------------------
+#     Simulate data
+# ------------------------------------------------------------------------------
 
 # Model definition (j = 1 ... J):
 # y_j ~ bernoulli_logit(alpha_j + x_j * beta)
@@ -53,6 +47,18 @@ iiJ = np.concatenate(([0], np.cumsum(Nj)))
 # Hyperparameter sigma2_a ~ log-N(0,sigma2_aH)
 # Fixed sigma2_b, sigma2_aH
 # phi = [log(sqrt(sigma2_a)), beta]
+
+# Parameters
+J = 50                               # number of groups
+Nj = 50*np.ones(J, dtype=np.int64)   # number of observations per group
+N = np.sum(Nj)                       # number of observations
+K = 50                               # number of inputs
+# Observation index limits for J groups
+jj_lim = np.concatenate(([0], np.cumsum(Nj)))
+# Group indices for each sample
+jj = np.empty(N, dtype=np.int64)
+for j in xrange(J):
+    jj[jj_lim[j]:jj_lim[j+1]] = j
 
 # Assign fixed parameters
 sigma2_a = 2**2
@@ -65,29 +71,33 @@ alpha_j = RAND.randn(J)*np.sqrt(sigma2_a)
 X = RAND.randn(N,K)
 y = X.dot(beta)
 for j in range(J):
-    y[iiJ[j]:iiJ[j+1]] += alpha_j[j]
+    y[jj_lim[j]:jj_lim[j+1]] += alpha_j[j]
 y = 1/(1+np.exp(-y))
 y = (RAND.rand(N) < y).astype(int)
 
 
-# ---------------
+# ------------------------------------------------------------------------------
 #     Prior
-# ---------------
+# ------------------------------------------------------------------------------
+
 # Priors for sigma2_a
 m0_a = np.log(1)
 V0_a = np.log(5)**2
 # Prior for beta
 m0_b = 0
 V0_b = 1**2
+# Moment parameters of the prior (transposed in order to get F-contiguous)
+S0 = np.diag(np.append(V0_a, np.ones(K)*V0_b)).T
+r0 = np.append(m0_a, np.ones(K)*m0_b)
 # Natural parameters of the prior
 Q0 = np.diag(np.append(1./V0_a, np.ones(K)/V0_b)).T
 r0 = np.append(m0_a/V0_a, np.ones(K)*(m0_b/V0_b))
 prior = {'Q':Q0, 'r':r0}
 
 
-# ---------------
-#     EP-STAN
-# ---------------
+# ------------------------------------------------------------------------------
+#     Distributed EP
+# ------------------------------------------------------------------------------
 
 # Options for the ep-algorithm see documentation of dep.serial.Master
 options = {
@@ -109,14 +119,32 @@ dep_master = Master('site_model', X, y, group_sizes=Nj,
 
 # Run the algorithm for `niter` iterations
 niter = 6
+print "Run distributed EP algorithm for {} iterations.".format(niter)
 m_phi, var_phi = dep_master.run(niter)
+print "Form the final approximation by mixing the samples from all the sites."
 S_mix, m_mix = dep_master.mix_samples()
 var_mix = np.diag(S_mix)
 
 
-# --------------
-#      Plot
-# --------------
+# ------------------------------------------------------------------------------
+#     Full model
+# ------------------------------------------------------------------------------
+
+full_model = load_stan('full_model')
+# In the following S0 is transposed in order to get C-contiguous
+data = dict(N=N, K=K, J=J, X=X, y=y, jj=jj+1, mu_prior=r0, Sigma_prior=S0.T)
+print "Sample from the full model."
+with suppress_stdout():
+    fit = full_model.sampling(data=data, seed=RAND.randint(2**31-1),
+                              chains=4, iter=800, warmup=400, thin=2)
+samp = fit.extract(pars='phi')['phi']
+m_phi_full = samp.mean(axis=0)
+var_phi_full = samp.var(axis=0, ddof=1)
+
+
+# ------------------------------------------------------------------------------
+#     Plot
+# ------------------------------------------------------------------------------
 
 # Mean and variance as a function of the iteration
 fig, axs = plt.subplots(2, 1, sharex=True)
@@ -131,6 +159,12 @@ axs[1].set_xlabel('Iteration')
 compare_plot(phi_true, m_mix, b_err=3*np.sqrt(var_mix),
              a_label='True values',
              b_label='Estimated values ($\pm 3 \sigma$)')
+
+# Full vs distributed
+compare_plot(m_phi_full, m_mix,
+             a_err=1.96*np.sqrt(var_phi_full), b_err=1.96*np.sqrt(var_mix),
+             a_label='Estimased from the full model ($\pm 1.96 \sigma$)',
+             b_label='Estimased from the dep model ($\pm 1.96 \sigma$)')
 
 plt.show()
 
