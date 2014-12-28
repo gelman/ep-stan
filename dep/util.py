@@ -12,9 +12,12 @@ https://github.com/gelman/ep-stan
 # All rights reserved.
 
 from __future__ import division
+import os
+import pickle
 import numpy as np
 from scipy import linalg
 import matplotlib.pyplot as plt
+from pystan import StanModel
 
 from cython_util import copy_triu_to_tril
 
@@ -186,12 +189,59 @@ def get_last_sample(fit, out=None):
                             [namefield.format(*it.multi_index)][-1]
                     it.iternext()
     return out
-        
+
+
+def load_stan(filename, overwrite=False):
+    """Load or compile a stan model.
+    
+    Parameters
+    ----------
+    filename : string
+        The name of the model file. It may or may not contain path and ending
+        '.stan' or '.pkl'. If a respective file with ending '.pkl' is found,
+        the model is not built but loaded from the pickle file (unless
+        `overwrite` is True). Otherwise the model is compiled from the
+        respective file ending with '.stan' and saved into '.pkl' file.
+    overwrite : bool
+        Compile and save a new model even if a pickled model with same name
+        already exists.
+    
+    """
+    # Remove '.pkl' or '.stan' endings
+    if filename.endswith('.pkl'):
+        filename = filename[:-4]
+    elif filename.endswith('.stan'):
+        filename = filename[:-5]
+    
+    if not overwrite and os.path.isfile(filename+'.pkl'):
+        # Use precompiled model
+        with open(filename+'.pkl', 'rb') as f:
+            sm = pickle.load(f)
+    elif os.path.isfile(filename+'.stan'):
+        # Compiling and save the model
+        if not overwrite:
+            print "Precompiled stan model {} not found.".format(filename+'.pkl')
+            print "Compiling and saving the model."
+        else:
+            print "Compiling and saving the model {}.".format(filename+'.pkl')
+        if '/' in filename:
+            model_name = filename.split('/')[-1]
+        elif '\\' in filename:
+            model_name = filename.split('\\')[-1]
+        else:
+            model_name = filename
+        sm = StanModel(file=filename+'.stan', model_name=model_name)
+        with open(filename+'.pkl', 'wb') as f:
+            pickle.dump(sm, f)
+    else:
+        raise IOError("File {} or {} not found"
+                      .format(filename+'.stan', filename+'.pkl'))
+    return sm
+
 
 # >>> Temp solution to suppres output from STAN model (remove when fixed)
 # This part of the code is by jeremiahbuddha from:
 # http://stackoverflow.com/questions/11130156/suppress-stdout-stderr-print-from-python-functions
-import os
 class suppress_stdout(object):
     '''
     A context manager for doing a "deep suppression" of stdout and stderr in 

@@ -1,5 +1,6 @@
-"""An experiment for distributed EP algorithm described in an article
-"Expectation propagation as a way of life" (arXiv:1412.4869).
+"""A simple hierarchical logistic regression experiment for distributed EP
+algorithm described in an article "Expectation propagation as a way of life"
+(arXiv:1412.4869).
 
 The most recent version of the code can be found on GitHub:
 https://github.com/gelman/ep-stan
@@ -13,11 +14,21 @@ https://github.com/gelman/ep-stan
 # All rights reserved.
 
 from __future__ import division
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-from distributed_ep import DistributedEP
-from util import compare_plot
+# Add parent_dir to sys.path if not present already
+parent_dir = os.path.abspath(os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                os.pardir))
+# Double check that the package is in the parent directory
+if os.path.exists(os.path.join(parent_dir, 'dep')):
+    if parent_dir not in os.sys.path:
+        os.sys.path.insert(0, parent_dir)
+
+from dep.serial import Master
+from dep.util import compare_plot
 
 # Use seed = None for random seed
 RAND = np.random.RandomState(seed=0)
@@ -73,11 +84,12 @@ Q0 = np.diag(np.append(1./V0_a, np.ones(K)/V0_b)).T
 r0 = np.append(m0_a/V0_a, np.ones(K)*(m0_b/V0_b))
 prior = {'Q':Q0, 'r':r0}
 
+
 # ---------------
 #     EP-STAN
 # ---------------
 
-# Options for the ep-algorithm see documentation of DistributedEP
+# Options for the ep-algorithm see documentation of dep.serial.Master
 options = {
     'seed'      : RAND,
     'init_prev' : True,
@@ -89,17 +101,18 @@ options = {
 
 # Temp fix for the RandomState seed problem with pystan in 32bit Python
 # Uncomment the following line with 32bit Python:
-# options['tmp_fix_32bit'] = True
+#options['tmp_fix_32bit'] = True
 
-# Create the model instance
-model = DistributedEP('hier_log.pkl', X, y, group_sizes=Nj,
-                      prior=prior, **options)
+# Create the Master instance
+dep_master = Master('site_model', X, y, group_sizes=Nj,
+                    prior=prior, **options)
 
-# Run the algorithm for 6 iterations
+# Run the algorithm for `niter` iterations
 niter = 6
-m_phi, var_phi = model.run(niter)
-S_mix, m_mix = model.mix_samples()
+m_phi, var_phi = dep_master.run(niter)
+S_mix, m_mix = dep_master.mix_samples()
 var_mix = np.diag(S_mix)
+
 
 # --------------
 #      Plot

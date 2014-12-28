@@ -15,11 +15,15 @@ https://github.com/gelman/ep-stan
 # All rights reserved.
 
 from __future__ import division
-import pickle
 import numpy as np
 from scipy import linalg
 
-from util import invert_normal_params, get_last_sample, suppress_stdout
+from util import (
+    invert_normal_params,
+    get_last_sample,
+    suppress_stdout,
+    load_stan
+)
 
 
 class Worker(object):
@@ -383,7 +387,7 @@ class Worker(object):
             return St_new, mt_new
 
 
-class DistributedEP(object):
+class Master(object):
     """Manages the distributed EP algorithm.
     
     Parameters
@@ -391,8 +395,8 @@ class DistributedEP(object):
     group_model : StanModel or string
         Model for sampling from the tilted distribution of a group. Can be
         provided either directly as a PyStan model instance or as filename
-        string pointing to a pickled model. The model has a restricted
-        structure (see Notes).
+        string pointing to a pickled model or stan source code. The model has a
+        restricted structure (see Notes).
     
     X : ndarray
         Explanatory variable data in an ndarray of shape (N,K), where N is the
@@ -653,8 +657,7 @@ class DistributedEP(object):
         # Get Stan model
         if isinstance(group_model, basestring):
             # From file
-            with open(group_model, 'rb') as f:
-                self.group_model = pickle.load(f)
+            self.group_model = load_stan(group_model)
         else:
             self.group_model = group_model
         
