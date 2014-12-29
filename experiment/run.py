@@ -4,11 +4,11 @@ algorithm described in an article "Expectation propagation as a way of life"
 
 Model definition (j = 1 ... J):
 y_j ~ bernoulli_logit(alpha_j + x_j * beta)
-Local parameter alpha_j ~ N(0, sigma2_a)
-Shared parameter beta ~ N(0,sigma2_b)
-Hyperparameter sigma2_a ~ log-N(0,sigma2_aH)
-Fixed sigma2_b, sigma2_aH
-phi = [log(sqrt(sigma2_a)), beta]
+Local parameter alpha_j ~ N(0,sigma_a)
+Shared parameter beta ~ N(0,sigma_b)
+Hyperparameter sigma_a ~ log-N(0,sigma_aH)
+Fixed sigma_b, sigma_aH
+phi = [log(sigma_a), beta]
 
 Execute with:
     $ python run.py <filename>
@@ -59,15 +59,15 @@ K = 50              # Number of inputs
 NPG = 50            # Number of observations per group
 
 # ====== Set parameters ========================================================
-# If SIGMA2_A is None, it is sampled from N(0,SIGMA2_AH)
-SIGMA2_A = 2**2
-SIGMA2_AH = None
-# If BETA is None, it is sampled from N(0,SIGMA2_B)
+# If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
+SIGMA_A = 2
+SIGMA_AH = None
+# If BETA is None, it is sampled from N(0,SIGMA_B)
 BETA = None
-SIGMA2_B = 1**2
+SIGMA_B = 1
 
 # ====== Prior =================================================================
-# Priors for sigma2_a
+# Prior for log(sigma_a)
 M0_A = 0
 V0_A = 2**2
 # Prior for beta
@@ -110,19 +110,19 @@ def main(filename='res.npz'):
         jj[jj_lim[j]:jj_lim[j+1]] = j
 
     # Assign fixed parameters
-    if SIGMA2_A is None:
-        sigma2_a = rand_state.randn()*np.sqrt(SIGMA2_AH)
+    if SIGMA_A is None:
+        sigma_a = np.exp(rand_state.randn()*SIGMA_AH)
     else:
-        sigma2_a = SIGMA2_A
+        sigma_a = SIGMA_A
     if BETA is None:
-        beta = rand_state.randn(K)*np.sqrt(SIGMA2_B)
+        beta = rand_state.randn(K)*SIGMA_B
     else:
         beta = BETA
-    phi_true = np.append(0.5*np.log(sigma2_a), beta)
+    phi_true = np.append(np.log(sigma_a), beta)
     dphi = K+1  # Number of shared parameters
 
     # Simulate
-    alpha_j = rand_state.randn(J)*np.sqrt(sigma2_a)
+    alpha_j = rand_state.randn(J)*sigma_a
     X = rand_state.randn(N,K)
     y = X.dot(beta)
     for j in range(J):
@@ -146,7 +146,7 @@ def main(filename='res.npz'):
     #     Distributed EP
     # ------------------------------------------------------
 
-    print "Distributed model."
+    print "Distributed model..."
 
     # Options for the ep-algorithm see documentation of dep.serial.Master
     options = {
@@ -180,7 +180,7 @@ def main(filename='res.npz'):
     #     Full model
     # ------------------------------------------------------
 
-    print "\nFull model."
+    print "Full model..."
 
     full_model = load_stan('full_model')
     # In the following S0 is transposed in order to get C-contiguous
