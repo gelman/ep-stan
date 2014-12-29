@@ -33,7 +33,8 @@ from dep.serial import Master
 from dep.util import compare_plot, load_stan, suppress_stdout
 
 # Use seed = None for random seed
-RAND = np.random.RandomState(seed=0)
+seed = 0
+rand_state = np.random.RandomState(seed=0)
 
 
 # ------------------------------------------------------------------------------
@@ -62,18 +63,18 @@ for j in xrange(J):
 
 # Assign fixed parameters
 sigma2_a = 2**2
-beta = RAND.randn(K)
+beta = rand_state.randn(K)
 phi_true = np.append(0.5*np.log(sigma2_a), beta)
 dphi = K+1  # Number of shared parameters
 
 # Simulate
-alpha_j = RAND.randn(J)*np.sqrt(sigma2_a)
-X = RAND.randn(N,K)
+alpha_j = rand_state.randn(J)*np.sqrt(sigma2_a)
+X = rand_state.randn(N,K)
 y = X.dot(beta)
 for j in range(J):
     y[jj_lim[j]:jj_lim[j+1]] += alpha_j[j]
 y = 1/(1+np.exp(-y))
-y = (RAND.rand(N) < y).astype(int)
+y = (rand_state.rand(N) < y).astype(int)
 
 
 # ------------------------------------------------------------------------------
@@ -99,9 +100,11 @@ prior = {'Q':Q0, 'r':r0}
 #     Distributed EP
 # ------------------------------------------------------------------------------
 
+print "Distributed model."
+
 # Options for the ep-algorithm see documentation of dep.serial.Master
 options = {
-    'seed'      : RAND,
+    'seed'      : rand_state,
     'init_prev' : True,
     'chains'    : 4,
     'iter'      : 400,
@@ -125,48 +128,81 @@ print "Form the final approximation by mixing the samples from all the sites."
 S_mix, m_mix = dep_master.mix_samples()
 var_mix = np.diag(S_mix)
 
+print "Distributed model sampled."
+
 
 # ------------------------------------------------------------------------------
 #     Full model
 # ------------------------------------------------------------------------------
 
+print "\nFull model."
+
 full_model = load_stan('full_model')
 # In the following S0 is transposed in order to get C-contiguous
 data = dict(N=N, K=K, J=J, X=X, y=y, jj=jj+1, mu_prior=r0, Sigma_prior=S0.T)
-print "Sample from the full model."
 with suppress_stdout():
-    fit = full_model.sampling(data=data, seed=RAND.randint(2**31-1),
+    fit = full_model.sampling(data=data, seed=rand_state.randint(2**31-1),
                               chains=4, iter=800, warmup=400, thin=2)
 samp = fit.extract(pars='phi')['phi']
 m_phi_full = samp.mean(axis=0)
 var_phi_full = samp.var(axis=0, ddof=1)
+
+print "Full model sampled."
+
+
+# ------------------------------------------------------------------------------
+#     Save results
+# ------------------------------------------------------------------------------
+
+if True:
+    np.savez('res.npz',
+        seed=seed,
+        J=J,
+        Nj=Nj,
+        N=N,
+        K=K,
+        dphi=dphi,
+        niter=niter,
+        m0_a=m0_a,
+        V0_a=V0_a,
+        m0_b=m0_b,
+        V0_b=V0_b,
+        phi_true=phi_true,
+        m_phi=m_phi,
+        var_phi=var_phi,
+        m_mix=m_mix,
+        var_mix=var_mix,
+        m_phi_full=m_phi_full,
+        var_phi_full=var_phi_full
+    )
 
 
 # ------------------------------------------------------------------------------
 #     Plot
 # ------------------------------------------------------------------------------
 
-# Mean and variance as a function of the iteration
-fig, axs = plt.subplots(2, 1, sharex=True)
-fig.subplots_adjust(hspace=0.1)
-axs[0].plot(np.arange(niter+1), np.vstack((m_phi, m_mix)))
-axs[0].set_ylabel('Mean of params')
-axs[1].plot(np.arange(niter+1), np.sqrt(np.vstack((var_phi, var_mix))))
-axs[1].set_ylabel('Std of params')
-axs[1].set_xlabel('Iteration')
+if False:
+    # Mean and variance as a function of the iteration
+    fig, axs = plt.subplots(2, 1, sharex=True)
+    fig.subplots_adjust(hspace=0.1)
+    axs[0].plot(np.arange(niter+1), np.vstack((m_phi, m_mix)))
+    axs[0].set_ylabel('Mean of params')
+    axs[1].plot(np.arange(niter+1), np.sqrt(np.vstack((var_phi, var_mix))))
+    axs[1].set_ylabel('Std of params')
+    axs[1].set_xlabel('Iteration')
 
-# Estimates vs true values
-compare_plot(phi_true, m_mix, b_err=3*np.sqrt(var_mix),
-             a_label='True values',
-             b_label='Estimated values ($\pm 3 \sigma$)')
+    # Estimates vs true values
+    compare_plot(phi_true, m_mix, b_err=3*np.sqrt(var_mix),
+                 a_label='True values',
+                 b_label='Estimated values ($\pm 3 \sigma$)')
 
-# Full vs distributed
-compare_plot(m_phi_full, m_mix,
-             a_err=1.96*np.sqrt(var_phi_full), b_err=1.96*np.sqrt(var_mix),
-             a_label='Estimased from the full model ($\pm 1.96 \sigma$)',
-             b_label='Estimased from the dep model ($\pm 1.96 \sigma$)')
+    # Full vs distributed
+    compare_plot(m_phi_full, m_mix,
+                 a_err=1.96*np.sqrt(var_phi_full), b_err=1.96*np.sqrt(var_mix),
+                 a_label='Estimased from the full model ($\pm 1.96 \sigma$)',
+                 b_label='Estimased from the dep model ($\pm 1.96 \sigma$)')
 
-plt.show()
+    plt.show()
 
 
 

@@ -442,6 +442,10 @@ class Master(object):
     
     Other parameters
     ----------------
+    overwrite_model : bool, optional
+        If a string for `group_model` is provided, the model is compiled even
+        if a precompiled model is found (see util.load_stan).
+    
     nchains : int, optional
         The number of chains in the group_model mcmc sampling. Default is 4.
     
@@ -529,6 +533,7 @@ class Master(object):
         'df0_exp_speed'     : 0.8,
         'df_decay'          : 0.9,
         'df_treshold'       : 1e-8
+        'overwrite_model'   : False
     }
     
     def __init__(self, group_model, X, y, **kwargs):
@@ -657,7 +662,8 @@ class Master(object):
         # Get Stan model
         if isinstance(group_model, basestring):
             # From file
-            self.group_model = load_stan(group_model)
+            self.group_model = load_stan(group_model,
+                                         overwrite=kwargs['overwrite_model'])
         else:
             self.group_model = group_model
         

@@ -1,4 +1,5 @@
 *.pyc
+*.npz
 
 # Compiled stan model (pickle files)
 *.pkl
