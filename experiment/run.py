@@ -33,8 +33,8 @@ from dep.serial import Master
 from dep.util import compare_plot, load_stan, suppress_stdout
 
 # Use seed = None for random seed
-seed = 0
-rand_state = np.random.RandomState(seed=0)
+seed = 1
+rand_state = np.random.RandomState(seed=seed)
 
 
 # ------------------------------------------------------------------------------

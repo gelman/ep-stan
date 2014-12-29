@@ -532,7 +532,7 @@ class Master(object):
         'df0_exp_end'       : 0.1,
         'df0_exp_speed'     : 0.8,
         'df_decay'          : 0.9,
-        'df_treshold'       : 1e-8
+        'df_treshold'       : 1e-8,
         'overwrite_model'   : False
     }
     
