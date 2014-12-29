@@ -16,52 +16,12 @@ import os
 import pickle
 import numpy as np
 from scipy import linalg
-import matplotlib.pyplot as plt
 from pystan import StanModel
 
 from cython_util import copy_triu_to_tril
 
 # LAPACK positive definite inverse routine
 dpotri_routine = linalg.get_lapack_funcs('potri')
-
-
-def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None):
-    """Compare values of a in the ones in b."""
-    
-    a = np.asarray(a)
-    b = np.asarray(b)
-    
-    fig = plt.figure()
-    ax = plt.plot(b, a, 'bo')[0].get_axes()
-    limits = (min(ax.get_xlim()[0], ax.get_ylim()[0]),
-              max(ax.get_xlim()[1], ax.get_ylim()[1]))
-    ax.set_xlim(limits)
-    ax.set_ylim(limits)
-    if not a_err is None:
-        a_err = np.asarray(a_err)
-        if len(a_err.shape) == 2:
-            a_p = a_err[0]
-            a_m = a_err[1]
-        else:
-            a_p = a_err
-            a_m = a_err
-        ax.plot(np.tile(b, (2,1)), np.vstack((a+a_p, a-a_m)), 'b-')
-    if not b_err is None:
-        b_err = np.asarray(b_err)
-        if len(b_err.shape) == 2:
-            b_p = b_err[0]
-            b_m = b_err[1]
-        else:
-            b_p = b_err
-            b_m = b_err
-        ax.plot(np.vstack((b+b_p, b-b_m)), np.tile(a, (2,1)), 'b-')
-    ax.plot(limits, limits, 'r-')
-    if not a_label is None:
-        ax.set_ylabel(a_label)
-    if not b_label is None:
-        ax.set_xlabel(b_label)
-    
-    return fig
 
 
 def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):

@@ -1,4 +1,10 @@
 
+# Licensed under the 3-clause BSD license.
+# http://opensource.org/licenses/BSD-3-Clause
+#
+# Copyright (C) 2014 Tuomas Sivula
+# All rights reserved.
+
 data {
     int<lower=0> N;
     int<lower=0> K;

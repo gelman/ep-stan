@@ -1,7 +1,7 @@
 """Compile the Cython module in file `dep/cython_util.pyx`.
 
 Compile with:
-$ python setup.py build_ext --inplace
+    $ python setup.py build_ext --inplace
 
 """
 
