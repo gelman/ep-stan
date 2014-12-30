@@ -416,19 +416,20 @@ class Master(object):
         Additional data for the site model. The keys in the dict are the names
         of the variables and the values are the coresponding objects e.g.
         integers or ndarrays. These arrays are distributed as a whole for each
-        site (different to `X` and `y`). Can be omitted.
+        site. Example: {'var':[3,2]} distributes var=[3,2] to each site.
     
     A_k : dict, optional
         Additional data for the site model. The keys in the dict are the names
-        of the variables and the values are lists of coresponding objects. The
-        first element of the lists are distributed to the first site etc. The
-        length of the lists has to be equal to the number of sites.
+        of the variables and the values are array-likes of length K, where K is
+        the number of sites. The first element of the array-likes are
+        distributed to the first site etc. Example: {'var':[3,2]} distributes
+        var=3 to the first site and var=2 to the second site.
     
     A_n : dict, optional
         Additional sliced data arrays provided for the site model. The keys in
         the dict are the names of the variables and the values are the
         coresponding ndarrays of size (N, ...). These arrays are sliced for each
-        site (similary as `X` and `y`). Can be omitted.
+        site (similary as `X` and `y`).
     
     site_ind, site_ind_ord, site_sizes : ndarray, optional
         Arrays indicating which sample belong to which site. Providing one of
@@ -620,9 +621,9 @@ class Master(object):
         # Process A_k
         self.A_k = kwargs['A_k']
         for (key, val) in self.A_k.iteritems():
-            # Check list length
+            # Check for length
             if len(val) != self.K:
-                raise ValueError("List length mismatch in `A_k` "
+                raise ValueError("Array-like length mismatch in `A_k` "
                                  "(should be: {}, found: {})"
                                  .format(self.K, len(val)))
             # Check for name clashes
@@ -631,7 +632,7 @@ class Master(object):
                  or key in self.A_n
                ):
                 raise ValueError("Additional data name {} clashes.".format(key))
-            
+        
         # Process site indices
         # K     : number of sites
         # Nk    : number of samples per site
