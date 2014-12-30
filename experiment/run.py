@@ -56,7 +56,7 @@ SEED = 1            # Use SEED = None for random seed
 # ====== Data size =============================================================
 J = 50              # Number of groups
 K = 50              # Number of inputs
-NPG = 50            # Number of observations per group
+NPG = 20            # Number of observations per group
 
 # ====== Set parameters ========================================================
 # If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
@@ -69,7 +69,7 @@ SIGMA_B = 1
 # ====== Prior =================================================================
 # Prior for log(sigma_a)
 M0_A = 0
-V0_A = 2**2
+V0_A = 1**2
 # Prior for beta
 M0_B = 0
 V0_B = 1**2
@@ -162,7 +162,7 @@ def main(filename='res.npz'):
     options['tmp_fix_32bit'] = TMP_FIX_32BIT
 
     # Create the Master instance
-    dep_master = Master('site_model', X, y, group_sizes=Nj,
+    dep_master = Master('site_model', X, y, site_sizes=Nj,
                         prior=prior, **options)
 
     # Run the algorithm for `niter` iterations

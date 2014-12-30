@@ -109,13 +109,14 @@ class Worker(object):
         self.r = None
         
         # Data for stan model in method tilted
-        self.data = dict(N=X.shape[0],
-                         K=X.shape[1],
-                         X=X,
-                         y=y,
-                         mu_cavity=self.v,
-                         Sigma_cavity=self.M.T)
-                         # M transposed in order to get C-order
+        self.data = dict(
+            N=X.shape[0],
+            K=X.shape[1],
+            X=X,
+            y=y,
+            mu_cavity=self.v,
+            Sigma_cavity=self.M.T # M transposed in order to get C-order
+        )
         
         # Store other instance variables
         self.index = index
@@ -392,8 +393,8 @@ class Master(object):
     
     Parameters
     ----------
-    group_model : StanModel or string
-        Model for sampling from the tilted distribution of a group. Can be
+    site_model : StanModel or string
+        Model for sampling from the tilted distribution of a site. Can be
         provided either directly as a PyStan model instance or as filename
         string pointing to a pickled model or stan source code. The model has a
         restricted structure (see Notes).
@@ -410,25 +411,25 @@ class Master(object):
         Response variable data in an ndarray of shape (N,), where N is the
         number of observations (same N as for X).
     
-    group_ind, group_ind_ord, group_sizes : ndarray, optional
-        Arrays indicating which sample belong to which group. Providing one of
+    site_ind, site_ind_ord, site_sizes : ndarray, optional
+        Arrays indicating which sample belong to which site. Providing one of
         these keyword arguments is enough. If none of these are provided, a
         clustering is performed. Description of individual arguments:
-            group_ind     : Array of length N containing the group number
-                            (non-negative integer) of each point.
-            group_ind_ord : Similary as `group_ind` but the groups are in order,
-                            i.e. the samples are sorted.
-            group_sizes   : Array of size J, where J is the number og groups,
-                            indicating the number of samples in each group.
-                            When this argument is provided, the samples are
-                            assumed to be in order (similary as for argument
-                            `group_ind_ord`).
-        Providing `group_ind_ord` or `group_sizes` is preferable over
-        `group_ind` because then the data arrays `X` and `y` does not have to be
+            site_ind     : Array of length N containing the site number
+                           (non-negative integer) of each point.
+            site_ind_ord : Similary as `site_ind` but the sites are in order,
+                           i.e. the samples are sorted.
+            site_sizes   : Array of size J, where J is the number of sites,
+                           indicating the number of samples in each site.
+                           When this argument is provided, the samples are
+                           assumed to be in order (similary as for argument
+                           `site_ind_ord`).
+        Providing `site_ind_ord` or `site_sizes` is preferable over
+        `site_ind` because then the data arrays `X` and `y` does not have to be
         copied.
     
     dphi : int, optional
-        Number of parameters for the group model, i.e. the length of phi
+        Number of parameters for the site model, i.e. the length of phi
         (see Notes). Has to be given if prior is not provided.
     
     prior : dict, optional
@@ -443,22 +444,22 @@ class Master(object):
     Other parameters
     ----------------
     overwrite_model : bool, optional
-        If a string for `group_model` is provided, the model is compiled even
+        If a string for `site_model` is provided, the model is compiled even
         if a precompiled model is found (see util.load_stan).
     
     nchains : int, optional
-        The number of chains in the group_model mcmc sampling. Default is 4.
+        The number of chains in the site_model mcmc sampling. Default is 4.
     
     nsamp : int, optional
-        The number of samples in the group_model mcmc sampling. Default
+        The number of samples in the site_model mcmc sampling. Default
         is 1000.
     
     warmup : int, optional
         The number of samples to be discarded from the begining of each chain
-        in the group_model mcmc sampling. Default is nsamp//2.
+        in the site_model mcmc sampling. Default is nsamp//2.
     
     thin : int, optional
-        Thinning parameter for the group_model mcmc sampling. Default is 2.
+        Thinning parameter for the site_model mcmc sampling. Default is 2.
     
     seed : {None, int, RandomState}, optional
         The random seed used in the sampling. If not provided, a random seed is
@@ -487,7 +488,7 @@ class Master(object):
         below this value, the algorithm is stopped. Default is 1e-8.
     
     init_prev : bool, optional
-        Indicates if the last sample of each chain in the group mcmc sampling is
+        Indicates if the last sample of each chain in the site mcmc sampling is
         used as the starting point for the next iteration sampling. Default is
         True.
     
@@ -522,21 +523,21 @@ class Master(object):
     
     # List of constructor default keyword arguments
     DEFAULT_KWARGS = {
-        'group_ind'         : None,
-        'group_ind_ord'     : None,
-        'group_sizes'       : None,
-        'dphi'              : None,
-        'prior'             : None,
-        'df0'               : None,
-        'df0_exp_start'     : 0.6,
-        'df0_exp_end'       : 0.1,
-        'df0_exp_speed'     : 0.8,
-        'df_decay'          : 0.9,
-        'df_treshold'       : 1e-8,
-        'overwrite_model'   : False
+        'site_ind'         : None,
+        'site_ind_ord'     : None,
+        'site_sizes'       : None,
+        'dphi'             : None,
+        'prior'            : None,
+        'df0'              : None,
+        'df0_exp_start'    : 0.6,
+        'df0_exp_end'      : 0.1,
+        'df0_exp_speed'    : 0.8,
+        'df_decay'         : 0.9,
+        'df_treshold'      : 1e-8,
+        'overwrite_model'  : False
     }
     
-    def __init__(self, group_model, X, y, **kwargs):
+    def __init__(self, site_model, X, y, **kwargs):
         
         # Parse keyword arguments
         self.worker_options = {}
@@ -565,6 +566,7 @@ class Master(object):
             raise ValueError("Argument `X` should be two dimensional")
         self.N = X.shape[0]
         self.K = X.shape[1]
+        self.X = X
         
         # Validate y
         if len(y.shape) != 1:
@@ -573,43 +575,47 @@ class Master(object):
             raise ValueError("The shapes of `y` and `X` does not match")
         self.y = y
         
-        # Process group indices
-        # J      : number of groups
-        # Nj     : number of samples per group
-        # jj     : group index of each sample
+        # Process site indices
+        # J      : number of sites
+        # Nj     : number of samples per site
+        # jj     : site index of each sample
         # jj_lim : sample index limits
-        if not kwargs['group_sizes'] is None:
-            # Size of each group provided
-            self.Nj = kwargs['group_sizes']
+        if not kwargs['site_sizes'] is None:
+            # Size of each site provided
+            self.Nj = kwargs['site_sizes']
             self.J = len(self.Nj)
             self.jj_lim = np.concatenate(([0], np.cumsum(self.Nj)))
             self.jj = np.empty(self.N, dtype=np.int64)
             for j in xrange(self.J):
                 self.jj[self.jj_lim[j]:self.jj_lim[j+1]] = j
-            # Ensure that X is C contiguous
-            self.X = np.ascontiguousarray(X)
-        elif not kwargs['group_ind_ord'] is None:
-            # Sorted array of group indices provided
-            self.jj = kwargs['group_ind_ord']
+        elif not kwargs['site_ind_ord'] is None:
+            # Sorted array of site indices provided
+            self.jj = kwargs['site_ind_ord']
             self.Nj = np.bincount(self.jj)
             self.J = len(self.Nj)
             self.jj_lim = np.concatenate(([0], np.cumsum(self.Nj)))
-            # Ensure that X is C contiguous X
-            self.X = np.ascontiguousarray(X)
-        elif not kwargs['group_ind'] is None:
-            # Unsorted array of group indices provided
-            jj = kwargs['group_ind']
+        elif not kwargs['site_ind'] is None:
+            # Unsorted array of site indices provided
+            jj = kwargs['site_ind']
             jj_sort = jj.argsort(kind='mergesort') # Stable sort
             self.jj = jj[jj_sort]
             self.Nj = np.bincount(self.jj)
             self.J = len(self.Nj)
             self.jj_lim = np.concatenate(([0], np.cumsum(self.Nj)))
-            # Copy X to a new sorted array
-            self.X = X[jj_sort]
+            # Copy X and y to a new sorted array
+            self.X = self.X[jj_sort]
+            self.y = self.y[jj_sort]
         else:
-            raise NotImplementedError('Auto clustering not yet implemented')
+            raise NotImplementedError("Auto clustering not yet implemented")
         if self.jj_lim[-1] != self.N:
-            raise ValueError("Group definition does not match with `X`")
+            raise ValueError("Site definition does not match with `X`")
+        if np.any(self.Nj == 0):
+            raise ValueError("Empty sites: {}. Index the sites from 1 to J-1"
+                             .format(np.nonzero(self.Nj==0)[0]))
+        
+        # Ensure that X and y are C contiguous
+        self.X = np.ascontiguousarray(self.X)
+        self.y = np.ascontiguousarray(self.y)
         
         # Initialise prior
         prior = kwargs['prior']
@@ -660,12 +666,12 @@ class Master(object):
             self.df0 = kwargs['df0']
         
         # Get Stan model
-        if isinstance(group_model, basestring):
+        if isinstance(site_model, basestring):
             # From file
-            self.group_model = load_stan(group_model,
+            self.site_model = load_stan(site_model,
                                          overwrite=kwargs['overwrite_model'])
         else:
-            self.group_model = group_model
+            self.site_model = site_model
         
         # Process seed in worker options
         if not isinstance(self.worker_options['seed'], np.random.RandomState):
@@ -676,7 +682,7 @@ class Master(object):
         self.workers = tuple(
             Worker(
                 j,
-                self.group_model,
+                self.site_model,
                 self.dphi,
                 X[self.jj_lim[j]:self.jj_lim[j+1],:],
                 y[self.jj_lim[j]:self.jj_lim[j+1]],
