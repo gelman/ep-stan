@@ -35,16 +35,16 @@ class Worker(object):
         The index of this site
     
     stan_model : StanModel
-        The StanModel instance responsible for the mcmc sampling.
+        The StanModel instance responsible for the MCMC sampling.
     
     dphi : int
         The length of the parameter vector phi.
     
-    X : ndarray
-        The C contiguous part of the explanatory variable.
+    X, y: ndarray
+        The data included in this site.
     
-    y : ndarray
-        Part of the response variable.
+    A : dict, optional
+        Additional data included in this site.
     
     Other parameters
     ----------------
@@ -68,7 +68,7 @@ class Worker(object):
         'seed'          : None
     }
     
-    def __init__(self, index, stan_model, dphi, X, y, **options):
+    def __init__(self, index, stan_model, dphi, X, y, A={}, **options):
         
         # Parse options
         # Set missing options to defaults
@@ -115,7 +115,8 @@ class Worker(object):
             X=X,
             y=y,
             mu_cavity=self.v,
-            Sigma_cavity=self.M.T # M transposed in order to get C-order
+            Sigma_cavity=self.M.T,  # M transposed in order to get C-order
+            **A
         )
         
         # Store other instance variables
@@ -411,6 +412,18 @@ class Master(object):
         Response variable data in an ndarray of shape (N,), where N is the
         number of observations (same N as for X).
     
+    A : dict, optional
+        Additional data for the site model. The keys in the dict are the names
+        of the variables and the values are the coresponding objects e.g.
+        integers or ndarrays. These arrays are distributed as a whole for each
+        site (different to `X` and `y`). Can be omitted.
+    
+    A_n : dict, optional
+        Additional sliced data arrays provided for the site model. The keys in
+        the dict are the names of the variables and the values are the
+        coresponding ndarrays of size (N, ...). These arrays are sliced for each
+        site (similary as `X` and `y`). Can be omitted.
+    
     site_ind, site_ind_ord, site_sizes : ndarray, optional
         Arrays indicating which sample belong to which site. Providing one of
         these keyword arguments is enough. If none of these are provided, a
@@ -523,6 +536,8 @@ class Master(object):
     
     # List of constructor default keyword arguments
     DEFAULT_KWARGS = {
+        'A'                : {},
+        'A_n'              : {},
         'site_ind'         : None,
         'site_ind_ord'     : None,
         'site_sizes'       : None,
@@ -573,7 +588,28 @@ class Master(object):
             raise ValueError("Argument `y` should be one dimensional")
         if y.shape[0] != self.N:
             raise ValueError("The shapes of `y` and `X` does not match")
-        self.y = y
+        self.y = y        
+        
+        # Process A
+        self.A = kwargs['A']
+        # Check for name clashes
+        for key in self.A.iterkeys():
+            if key in ['X', 'y', 'N', 'K', 'mu_cavity', 'Sigma_cavity']:
+                raise ValueError("Additional data name {} clashes.".format(key))
+        # Process A_n
+        self.A_n = kwargs['A_n'].copy()
+        for (key, val) in kwargs['A_n'].iteritems():
+            if val.shape[0] != self.N:
+                raise ValueError("The shapes of `A_n[{}]` and `X` does not "
+                                 "match".format(repr(key)))
+            # Check for name clashes
+            if (    key in ['X', 'y', 'N', 'K', 'mu_cavity', 'Sigma_cavity']
+                 or key in self.A
+               ):
+                raise ValueError("Additional data name {} clashes.".format(key))
+            # Ensure C-contiguous
+            if not val.flags['CARRAY']:
+                self.A_n[key] = np.ascontiguousarray(val)
         
         # Process site indices
         # J      : number of sites
@@ -612,6 +648,9 @@ class Master(object):
         if np.any(self.Nj == 0):
             raise ValueError("Empty sites: {}. Index the sites from 1 to J-1"
                              .format(np.nonzero(self.Nj==0)[0]))
+        if self.J < 2:
+            raise ValueError("Distributed EP should be run with at least "
+                             "two sites.")
         
         # Ensure that X and y are C contiguous
         self.X = np.ascontiguousarray(self.X)
@@ -679,17 +718,22 @@ class Master(object):
                 np.random.RandomState(seed=self.worker_options['seed'])
         
         # Initialise the workers
-        self.workers = tuple(
-            Worker(
-                j,
-                self.site_model,
-                self.dphi,
-                X[self.jj_lim[j]:self.jj_lim[j+1],:],
-                y[self.jj_lim[j]:self.jj_lim[j+1]],
-                **self.worker_options
+        self.workers = []
+        for j in xrange(self.J):
+            A = dict((key, val[self.jj_lim[j]:self.jj_lim[j+1]])
+                     for (key, val) in self.A_n.iteritems())
+            A.update(self.A)
+            self.workers.append(
+                Worker(
+                    j,
+                    self.site_model,
+                    self.dphi,
+                    X[self.jj_lim[j]:self.jj_lim[j+1]],
+                    y[self.jj_lim[j]:self.jj_lim[j+1]],
+                    A=A,
+                    **self.worker_options
+                )
             )
-            for j in xrange(self.J)
-        )
         
         # Allocate space for calculations
         # Mean and cov of the approximation
