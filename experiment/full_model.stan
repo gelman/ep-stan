@@ -7,16 +7,16 @@
 
 data {
     int<lower=0> N;
-    int<lower=0> K;
+    int<lower=0> D;
     int<lower=0> J;
-    matrix[N,K] X;
+    matrix[N,D] X;
     int<lower=0,upper=1> y[N];
     int<lower=1,upper=J> jj[N];
-    vector[K+1] mu_prior;
-    cov_matrix[K+1] Sigma_prior;
+    vector[D+1] mu_prior;
+    cov_matrix[D+1] Sigma_prior;
 }
 parameters {
-    vector[K+1] phi;
+    vector[D+1] phi;
     vector[J] eta;
 }
 transformed parameters {
@@ -27,10 +27,10 @@ transformed parameters {
 }
 model {
     vector[N] f;
-    vector[K] beta;
+    vector[D] beta;
     eta ~ normal(0, 1);
     phi ~ multi_normal(mu_prior, Sigma_prior);
-    beta <- tail(phi, K);
+    beta <- tail(phi, D);
     for (n in 1:N){
         f[n] <- alpha[jj[n]] + X[n]*beta;
     }

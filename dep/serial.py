@@ -91,9 +91,9 @@ class Worker(object):
         # After calling the method cavity, these arrays hold the moment
         # parameters of the cavity distribution, and after calling the method
         # tilted, these hold the moment parameters of the tilted distributions.
-        self.M = np.empty((dphi,dphi), order='F')
-        self.v = np.empty(dphi)
-        # The instance variable self.phase indicates if self.M and self.v
+        self.Mat = np.empty((dphi,dphi), order='F')
+        self.vec = np.empty(dphi)
+        # The instance variable self.phase indicates if self.Mat and self.vec
         # contains the cavity or tilted distribution parameters:
         #     0: neither
         #     1: cavity
@@ -101,7 +101,7 @@ class Worker(object):
         self.phase = 0
         # In the case of tilted distribution, the instance variable self.nsamp
         # indicates how many samples has contributed into the unnormalised
-        # covariance matrix in self.M
+        # covariance matrix in self.Mat
         self.nsamp = None
         
         # Current iteration global approximations
@@ -111,11 +111,11 @@ class Worker(object):
         # Data for stan model in method tilted
         self.data = dict(
             N=X.shape[0],
-            K=X.shape[1],
+            D=X.shape[1],
             X=X,
             y=y,
-            mu_cavity=self.v,
-            Sigma_cavity=self.M.T,  # M transposed in order to get C-order
+            mu_cavity=self.vec,
+            Sigma_cavity=self.Mat.T,  # Mat transposed in order to get C-order
             **A
         )
         
@@ -183,12 +183,12 @@ class Worker(object):
         
         self.Q = Q
         self.r = r
-        np.subtract(self.Q, Qi, out=self.M)
-        np.subtract(self.r, ri, out=self.v)
+        np.subtract(self.Q, Qi, out=self.Mat)
+        np.subtract(self.r, ri, out=self.vec)
         
         # Convert to mean-cov parameters for Stan
         try:
-            invert_normal_params(self.M, self.v,
+            invert_normal_params(self.Mat, self.vec,
                                  out_A='in_place', out_b='in_place')
         except linalg.LinAlgError:
             # Not positive definite
@@ -207,8 +207,8 @@ class Worker(object):
         distribution has to be calculated before this method is called, i.e. the
         method cavity has to be run before this.
         
-        After calling this method the instance variables self.M and self.v hold
-        the tilted distribution moment parameters (note however that the
+        After calling this method the instance variables self.Mat and self.vec
+        hold the tilted distribution moment parameters (note however that the
         covariance matrix is unnormalised and the number of samples contributing
         to this matrix is stored in the instance variable self.nsamp).
         
@@ -255,8 +255,8 @@ class Worker(object):
         del fit
         
         # Assign arrays
-        St = self.M
-        mt = self.v
+        St = self.Mat
+        mt = self.vec
         
         # Sample mean and covariance
         np.mean(samp, 0, out=mt)
@@ -309,8 +309,8 @@ class Worker(object):
     def apply_smooth(self, nsamp, temp_v, temp_M):
         """Memorise and combine previous St and mt."""
         
-        St = self.M
-        mt = self.v
+        St = self.Mat
+        mt = self.vec
         
         if self.prev_stored < 0:
             # Skip some first iterations ... no smoothing yet
@@ -378,10 +378,10 @@ class Worker(object):
             # Redirect other pointers in the object
             self.prev_M = temp_M2
             self.prev_v = temp_v2
-            self.M = St_new
-            self.v = mt_new
-            self.data['mu_cavity'] = self.v
-            self.data['Sigma_cavity'] = self.M.T                
+            self.Mat = St_new
+            self.vec = mt_new
+            self.data['mu_cavity'] = self.vec
+            self.data['Sigma_cavity'] = self.Mat.T                
             
             if self.prev_stored < len(self.smooth):
                 self.prev_stored += 1
@@ -401,8 +401,8 @@ class Master(object):
         restricted structure (see Notes).
     
     X : ndarray
-        Explanatory variable data in an ndarray of shape (N,K), where N is the
-        number of observations and K is the number of variables. `X` should be
+        Explanatory variable data in an ndarray of shape (N,D), where N is the
+        number of observations and D is the number of variables. `X` should be
         C contiguous (copy made if not). N.B. `X` can not be one dimensional
         because then it would not be possible to know, if the data has one
         variables and many observations or many variables and one observation,
@@ -432,7 +432,7 @@ class Master(object):
                            (non-negative integer) of each point.
             site_ind_ord : Similary as `site_ind` but the sites are in order,
                            i.e. the samples are sorted.
-            site_sizes   : Array of size J, where J is the number of sites,
+            site_sizes   : Array of size K, where K is the number of sites,
                            indicating the number of samples in each site.
                            When this argument is provided, the samples are
                            assumed to be in order (similary as for argument
@@ -580,7 +580,7 @@ class Master(object):
         if len(X.shape) != 2:
             raise ValueError("Argument `X` should be two dimensional")
         self.N = X.shape[0]
-        self.K = X.shape[1]
+        self.D = X.shape[1]
         self.X = X
         
         # Validate y
@@ -594,7 +594,7 @@ class Master(object):
         self.A = kwargs['A']
         # Check for name clashes
         for key in self.A.iterkeys():
-            if key in ['X', 'y', 'N', 'K', 'mu_cavity', 'Sigma_cavity']:
+            if key in ['X', 'y', 'N', 'D', 'mu_cavity', 'Sigma_cavity']:
                 raise ValueError("Additional data name {} clashes.".format(key))
         # Process A_n
         self.A_n = kwargs['A_n'].copy()
@@ -603,7 +603,7 @@ class Master(object):
                 raise ValueError("The shapes of `A_n[{}]` and `X` does not "
                                  "match".format(repr(key)))
             # Check for name clashes
-            if (    key in ['X', 'y', 'N', 'K', 'mu_cavity', 'Sigma_cavity']
+            if (    key in ['X', 'y', 'N', 'D', 'mu_cavity', 'Sigma_cavity']
                  or key in self.A
                ):
                 raise ValueError("Additional data name {} clashes.".format(key))
@@ -612,43 +612,43 @@ class Master(object):
                 self.A_n[key] = np.ascontiguousarray(val)
         
         # Process site indices
-        # J      : number of sites
-        # Nj     : number of samples per site
-        # jj     : site index of each sample
-        # jj_lim : sample index limits
+        # K     : number of sites
+        # Nk    : number of samples per site
+        # k_ind : site index of each sample
+        # k_lim : sample index limits
         if not kwargs['site_sizes'] is None:
             # Size of each site provided
-            self.Nj = kwargs['site_sizes']
-            self.J = len(self.Nj)
-            self.jj_lim = np.concatenate(([0], np.cumsum(self.Nj)))
-            self.jj = np.empty(self.N, dtype=np.int64)
-            for j in xrange(self.J):
-                self.jj[self.jj_lim[j]:self.jj_lim[j+1]] = j
+            self.Nk = kwargs['site_sizes']
+            self.K = len(self.Nk)
+            self.k_lim = np.concatenate(([0], np.cumsum(self.Nk)))
+            self.k_ind = np.empty(self.N, dtype=np.int64)
+            for k in xrange(self.K):
+                self.k_ind[self.k_lim[k]:self.k_lim[k+1]] = k
         elif not kwargs['site_ind_ord'] is None:
             # Sorted array of site indices provided
-            self.jj = kwargs['site_ind_ord']
-            self.Nj = np.bincount(self.jj)
-            self.J = len(self.Nj)
-            self.jj_lim = np.concatenate(([0], np.cumsum(self.Nj)))
+            self.k_ind = kwargs['site_ind_ord']
+            self.Nk = np.bincount(self.k_ind)
+            self.K = len(self.Nk)
+            self.k_lim = np.concatenate(([0], np.cumsum(self.Nk)))
         elif not kwargs['site_ind'] is None:
             # Unsorted array of site indices provided
-            jj = kwargs['site_ind']
-            jj_sort = jj.argsort(kind='mergesort') # Stable sort
-            self.jj = jj[jj_sort]
-            self.Nj = np.bincount(self.jj)
-            self.J = len(self.Nj)
-            self.jj_lim = np.concatenate(([0], np.cumsum(self.Nj)))
+            k_ind = kwargs['site_ind']
+            k_sort = k_ind.argsort(kind='mergesort') # Stable sort
+            self.k_ind = k_ind[k_sort]
+            self.Nk = np.bincount(self.k_ind)
+            self.K = len(self.Nk)
+            self.k_lim = np.concatenate(([0], np.cumsum(self.Nk)))
             # Copy X and y to a new sorted array
-            self.X = self.X[jj_sort]
-            self.y = self.y[jj_sort]
+            self.X = self.X[k_sort]
+            self.y = self.y[k_sort]
         else:
             raise NotImplementedError("Auto clustering not yet implemented")
-        if self.jj_lim[-1] != self.N:
+        if self.k_lim[-1] != self.N:
             raise ValueError("Site definition does not match with `X`")
-        if np.any(self.Nj == 0):
-            raise ValueError("Empty sites: {}. Index the sites from 1 to J-1"
-                             .format(np.nonzero(self.Nj==0)[0]))
-        if self.J < 2:
+        if np.any(self.Nk == 0):
+            raise ValueError("Empty sites: {}. Index the sites from 1 to K-1"
+                             .format(np.nonzero(self.Nk==0)[0]))
+        if self.K < 2:
             raise ValueError("Distributed EP should be run with at least "
                              "two sites.")
         
@@ -719,17 +719,17 @@ class Master(object):
         
         # Initialise the workers
         self.workers = []
-        for j in xrange(self.J):
-            A = dict((key, val[self.jj_lim[j]:self.jj_lim[j+1]])
+        for k in xrange(self.K):
+            A = dict((key, val[self.k_lim[k]:self.k_lim[k+1]])
                      for (key, val) in self.A_n.iteritems())
             A.update(self.A)
             self.workers.append(
                 Worker(
-                    j,
+                    k,
                     self.site_model,
                     self.dphi,
-                    X[self.jj_lim[j]:self.jj_lim[j+1]],
-                    y[self.jj_lim[j]:self.jj_lim[j+1]],
+                    X[self.k_lim[k]:self.k_lim[k+1]],
+                    y[self.k_lim[k]:self.k_lim[k+1]],
                     A=A,
                     **self.worker_options
                 )
@@ -743,14 +743,14 @@ class Master(object):
         self.Q = self.Q0.copy(order='F')
         self.r = self.r0.copy()
         # Natural site parameters
-        self.Qi = np.zeros((self.dphi,self.dphi,self.J), order='F')
-        self.ri = np.zeros((self.dphi,self.J), order='F')
+        self.Qi = np.zeros((self.dphi,self.dphi,self.K), order='F')
+        self.ri = np.zeros((self.dphi,self.K), order='F')
         # Natural site proposal parameters
-        self.Qi2 = np.zeros((self.dphi,self.dphi,self.J), order='F')
-        self.ri2 = np.zeros((self.dphi,self.J), order='F')
+        self.Qi2 = np.zeros((self.dphi,self.dphi,self.K), order='F')
+        self.ri2 = np.zeros((self.dphi,self.K), order='F')
         # Site parameter updates
-        self.dQi = np.zeros((self.dphi,self.dphi,self.J), order='F')
-        self.dri = np.zeros((self.dphi,self.J), order='F')
+        self.dQi = np.zeros((self.dphi,self.dphi,self.K), order='F')
+        self.dri = np.zeros((self.dphi,self.K), order='F')
         
         # Track iterations
         self.iter = 0
@@ -798,7 +798,7 @@ class Master(object):
         dri = self.dri
         
         # Array for positive definitness checking of each cavity distribution
-        posdefs = np.empty(self.J, dtype=bool)
+        posdefs = np.empty(self.K, dtype=bool)
         
         if calc_moments:
             # Allocate memory for results
@@ -851,11 +851,11 @@ class Master(object):
                 # Cavity distributions (parallelisable)
                 # -------------------------------
                 # Check positive definitness for each cavity distribution
-                for j in xrange(self.J):
-                    posdefs[j] = \
-                        self.workers[j].cavity(Q, r, Qi2[:,:,j], ri2[:,j])
+                for k in xrange(self.K):
+                    posdefs[k] = \
+                        self.workers[k].cavity(Q, r, Qi2[:,:,k], ri2[:,k])
                     # Early stopping criterion (when in serial)
-                    if not posdefs[j]:
+                    if not posdefs[k]:
                         break
                 
                 if np.all(posdefs):
@@ -899,8 +899,8 @@ class Master(object):
             
             # Tilted distributions (parallelisable)
             # -------------------------------
-            for j in xrange(self.J):
-                posdefs[j] = self.workers[j].tilted(dQi[:,:,j], dri[:,j])
+            for k in xrange(self.K):
+                posdefs[k] = self.workers[k].tilted(dQi[:,:,k], dri[:,k])
             if verbose and not np.all(posdefs):
                 print 'Neg.def. tilted in site(s) {}.' \
                       .format(np.nonzero(~posdefs)[0])
@@ -942,24 +942,24 @@ class Master(object):
         temp_v = np.empty(self.dphi)
         
         # Combine mt from every site
-        np.copyto(out_m, self.workers[0].v)
-        for j in xrange(1,self.J):
-            out_m += self.workers[j].v
-        out_m /= self.J
+        np.copyto(out_m, self.workers[0].vec)
+        for k in xrange(1,self.K):
+            out_m += self.workers[k].vec
+        out_m /= self.K
         
         # Combine St from every site
-        np.subtract(self.workers[0].v, out_m, out = temp_v)
+        np.subtract(self.workers[0].vec, out_m, out = temp_v)
         np.multiply(temp_v[:,np.newaxis], temp_v, out=out_S)
         out_S *= self.workers[0].nsamp
-        for j in xrange(1,self.J):
-            np.subtract(self.workers[j].v, out_m, out = temp_v)
+        for k in xrange(1,self.K):
+            np.subtract(self.workers[k].vec, out_m, out = temp_v)
             np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
-            temp_M *= self.workers[j].nsamp
+            temp_M *= self.workers[k].nsamp
             out_S += temp_M
         nsamp_tot = 0
-        for j in xrange(self.J):
-            out_S += self.workers[j].M
-            nsamp_tot += self.workers[j].nsamp
+        for k in xrange(self.K):
+            out_S += self.workers[k].Mat
+            nsamp_tot += self.workers[k].nsamp
         out_S /= nsamp_tot - 1
         
         return out_S, out_m
