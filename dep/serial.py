@@ -418,6 +418,12 @@ class Master(object):
         integers or ndarrays. These arrays are distributed as a whole for each
         site (different to `X` and `y`). Can be omitted.
     
+    A_k : dict, optional
+        Additional data for the site model. The keys in the dict are the names
+        of the variables and the values are lists of coresponding objects. The
+        first element of the lists are distributed to the first site etc. The
+        length of the lists has to be equal to the number of sites.
+    
     A_n : dict, optional
         Additional sliced data arrays provided for the site model. The keys in
         the dict are the names of the variables and the values are the
@@ -538,6 +544,7 @@ class Master(object):
     DEFAULT_KWARGS = {
         'A'                : {},
         'A_n'              : {},
+        'A_k'              : {},
         'site_ind'         : None,
         'site_ind_ord'     : None,
         'site_sizes'       : None,
@@ -610,7 +617,21 @@ class Master(object):
             # Ensure C-contiguous
             if not val.flags['CARRAY']:
                 self.A_n[key] = np.ascontiguousarray(val)
-        
+        # Process A_k
+        self.A_k = kwargs['A_k']
+        for (key, val) in self.A_k.iteritems():
+            # Check list length
+            if len(val) != self.K:
+                raise ValueError("List length mismatch in `A_k` "
+                                 "(should be: {}, found: {})"
+                                 .format(self.K, len(val)))
+            # Check for name clashes
+            if (    key in ['X', 'y', 'N', 'D', 'mu_cavity', 'Sigma_cavity']
+                 or key in self.A
+                 or key in self.A_n
+               ):
+                raise ValueError("Additional data name {} clashes.".format(key))
+            
         # Process site indices
         # K     : number of sites
         # Nk    : number of samples per site
@@ -723,6 +744,8 @@ class Master(object):
             A = dict((key, val[self.k_lim[k]:self.k_lim[k+1]])
                      for (key, val) in self.A_n.iteritems())
             A.update(self.A)
+            for (key, val) in self.A_k.iteritems():
+                A[key] = val[k]
             self.workers.append(
                 Worker(
                     k,
