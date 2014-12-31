@@ -933,10 +933,6 @@ class Master(object):
                 print 'Iter {} done, max var in the posterior: {}' \
                       .format(self.iter, np.max(var_phi_s[cur_iter]))
             
-            if cur_iter == 1:
-                print "See the change e.g. in the second element of dQi[0,0,:]:"
-                print dQi[0,0,:]
-            
         if calc_moments:
             return m_phi_s, var_phi_s
     

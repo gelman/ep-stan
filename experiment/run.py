@@ -54,10 +54,10 @@ from dep.util import load_stan, suppress_stdout
 SEED = 1            # Use SEED = None for random seed
 
 # ====== Data size =============================================================
-J = 5              # Number of hierarchical groups
-D = 5              # Number of inputs
+J = 50              # Number of hierarchical groups
+D = 50              # Number of inputs
 NPG = 50            # Number of observations per group
-K = 5              # Number of sites
+K = 50              # Number of sites
 
 # ====== Set parameters ========================================================
 # If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
@@ -82,19 +82,19 @@ WARMUP = 400
 THIN = 2
 
 # ====== Number of EP iterations ===============================================
-EP_ITER = 4
+EP_ITER = 6
 
 # ====== 32bit Python ? ========================================================
 # Temp fix for the RandomState seed problem with pystan in 32bit Python. Set
 # the following to True if using 32bit Python.
-TMP_FIX_32BIT = True
+TMP_FIX_32BIT = False
 
 # ------------------------------------------------------------------------------
 #               Configurations end
 # ------------------------------------------------------------------------------
 
 
-def main(turn='1'):
+def main(filename='res.npz'):
     
     # Set seed
     rand_state = np.random.RandomState(seed=SEED)
@@ -166,28 +166,39 @@ def main(turn='1'):
     options['tmp_fix_32bit'] = TMP_FIX_32BIT
     
     model = None
-    
-    # ==========================================================================
-    # Run with this
-    # ==========================================================================
-    if turn == '1':
+    if K < 2:
+        raise ValueError("K should be at least 2.")
+    elif K < J:
         # Distribute J groups to K sites
+        # Indexes of the groups for each site
+        js_k = tuple(
+            np.arange((J//K+1)*k, (J//K+1)*(k+1))
+            if k < J%K else
+            np.arange(J//K*k, J//K*(k+1)) + J%K
+            for k in xrange(K)
+        )
+        Nj_k = np.empty(K, dtype=np.int64)  # Number of groups for each site
+        Ns_k = np.empty(K, dtype=np.int64)  # Number of samples for each site
+        j_ind_k = j_ind.copy()              # Within site group index
+        for k in xrange(K):
+            js = js_k[k]
+            Nj_k[k] = len(js)
+            Ns_k[k] = Nj[js[0]:js[-1]+1].sum()
+            j_ind_k[j_lim[js[0]]:j_lim[js[-1]+1]] -= js[0]
+        
         # Create the Master instance
-        # model = load_stan('model')
+        model = load_stan('model')
         dep_master = Master(
-            'model',
+            model,
             X,
             y,
-            A_k={'J':np.ones(K, dtype=np.int64)},
-            A_n={'j_ind':np.ones(N, dtype=np.int64)},
-            site_sizes=Nj,
+            A_k={'J':Nj_k},
+            A_n={'j_ind':j_ind_k+1},
+            site_sizes=Ns_k,
             prior=prior,
             **options
         )
-    # ==========================================================================
-    # Then with this (should get identical results)
-    # ==========================================================================
-    else:
+    elif K == J:
         # One group per site
         # Create the Master instance
         model_single_group = load_stan('model_single_group')
@@ -199,62 +210,8 @@ def main(turn='1'):
             prior=prior,
             **options
         )
-    # ==========================================================================
-    # Hmm ????
-    # Site index 1 calculates differently on the consecutive runs in the second
-    # iteration. See the change e.g. in the second element of dQi[0,0,:]:
-    # [ 1.73251098  1.82737828  0.69253024 -0.23355211 -0.0384188 ]
-    # [ 1.73251098  1.5379317   0.69253024 -0.23355211 -0.0384188 ] # Real
-    # ==========================================================================
-    
-    
-    
-#    if K < 2:
-#        raise ValueError("K should be at least 2.")
-#    elif K < J:
-#        # Distribute J groups to K sites
-#        # Indexes of the groups for each site
-#        js_k = tuple(
-#            np.arange((J//K+1)*k, (J//K+1)*(k+1))
-#            if k < J%K else
-#            np.arange(J//K*k, J//K*(k+1)) + J%K
-#            for k in xrange(K)
-#        )
-#        Nj_k = np.empty(K, dtype=np.int64)  # Number of groups for each site
-#        Ns_k = np.empty(K, dtype=np.int64)  # Number of samples for each site
-#        j_ind_k = j_ind.copy()              # Within site group index
-#        for k in xrange(K):
-#            js = js_k[k]
-#            Nj_k[k] = len(js)
-#            Ns_k[k] = Nj[js[0]:js[-1]+1].sum()
-#            j_ind_k[j_lim[js[0]]:j_lim[js[-1]+1]] -= js[0]
-#        
-#        # Create the Master instance
-#        model = load_stan('model')
-#        dep_master = Master(
-#            model,
-#            X,
-#            y,
-#            A_k={'J':Nj_k},
-#            A_n={'j_ind':j_ind_k+1},
-#            site_sizes=Ns_k,
-#            prior=prior,
-#            **options
-#        )
-#    elif K == J:
-#        # One group per site
-#        # Create the Master instance
-#        model_single_group = load_stan('model_single_group')
-#        dep_master = Master(
-#            model_single_group,
-#            X,
-#            y,
-#            site_sizes=Nj,
-#            prior=prior,
-#            **options
-#        )
-#    else:
-#        raise NotImplementedError("More sites than groups not yet implemented")
+    else:
+        raise NotImplementedError("More sites than groups not yet implemented")
     
     # Run the algorithm for `EP_ITER` iterations
     print "Run distributed EP algorithm for {} iterations.".format(EP_ITER)
@@ -270,59 +227,59 @@ def main(turn='1'):
     #     Full model
     # ------------------------------------------------------
     
-#    print "Full model..."
-#    
-#    data = dict(
-#        N=N,
-#        D=D,
-#        J=J,
-#        X=X,
-#        y=y,
-#        j_ind=j_ind+1,
-#        mu_phi=r0,
-#        Sigma_phi=S0.T    # S0 transposed in order to get C-contiguous
-#    )
-#    if model is None:
-#        model = load_stan('model')
-#    with suppress_stdout():
-#        fit = model.sampling(
-#            data=data,
-#            seed=(rand_state.randint(2**31-1) if TMP_FIX_32BIT else rand_state),
-#            chains=4,
-#            iter=1000,
-#            warmup=500,
-#            thin=2
-#        )
-#    samp = fit.extract(pars='phi')['phi']
-#    m_phi_full = samp.mean(axis=0)
-#    var_phi_full = samp.var(axis=0, ddof=1)
-#    
-#    print "Full model sampled."
-#    
-#    # ------------------------------------------------------
-#    #     Save results
-#    # ------------------------------------------------------
-#    
-#    np.savez(filename,
-#        seed=SEED,
-#        J=J,
-#        Nj=Nj,
-#        N=N,
-#        D=D,
-#        dphi=dphi,
-#        niter=EP_ITER,
-#        m0_a=M0_A,
-#        V0_a=V0_A,
-#        m0_b=M0_B,
-#        V0_b=V0_B,
-#        phi_true=phi_true,
-#        m_phi=m_phi,
-#        var_phi=var_phi,
-#        m_mix=m_mix,
-#        var_mix=var_mix,
-#        m_phi_full=m_phi_full,
-#        var_phi_full=var_phi_full
-#    )
+    print "Full model..."
+    
+    data = dict(
+        N=N,
+        D=D,
+        J=J,
+        X=X,
+        y=y,
+        j_ind=j_ind+1,
+        mu_phi=r0,
+        Sigma_phi=S0.T    # S0 transposed in order to get C-contiguous
+    )
+    if model is None:
+        model = load_stan('model')
+    with suppress_stdout():
+        fit = model.sampling(
+            data=data,
+            seed=(rand_state.randint(2**31-1) if TMP_FIX_32BIT else rand_state),
+            chains=4,
+            iter=1000,
+            warmup=500,
+            thin=2
+        )
+    samp = fit.extract(pars='phi')['phi']
+    m_phi_full = samp.mean(axis=0)
+    var_phi_full = samp.var(axis=0, ddof=1)
+    
+    print "Full model sampled."
+    
+    # ------------------------------------------------------
+    #     Save results
+    # ------------------------------------------------------
+    
+    np.savez(filename,
+        seed=SEED,
+        J=J,
+        Nj=Nj,
+        N=N,
+        D=D,
+        dphi=dphi,
+        niter=EP_ITER,
+        m0_a=M0_A,
+        V0_a=V0_A,
+        m0_b=M0_B,
+        V0_b=V0_B,
+        phi_true=phi_true,
+        m_phi=m_phi,
+        var_phi=var_phi,
+        m_mix=m_mix,
+        var_mix=var_mix,
+        m_phi_full=m_phi_full,
+        var_phi_full=var_phi_full
+    )
 
 
 if __name__ == '__main__':

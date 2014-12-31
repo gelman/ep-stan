@@ -71,7 +71,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     if not out_A.flags.farray:
         # Convert from C-order to F-order by transposing (note symmetric)
         out_A = out_A.T
-        if not out_A.flags.farray:
+        if not out_A.flags['FARRAY']:
             raise ValueError('Provided array A is inappropriate')
     if not b is None:
         if out_b == 'in_place':
