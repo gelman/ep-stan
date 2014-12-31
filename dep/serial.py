@@ -114,8 +114,8 @@ class Worker(object):
             D=X.shape[1],
             X=X,
             y=y,
-            mu_cavity=self.vec,
-            Sigma_cavity=self.Mat.T,  # Mat transposed in order to get C-order
+            mu_phi=self.vec,
+            Sigma_phi=self.Mat.T,  # Mat transposed in order to get C-order
             **A
         )
         
@@ -380,8 +380,8 @@ class Worker(object):
             self.prev_v = temp_v2
             self.Mat = St_new
             self.vec = mt_new
-            self.data['mu_cavity'] = self.vec
-            self.data['Sigma_cavity'] = self.Mat.T                
+            self.data['mu_phi'] = self.vec
+            self.data['Sigma_phi'] = self.Mat.T                
             
             if self.prev_stored < len(self.smooth):
                 self.prev_stored += 1
@@ -596,42 +596,7 @@ class Master(object):
             raise ValueError("Argument `y` should be one dimensional")
         if y.shape[0] != self.N:
             raise ValueError("The shapes of `y` and `X` does not match")
-        self.y = y        
-        
-        # Process A
-        self.A = kwargs['A']
-        # Check for name clashes
-        for key in self.A.iterkeys():
-            if key in ['X', 'y', 'N', 'D', 'mu_cavity', 'Sigma_cavity']:
-                raise ValueError("Additional data name {} clashes.".format(key))
-        # Process A_n
-        self.A_n = kwargs['A_n'].copy()
-        for (key, val) in kwargs['A_n'].iteritems():
-            if val.shape[0] != self.N:
-                raise ValueError("The shapes of `A_n[{}]` and `X` does not "
-                                 "match".format(repr(key)))
-            # Check for name clashes
-            if (    key in ['X', 'y', 'N', 'D', 'mu_cavity', 'Sigma_cavity']
-                 or key in self.A
-               ):
-                raise ValueError("Additional data name {} clashes.".format(key))
-            # Ensure C-contiguous
-            if not val.flags['CARRAY']:
-                self.A_n[key] = np.ascontiguousarray(val)
-        # Process A_k
-        self.A_k = kwargs['A_k']
-        for (key, val) in self.A_k.iteritems():
-            # Check for length
-            if len(val) != self.K:
-                raise ValueError("Array-like length mismatch in `A_k` "
-                                 "(should be: {}, found: {})"
-                                 .format(self.K, len(val)))
-            # Check for name clashes
-            if (    key in ['X', 'y', 'N', 'D', 'mu_cavity', 'Sigma_cavity']
-                 or key in self.A
-                 or key in self.A_n
-               ):
-                raise ValueError("Additional data name {} clashes.".format(key))
+        self.y = y
         
         # Process site indices
         # K     : number of sites
@@ -677,6 +642,41 @@ class Master(object):
         # Ensure that X and y are C contiguous
         self.X = np.ascontiguousarray(self.X)
         self.y = np.ascontiguousarray(self.y)
+        
+        # Process A
+        self.A = kwargs['A']
+        # Check for name clashes
+        for key in self.A.iterkeys():
+            if key in ['X', 'y', 'N', 'D', 'mu_phi', 'Sigma_phi']:
+                raise ValueError("Additional data name {} clashes.".format(key))
+        # Process A_n
+        self.A_n = kwargs['A_n'].copy()
+        for (key, val) in kwargs['A_n'].iteritems():
+            if val.shape[0] != self.N:
+                raise ValueError("The shapes of `A_n[{}]` and `X` does not "
+                                 "match".format(repr(key)))
+            # Check for name clashes
+            if (    key in ['X', 'y', 'N', 'D', 'mu_phi', 'Sigma_phi']
+                 or key in self.A
+               ):
+                raise ValueError("Additional data name {} clashes.".format(key))
+            # Ensure C-contiguous
+            if not val.flags['CARRAY']:
+                self.A_n[key] = np.ascontiguousarray(val)
+        # Process A_k
+        self.A_k = kwargs['A_k']
+        for (key, val) in self.A_k.iteritems():
+            # Check for length
+            if len(val) != self.K:
+                raise ValueError("Array-like length mismatch in `A_k` "
+                                 "(should be: {}, found: {})"
+                                 .format(self.K, len(val)))
+            # Check for name clashes
+            if (    key in ['X', 'y', 'N', 'D', 'mu_phi', 'Sigma_phi']
+                 or key in self.A
+                 or key in self.A_n
+               ):
+                raise ValueError("Additional data name {} clashes.".format(key))
         
         # Initialise prior
         prior = kwargs['prior']
@@ -932,7 +932,11 @@ class Master(object):
             if verbose and calc_moments:
                 print 'Iter {} done, max var in the posterior: {}' \
                       .format(self.iter, np.max(var_phi_s[cur_iter]))
-        
+            
+            if cur_iter == 1:
+                print "See the change e.g. in the second element of dQi[0,0,:]:"
+                print dQi[0,0,:]
+            
         if calc_moments:
             return m_phi_s, var_phi_s
     

@@ -8,32 +8,24 @@
 data {
     int<lower=0> N;
     int<lower=0> D;
-    int<lower=0> J;
     matrix[N,D] X;
     int<lower=0,upper=1> y[N];
-    int<lower=1,upper=J> jj[N];
-    vector[D+1] mu_prior;
-    cov_matrix[D+1] Sigma_prior;
+    vector[D+1] mu_phi;
+    cov_matrix[D+1] Sigma_phi;
 }
 parameters {
     vector[D+1] phi;
-    vector[J] eta;
+    real eta;
 }
 transformed parameters {
-    vector[J] alpha;
+    real alpha;
     real<lower=0> sigma_a;
     sigma_a <- exp(phi[1]);
     alpha <- eta * sigma_a;
 }
 model {
-    vector[N] f;
-    vector[D] beta;
     eta ~ normal(0, 1);
-    phi ~ multi_normal(mu_prior, Sigma_prior);
-    beta <- tail(phi, D);
-    for (n in 1:N){
-        f[n] <- alpha[jj[n]] + X[n]*beta;
-    }
-    y ~ bernoulli_logit(f);
+    phi ~ multi_normal(mu_phi, Sigma_phi);
+    y ~ bernoulli_logit(alpha + X * tail(phi, D));
 }
 

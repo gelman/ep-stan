@@ -8,24 +8,31 @@
 data {
     int<lower=0> N;
     int<lower=0> D;
+    int<lower=0> J;
     matrix[N,D] X;
     int<lower=0,upper=1> y[N];
-    vector[D+1] mu_cavity;
-    cov_matrix[D+1] Sigma_cavity;
+    int<lower=1,upper=J> j_ind[N];
+    vector[D+1] mu_phi;
+    cov_matrix[D+1] Sigma_phi;
 }
 parameters {
     vector[D+1] phi;
-    real eta;
+    vector[J] eta;
 }
 transformed parameters {
-    real alpha;
+    vector[J] alpha;
     real<lower=0> sigma_a;
     sigma_a <- exp(phi[1]);
     alpha <- eta * sigma_a;
 }
 model {
+    vector[N] f;
     eta ~ normal(0, 1);
-    phi ~ multi_normal(mu_cavity, Sigma_cavity);
-    y ~ bernoulli_logit(alpha + X * tail(phi, D));
+    phi ~ multi_normal(mu_phi, Sigma_phi);
+    f <- X * tail(phi, D);
+    for (n in 1:N){
+        f[n] <- alpha[j_ind[n]] + f[n];
+    }
+    y ~ bernoulli_logit(f);
 }
 
