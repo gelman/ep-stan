@@ -57,7 +57,7 @@ SEED = 1            # Use SEED = None for random seed
 J = 50              # Number of hierarchical groups
 D = 50              # Number of inputs
 NPG = 50            # Number of observations per group
-K = 50              # Number of sites
+K = 60              # Number of sites
 
 # ====== Set parameters ========================================================
 # If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
@@ -104,7 +104,8 @@ def main(filename='res.npz'):
     # ------------------------------------------------------
     
     # Parameters
-    Nj = NPG*np.ones(J, dtype=np.int64)  # Number of observations for each group
+    #Nj = NPG*np.ones(J, dtype=np.int64)  # Number of observations for each group
+    Nj = rand_state.randint(NPG-10, NPG+11, size=J)
     N = np.sum(Nj)                       # Number of observations
     # Observation index limits for J groups
     j_lim = np.concatenate(([0], np.cumsum(Nj)))
@@ -169,7 +170,8 @@ def main(filename='res.npz'):
     if K < 2:
         raise ValueError("K should be at least 2.")
     elif K < J:
-        # Distribute J groups to K sites
+        # ---- Many groups per site ----
+        # Distribute and combine J groups to K sites
         # Indexes of the groups for each site
         js_k = tuple(
             np.arange((J//K+1)*k, (J//K+1)*(k+1))
@@ -185,7 +187,6 @@ def main(filename='res.npz'):
             Nj_k[k] = len(js)
             Ns_k[k] = Nj[js[0]:js[-1]+1].sum()
             j_ind_k[j_lim[js[0]]:j_lim[js[-1]+1]] -= js[0]
-        
         # Create the Master instance
         model = load_stan('model')
         dep_master = Master(
@@ -199,7 +200,7 @@ def main(filename='res.npz'):
             **options
         )
     elif K == J:
-        # One group per site
+        # ---- One group per site ----
         # Create the Master instance
         model_single_group = load_stan('model_single_group')
         dep_master = Master(
@@ -210,8 +211,38 @@ def main(filename='res.npz'):
             prior=prior,
             **options
         )
+    elif K <= N:
+        # ---- Multiple sites per group ----
+        # Distribute K sites to J groups and split the samples in each group
+        # accordingly. Works surely only if K%J < Nj for all groups.
+        Ns_k = np.empty(K, dtype=np.int64)  # Number of samples per site
+        for j in xrange(J):
+            if j < K%J:
+                for ki in xrange(K//J+1):
+                    k = ki + (K//J+1)*j
+                    if ki < Nj[j]%(K//J+1):
+                        Ns_k[k] = Nj[j]//(K//J+1)+1
+                    else:
+                        Ns_k[k] = Nj[j]//(K//J+1)
+            else:
+                for ki in xrange(K//J):
+                    k = ki + (K//J)*j + K%J
+                    if ki < Nj[j]%(K//J):
+                        Ns_k[k] = Nj[j]//(K//J)+1
+                    else:
+                        Ns_k[k] = Nj[j]//(K//J)
+        # Create the Master instance
+        model_single_group = load_stan('model_single_group')
+        dep_master = Master(
+            model_single_group,
+            X,
+            y,
+            site_sizes=Ns_k,
+            prior=prior,
+            **options
+        )
     else:
-        raise NotImplementedError("More sites than groups not yet implemented")
+        raise ValueError("K cant be greater than J*NPG")
     
     # Run the algorithm for `EP_ITER` iterations
     print "Run distributed EP algorithm for {} iterations.".format(EP_ITER)
