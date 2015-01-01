@@ -47,17 +47,19 @@ from dep.util import load_stan, suppress_stdout
 
 
 # ------------------------------------------------------------------------------
-#               Configurations start
+# >>>>>>>>>>>>> Configurations start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # ------------------------------------------------------------------------------
 
 # ====== Seed ==================================================================
-SEED = 1            # Use SEED = None for random seed
+# Use SEED = None for random seed
+SEED_DATA = 0   # Seed for simulating the data
+SEED_MCMC = 0   # Seed for the inference algorithms
 
 # ====== Data size =============================================================
 J = 50              # Number of hierarchical groups
 D = 50              # Number of inputs
-NPG = 50            # Number of observations per group
-K = 60              # Number of sites
+K = 22              # Number of sites
+NPG = [40,60]       # Number of observations per group (constant or [min, max])
 
 # ====== Set parameters ========================================================
 # If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
@@ -90,23 +92,27 @@ EP_ITER = 6
 TMP_FIX_32BIT = False
 
 # ------------------------------------------------------------------------------
-#               Configurations end
+# <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # ------------------------------------------------------------------------------
 
 
 def main(filename='res.npz'):
     
-    # Set seed
-    rand_state = np.random.RandomState(seed=SEED)
-    
     # ------------------------------------------------------
     #     Simulate data
     # ------------------------------------------------------
     
+    # Set seed
+    rnd_data = np.random.RandomState(seed=SEED_DATA)
+    
     # Parameters
-    #Nj = NPG*np.ones(J, dtype=np.int64)  # Number of observations for each group
-    Nj = rand_state.randint(NPG-10, NPG+11, size=J)
-    N = np.sum(Nj)                       # Number of observations
+    # Number of observations for each group
+    if hasattr(NPG, '__getitem__') and len(NPG) == 2:
+        Nj = rnd_data.randint(NPG[0],NPG[1]+1, size=J)
+    else:
+        Nj = NPG*np.ones(J, dtype=np.int64)
+    # Total number of observations
+    N = np.sum(Nj)
     # Observation index limits for J groups
     j_lim = np.concatenate(([0], np.cumsum(Nj)))
     # Group indices for each sample
@@ -116,24 +122,24 @@ def main(filename='res.npz'):
     
     # Assign fixed parameters
     if SIGMA_A is None:
-        sigma_a = np.exp(rand_state.randn()*SIGMA_AH)
+        sigma_a = np.exp(rnd_data.randn()*SIGMA_AH)
     else:
         sigma_a = SIGMA_A
     if BETA is None:
-        beta = rand_state.randn(D)*SIGMA_B
+        beta = rnd_data.randn(D)*SIGMA_B
     else:
         beta = BETA
     phi_true = np.append(np.log(sigma_a), beta)
     dphi = D+1  # Number of shared parameters
     
     # Simulate
-    alpha_j = rand_state.randn(J)*sigma_a
-    X = rand_state.randn(N,D)
+    alpha_j = rnd_data.randn(J)*sigma_a
+    X = rnd_data.randn(N,D)
     y = X.dot(beta)
     for j in range(J):
         y[j_lim[j]:j_lim[j+1]] += alpha_j[j]
     y = 1/(1+np.exp(-y))
-    y = (rand_state.rand(N) < y).astype(int)
+    y = (rnd_data.rand(N) < y).astype(int)
     
     # ------------------------------------------------------
     #     Prior
@@ -155,7 +161,7 @@ def main(filename='res.npz'):
     
     # Options for the ep-algorithm see documentation of dep.serial.Master
     options = {
-        'seed'      : rand_state,
+        'seed'      : SEED_MCMC,
         'init_prev' : True,
         'chains'    : CHAINS,
         'iter'      : ITER,
@@ -171,22 +177,29 @@ def main(filename='res.npz'):
         raise ValueError("K should be at least 2.")
     elif K < J:
         # ---- Many groups per site ----
-        # Distribute and combine J groups to K sites
-        # Indexes of the groups for each site
-        js_k = tuple(
-            np.arange((J//K+1)*k, (J//K+1)*(k+1))
-            if k < J%K else
-            np.arange(J//K*k, J//K*(k+1)) + J%K
-            for k in xrange(K)
-        )
-        Nj_k = np.empty(K, dtype=np.int64)  # Number of groups for each site
-        Ns_k = np.empty(K, dtype=np.int64)  # Number of samples for each site
-        j_ind_k = j_ind.copy()              # Within site group index
+        # Combine smallest pairs of consecutive groups until K has been reached
+        Nk = Nj.tolist()
+        Njd = (Nj[:-1]+Nj[1:]).tolist()
+        Nj_k = [1]*J
+        for _ in xrange(J-K):
+            ind = Njd.index(min(Njd))
+            if ind+1 < len(Njd):
+                Njd[ind+1] += Nk[ind]
+            if ind > 0:
+                Njd[ind-1] += Nk[ind+1]
+            Nk[ind] = Njd[ind]
+            Nk.pop(ind+1)
+            Njd.pop(ind)
+            Nj_k[ind] += Nj_k[ind+1]
+            Nj_k.pop(ind+1)
+        Nk = np.array(Nk)                       # Number of samples per site
+        Nj_k = np.array(Nj_k)                   # Number of groups per site
+        j_ind_k = np.empty(N, dtype=np.int32)   # Within site group index
+        k_lim = np.concatenate(([0], np.cumsum(Nj_k)))
         for k in xrange(K):
-            js = js_k[k]
-            Nj_k[k] = len(js)
-            Ns_k[k] = Nj[js[0]:js[-1]+1].sum()
-            j_ind_k[j_lim[js[0]]:j_lim[js[-1]+1]] -= js[0]
+            for ji in xrange(Nj_k[k]):
+                ki = ji + k_lim[k]
+                j_ind_k[j_lim[ki]:j_lim[ki+1]] = ji        
         # Create the Master instance
         model = load_stan('model')
         dep_master = Master(
@@ -195,7 +208,7 @@ def main(filename='res.npz'):
             y,
             A_k={'J':Nj_k},
             A_n={'j_ind':j_ind_k+1},
-            site_sizes=Ns_k,
+            site_sizes=Nk,
             prior=prior,
             **options
         )
@@ -213,36 +226,37 @@ def main(filename='res.npz'):
         )
     elif K <= N:
         # ---- Multiple sites per group ----
-        # Distribute K sites to J groups and split the samples in each group
-        # accordingly. Works surely only if K%J < Nj for all groups.
-        Ns_k = np.empty(K, dtype=np.int64)  # Number of samples per site
+        # Split biggest groups until enough sites are formed
+        ppg = np.ones(J, dtype=np.int64)    # Parts per group
+        Nj2 = Nj.astype(np.float)
+        for _ in xrange(K-J):
+            cur_max = Nj2.argmax()
+            ppg[cur_max] += 1
+            Nj2[cur_max] = Nj[cur_max]/ppg[cur_max]
+        Nj2 = Nj//ppg
+        rem = Nj%ppg
+        # Form the number of samples for each site
+        Nk = np.empty(K, dtype=np.int64)
+        k = 0
         for j in xrange(J):
-            if j < K%J:
-                for ki in xrange(K//J+1):
-                    k = ki + (K//J+1)*j
-                    if ki < Nj[j]%(K//J+1):
-                        Ns_k[k] = Nj[j]//(K//J+1)+1
-                    else:
-                        Ns_k[k] = Nj[j]//(K//J+1)
-            else:
-                for ki in xrange(K//J):
-                    k = ki + (K//J)*j + K%J
-                    if ki < Nj[j]%(K//J):
-                        Ns_k[k] = Nj[j]//(K//J)+1
-                    else:
-                        Ns_k[k] = Nj[j]//(K//J)
+            for kj in xrange(ppg[j]):
+                if kj < rem[j]:
+                    Nk[k] = Nj2[j] + 1
+                else:
+                    Nk[k] = Nj2[j]
+                k += 1
         # Create the Master instance
         model_single_group = load_stan('model_single_group')
         dep_master = Master(
             model_single_group,
             X,
             y,
-            site_sizes=Ns_k,
+            site_sizes=Nk,
             prior=prior,
             **options
         )
     else:
-        raise ValueError("K cant be greater than J*NPG")
+        raise ValueError("K cant be greater than number of samples")
     
     # Run the algorithm for `EP_ITER` iterations
     print "Run distributed EP algorithm for {} iterations.".format(EP_ITER)
@@ -260,6 +274,9 @@ def main(filename='res.npz'):
     
     print "Full model..."
     
+    # Set seed
+    rnd_mcmc = np.random.RandomState(seed=SEED_MCMC)
+    
     data = dict(
         N=N,
         D=D,
@@ -272,10 +289,12 @@ def main(filename='res.npz'):
     )
     if model is None:
         model = load_stan('model')
+    
+    # Sample and extract parameters
     with suppress_stdout():
         fit = model.sampling(
             data=data,
-            seed=(rand_state.randint(2**31-1) if TMP_FIX_32BIT else rand_state),
+            seed=(rnd_mcmc.randint(2**31-1) if TMP_FIX_32BIT else rnd_mcmc),
             chains=4,
             iter=1000,
             warmup=500,
