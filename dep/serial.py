@@ -111,13 +111,15 @@ class Worker(object):
         # Data for stan model in method tilted
         self.data = dict(
             N=X.shape[0],
-            D=X.shape[1],
             X=X,
             y=y,
             mu_phi=self.vec,
             Sigma_phi=self.Mat.T,  # Mat transposed in order to get C-order
             **A
         )
+        # Add param `D` only if `X` is two dimensional
+        if len(X.shape) == 2:
+            self.data['D'] = X.shape[1]
         
         # Store other instance variables
         self.index = index
@@ -403,10 +405,9 @@ class Master(object):
     X : ndarray
         Explanatory variable data in an ndarray of shape (N,D), where N is the
         number of observations and D is the number of variables. `X` should be
-        C contiguous (copy made if not). N.B. `X` can not be one dimensional
-        because then it would not be possible to know, if the data has one
-        variables and many observations or many variables and one observation,
-        even though the latter is unreasonable.
+        C-contiguous (copy made if not). N.B. One dimensional array of shape
+        (N,) is also acceptable, in which case D is not provided to the stan
+        model.
     
     y : ndarray
         Response variable data in an ndarray of shape (N,), where N is the
@@ -585,10 +586,13 @@ class Master(object):
                 self.worker_options[kw] = default
         
         # Validate X
-        if len(X.shape) != 2:
-            raise ValueError("Argument `X` should be two dimensional")
         self.N = X.shape[0]
-        self.D = X.shape[1]
+        if len(X.shape) == 2:
+            self.D = X.shape[1]
+        elif len(X.shape) == 1:
+            self.D = None
+        else:
+            raise ValueError("Argument `X` should be one or two dimensional")
         self.X = X
         
         # Validate y
