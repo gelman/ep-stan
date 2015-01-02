@@ -1,20 +1,10 @@
-"""A simple hierarchical logistic regression experiment for distributed EP
-algorithm described in an article "Expectation propagation as a way of life"
-(arXiv:1412.4869).
-
-Model definition (j = 1 ... J):
-y_j ~ bernoulli_logit(alpha_j + x_j * beta)
-Local parameter alpha_j ~ N(0,sigma_a)
-Shared parameter beta ~ N(0,sigma_b)
-Hyperparameter sigma_a ~ log-N(0,sigma_aH)
-Fixed sigma_b, sigma_aH
-phi = [log(sigma_a), beta]
+"""Simulated stars-data experiment.
 
 Execute with:
     $ python run.py <filename>
 where <filename> is the desired name of the result '.npz' file. If <filename> is
 omitted, the default filename 'res.npz' is used. After running this skript,
-the script plot_res.py can be used to plot the results.
+the script experimen/plot_res.py can be used to plot the results.
 
 The most recent version of the code can be found on GitHub:
 https://github.com/gelman/ep-stan
@@ -56,26 +46,24 @@ SEED_DATA = 0       # Seed for simulating the data
 SEED_MCMC = 0       # Seed for the inference algorithms
 
 # ====== Data size =============================================================
-J = 50              # Number of hierarchical groups
-D = 50              # Number of inputs
-K = 22              # Number of sites
-NPG = [40,60]       # Number of observations per group (constant or [min, max])
+J = 360             # Number of hierarchical groups
+K = 6               # Number of sites
+NPG = 20            # Number of observations per group (constant or [min, max])
 
 # ====== Set parameters ========================================================
-# If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
-SIGMA_A = 2
-SIGMA_AH = None
-# If BETA is None, it is sampled from N(0,SIGMA_B)
-BETA = None
-SIGMA_B = 1
+# Model parameters
+MU = 270
+TAU = 148
+BETA = 250
+SIGMA = 490
+# Simulating parameters
+X_MU = 2
+X_STD = 1
 
 # ====== Prior =================================================================
-# Prior for log(sigma_a)
-M0_A = 0
-V0_A = 1**2
-# Prior for beta
-M0_B = 0
-V0_B = 1**2
+# Prior for log(phi) = log(mu, tau, beta, sigma)
+M0 = np.log([200, 200, 200, 200])
+V0 = np.array([1.,1.,1.,1.])**2
 
 # ====== Sampling parameters ===================================================
 CHAINS = 4
@@ -84,7 +72,7 @@ WARMUP = 400
 THIN = 2
 
 # ====== Number of EP iterations ===============================================
-EP_ITER = 6
+EP_ITER = 10
 
 # ====== 32bit Python ? ========================================================
 # Temp fix for the RandomState seed problem with pystan in 32bit Python. Set
@@ -121,34 +109,34 @@ def main(filename='res.npz'):
         j_ind[j_lim[j]:j_lim[j+1]] = j
     
     # Assign parameters
-    if SIGMA_A is None:
-        sigma_a = np.exp(rnd_data.randn()*SIGMA_AH)
-    else:
-        sigma_a = SIGMA_A
-    if BETA is None:
-        beta = rnd_data.randn(D)*SIGMA_B
-    else:
-        beta = BETA
-    alpha_j = rnd_data.randn(J)*sigma_a
-    phi_true = np.append(np.log(sigma_a), beta)
-    dphi = D+1  # Number of shared parameters
+    alpha_j = MU + rnd_data.randn(J)*TAU
+    phi_true = np.log([MU, TAU, BETA, SIGMA])
+    dphi = 4  # Number of shared parameters
     
     # Simulate data
-    X = rnd_data.randn(N,D)
-    y = alpha_j[j_ind] + X.dot(beta)
-    y = 1/(1+np.exp(-y))
-    y = (rnd_data.rand(N) < y).astype(int)
+    # Truncated normal rejection sampling
+    X = X_MU + rnd_data.randn(N)*X_STD
+    xneg = X<0
+    while np.any(xneg):
+        X[xneg] = X_MU + rnd_data.randn(np.count_nonzero(xneg))*X_STD
+        xneg = X<0
+    f = alpha_j[j_ind] + X*BETA
+    y = f + rnd_data.randn(N)*SIGMA
+    yneg = y<0
+    while np.any(yneg):
+        y[yneg] = f[yneg] + rnd_data.randn(np.count_nonzero(yneg))*SIGMA
+        yneg = y<0
     
     # ------------------------------------------------------
     #     Prior
     # ------------------------------------------------------
     
     # Moment parameters of the prior (transposed in order to get F-contiguous)
-    S0 = np.diag(np.append(V0_A, np.ones(D)*V0_B)).T
-    m0 = np.append(M0_A, np.ones(D)*M0_B)
+    S0 = np.diag(V0).T
+    m0 = M0
     # Natural parameters of the prior
-    Q0 = np.diag(np.append(1./V0_A, np.ones(D)/V0_B)).T
-    r0 = np.append(M0_A/V0_A, np.ones(D)*(M0_B/V0_B))
+    Q0 = np.diag(np.ones(dphi)/V0).T
+    r0 = M0/V0
     prior = {'Q':Q0, 'r':r0}
     
     # ------------------------------------------------------
@@ -170,7 +158,7 @@ def main(filename='res.npz'):
     # Temp fix for the RandomState seed problem with pystan in 32bit Python
     options['tmp_fix_32bit'] = TMP_FIX_32BIT
     
-    model = None
+    model = load_stan('model')
     if K < 2:
         raise ValueError("K should be at least 2.")
     elif K < J:
@@ -199,7 +187,6 @@ def main(filename='res.npz'):
                 ki = ji + k_lim[k]
                 j_ind_k[j_lim[ki]:j_lim[ki+1]] = ji        
         # Create the Master instance
-        model = load_stan('model')
         dep_master = Master(
             model,
             X,
@@ -213,11 +200,12 @@ def main(filename='res.npz'):
     elif K == J:
         # ---- One group per site ----
         # Create the Master instance
-        model_single_group = load_stan('model_single_group')
         dep_master = Master(
-            model_single_group,
+            model,
             X,
             y,
+            A_k={'J': np.ones(K, dtype=np.int64)},
+            A_n={'j_ind': np.ones(N, dtype=np.int64)},
             site_sizes=Nj,
             prior=prior,
             **options
@@ -244,11 +232,12 @@ def main(filename='res.npz'):
                     Nk[k] = Nj2[j]
                 k += 1
         # Create the Master instance
-        model_single_group = load_stan('model_single_group')
         dep_master = Master(
-            model_single_group,
+            model,
             X,
             y,
+            A_k={'J': np.ones(K, dtype=np.int64)},
+            A_n={'j_ind': np.ones(N, dtype=np.int64)},
             site_sizes=Nk,
             prior=prior,
             **options
@@ -264,7 +253,8 @@ def main(filename='res.npz'):
     S_mix, m_mix = dep_master.mix_samples()
     var_mix = np.diag(S_mix)
     
-    print "Distributed model sampled."
+    print "Distributed model sampled:"
+    print "    exp(phi) = {}".format(np.array2string(np.exp(m_mix), precision=1))
     
     # ------------------------------------------------------
     #     Full model
@@ -277,7 +267,6 @@ def main(filename='res.npz'):
     
     data = dict(
         N=N,
-        D=D,
         J=J,
         X=X,
         y=y,
@@ -285,8 +274,6 @@ def main(filename='res.npz'):
         mu_phi=m0,
         Sigma_phi=S0.T    # S0 transposed in order to get C-contiguous
     )
-    if model is None:
-        model = load_stan('model')
     
     # Sample and extract parameters
     with suppress_stdout():
@@ -302,7 +289,11 @@ def main(filename='res.npz'):
     m_phi_full = samp.mean(axis=0)
     var_phi_full = samp.var(axis=0, ddof=1)
     
-    print "Full model sampled."
+    print "Full model sampled:"
+    print "    exp(phi) = {}" \
+          .format(np.array2string(np.exp(m_phi_full), precision=1))
+    print "True values:"
+    print "    exp(phi) = {}".format([MU, TAU, BETA, SIGMA])
     
     # ------------------------------------------------------
     #     Save results
@@ -312,16 +303,13 @@ def main(filename='res.npz'):
         seed_data=SEED_DATA,
         seed_mcmc=SEED_MCMC,
         J=J,
-        D=D,
         K=K,
         Nj=Nj,
         N=N,
         dphi=dphi,
         niter=EP_ITER,
-        m0_a=M0_A,
-        V0_a=V0_A,
-        m0_b=M0_B,
-        V0_b=V0_B,
+        m0=M0,
+        V0=V0,
         phi_true=phi_true,
         m_phi=m_phi,
         var_phi=var_phi,
