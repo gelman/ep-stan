@@ -311,7 +311,8 @@ def main(filename='res.npz'):
     # ------------------------------------------------------
     
     np.savez(filename,
-        seed=SEED,
+        seed_data=SEED_DATA,
+        seed_mcmc=SEED_MCMC,
         J=J,
         Nj=Nj,
         N=N,
