@@ -6,9 +6,9 @@
 # All rights reserved.
 
 data {
-    int<lower=0> N;
-    int<lower=0> D;
-    int<lower=0> J;
+    int<lower=1> N;
+    int<lower=1> D;
+    int<lower=1> J;
     matrix[N,D] X;
     int<lower=0,upper=1> y[N];
     int<lower=1,upper=J> j_ind[N];
