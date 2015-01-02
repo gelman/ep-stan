@@ -52,8 +52,8 @@ from dep.util import load_stan, suppress_stdout
 
 # ====== Seed ==================================================================
 # Use SEED = None for random seed
-SEED_DATA = 0   # Seed for simulating the data
-SEED_MCMC = 0   # Seed for the inference algorithms
+SEED_DATA = 0       # Seed for simulating the data
+SEED_MCMC = 0       # Seed for the inference algorithms
 
 # ====== Data size =============================================================
 J = 50              # Number of hierarchical groups
@@ -120,7 +120,7 @@ def main(filename='res.npz'):
     for j in xrange(J):
         j_ind[j_lim[j]:j_lim[j+1]] = j
     
-    # Assign fixed parameters
+    # Assign parameters
     if SIGMA_A is None:
         sigma_a = np.exp(rnd_data.randn()*SIGMA_AH)
     else:
@@ -129,15 +129,13 @@ def main(filename='res.npz'):
         beta = rnd_data.randn(D)*SIGMA_B
     else:
         beta = BETA
+    alpha_j = rnd_data.randn(J)*sigma_a
     phi_true = np.append(np.log(sigma_a), beta)
     dphi = D+1  # Number of shared parameters
     
-    # Simulate
-    alpha_j = rnd_data.randn(J)*sigma_a
+    # Simulate data
     X = rnd_data.randn(N,D)
-    y = X.dot(beta)
-    for j in range(J):
-        y[j_lim[j]:j_lim[j+1]] += alpha_j[j]
+    y = alpha_j[j_ind] + X.dot(beta)
     y = 1/(1+np.exp(-y))
     y = (rnd_data.rand(N) < y).astype(int)
     
@@ -147,7 +145,7 @@ def main(filename='res.npz'):
     
     # Moment parameters of the prior (transposed in order to get F-contiguous)
     S0 = np.diag(np.append(V0_A, np.ones(D)*V0_B)).T
-    r0 = np.append(M0_A, np.ones(D)*M0_B)
+    m0 = np.append(M0_A, np.ones(D)*M0_B)
     # Natural parameters of the prior
     Q0 = np.diag(np.append(1./V0_A, np.ones(D)/V0_B)).T
     r0 = np.append(M0_A/V0_A, np.ones(D)*(M0_B/V0_B))
@@ -284,7 +282,7 @@ def main(filename='res.npz'):
         X=X,
         y=y,
         j_ind=j_ind+1,
-        mu_phi=r0,
+        mu_phi=m0,
         Sigma_phi=S0.T    # S0 transposed in order to get C-contiguous
     )
     if model is None:
