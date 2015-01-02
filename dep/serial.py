@@ -934,8 +934,8 @@ class Master(object):
                       .format(np.nonzero(~posdefs)[0])
             
             if verbose and calc_moments:
-                print 'Iter {} done, max var in the posterior: {}' \
-                      .format(self.iter, np.max(var_phi_s[cur_iter]))
+                print 'Iter {} done, std of phi[0]: {}' \
+                      .format(self.iter, np.sqrt(var_phi_s[cur_iter,0]))
             
         if calc_moments:
             return m_phi_s, var_phi_s
