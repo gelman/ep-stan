@@ -21,6 +21,11 @@ def copy_triu_to_tril(np.ndarray[DTYPE_t, ndim=2] A):
         The array to operate on. It has to be a square matrix of
         type np.float64.
     
+    Notes
+    -----
+    Works slightly faster with either C of F -contiguous arrays depending on the
+    system and the size of the array. 
+    
     """
     assert A.dtype == np.float64
     cdef int n = A.shape[0]
