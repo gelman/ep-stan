@@ -127,6 +127,7 @@ class Worker(object):
         self.dphi = dphi
         self.iteration = 0
         
+        # Initialisation
         self.init_prev = options['init_prev']
         if self.init_prev:
             # Store the original init method so that it can be reset, when
@@ -137,6 +138,7 @@ class Worker(object):
                 raise ValueError("Arg. `init` has to be a string if "
                                  "`init_prev` is True")
         
+        # Smoothing
         self.smooth = options['smooth']
         if not self.smooth is None and len(self.smooth) == 0:
             self.smooth = None
@@ -252,7 +254,7 @@ class Worker(object):
         
         # TODO: Make a non-copying extract
         samp = fit.extract(pars='phi')['phi']
-        nsamp = samp.shape[0]
+        self.nsamp = samp.shape[0]
         # After this the fit object can be deleted
         del fit
         
@@ -266,20 +268,14 @@ class Worker(object):
         np.dot(samp.T, samp, out=St.T)
         
         if not self.smooth is None:
-            # Smoothen the distribution
-            # Use dri and dQi as a temporary arrays
-            St, mt = self.apply_smooth(nsamp, dri, dQi)
-        else:
-            # No smoothing at all ... normalise St
-            self.nsamp = nsamp
-            np.divide(St, self.nsamp - 1, out=dQi)
+            # Smoothen the distribution (use dri and dQi as temp arrays)
+            St, mt = self._apply_smooth(dri, dQi)
         
-        # Convert (St,mt) to natural parameters, St and mt are preserved
-        # Make rest of the matrix calculations in place
-        Qt = dQi
-        rt = dri
+        # Normalise St into dQi
+        np.divide(St, self.nsamp - 1, out=dQi)
+        # Convert moment params to natural params, St and mt are preserved
         try:
-            invert_normal_params(dQi, mt, out_A='in_place', out_b=rt)
+            invert_normal_params(dQi, mt, out_A='in_place', out_b=dri)
         except linalg.LinAlgError:
             # Not positive definite
             pos_def = False
@@ -297,19 +293,28 @@ class Worker(object):
             pos_def = True
             self.phase = 2
             # Unbiased natural parameter estimates
-            unbias_k = (samp.shape[0]-self.dphi-2)/(samp.shape[0]-1)
-            Qt *= unbias_k
-            rt *= unbias_k
-            # Calculate the difference into the output array
-            np.subtract(Qt, self.Q, out=dQi)
-            np.subtract(rt, self.r, out=dri)
+            unbias_k = (self.nsamp-self.dphi-2)/(self.nsamp-1)
+            dQi *= unbias_k
+            dri *= unbias_k
+            # Calculate the difference into the output arrays
+            np.subtract(dQi, self.Q, out=dQi)
+            np.subtract(dri, self.r, out=dri)
         
         self.iteration += 1
         return pos_def
     
     
-    def apply_smooth(self, nsamp, temp_v, temp_M):
-        """Memorise and combine previous St and mt."""
+    def _apply_smooth(self, temp_v, temp_M):
+        """Memorise and combine previous St and mt.
+        
+        After this:
+            self.Mat contains the smoothed unnormalised covariance estimate
+            self.vec contains the mean
+            self.nsamp contains the contributing sample size.
+        N.B. This method rotates aray holders in the instance. New arrays
+        self.Mat and self.vec are returned.
+        
+        """
         
         St = self.Mat
         mt = self.vec
@@ -317,9 +322,6 @@ class Worker(object):
         if self.prev_stored < 0:
             # Skip some first iterations ... no smoothing yet
             self.prev_stored += 1
-            # Normalise St
-            self.nsamp = nsamp
-            np.divide(St, self.nsamp - 1, out=temp_M)
             return St, mt
         
         elif self.prev_stored == 0:
@@ -327,9 +329,6 @@ class Worker(object):
             self.prev_stored += 1
             np.copyto(self.prev_mt[0], mt)
             np.copyto(self.prev_St[0], St)
-            # Normalise St
-            self.nsamp = nsamp
-            np.divide(St, self.nsamp - 1, out=temp_M)
             return St, mt
             
         else:
@@ -360,14 +359,13 @@ class Worker(object):
             St_new += temp_M
             # N.B. This assumes that the same number of samples has been drawn
             # in each iteration
-            St_new *= nsamp
+            St_new *= self.nsamp
             for i in range(ps-1,-1,-1):
                 np.multiply(pSt[i], self.smooth[i], out=temp_M)
                 St_new += temp_M
             St_new += St
-            # Normalise St_new
-            self.nsamp = (1 + self.smooth[:ps].sum())*nsamp
-            np.divide(St_new, self.nsamp - 1, out=temp_M)
+            # Set contributing sample size
+            self.nsamp = (1 + self.smooth[:ps].sum())*self.nsamp
             
             # Rotate array pointers
             temp_M2 = pSt[-1]
@@ -464,6 +462,10 @@ class Master(object):
     
     Other parameters
     ----------------
+    seed : {None, int, RandomState}, optional
+        The random seed used in the sampling. If not provided, a random seed is
+        used.
+    
     overwrite_model : bool, optional
         If a string for `site_model` is provided, the model is compiled even
         if a precompiled model is found (see util.load_stan).
@@ -481,32 +483,6 @@ class Master(object):
     
     thin : int, optional
         Thinning parameter for the site_model mcmc sampling. Default is 2.
-    
-    seed : {None, int, RandomState}, optional
-        The random seed used in the sampling. If not provided, a random seed is
-        used.
-    
-    df0 : float or function, optional
-        The initial damping factor for each iteration. Must be a number in the
-        range (0,1]. If a number is given, a constant initial damping factor for
-        each iteration is used. If a function is given, it must return the
-        desired initial damping factor when called with the iteration number.
-        If not provided, an exponentially decaying function from `df0_exp_start`
-        to `df0_exp_end` with speed `df0_exp_speed` is used (see the respective
-        parameters).
-    
-    df0_exp_start, df0_exp_end, df0_exp_speed : float, optional
-        The parameters for the default exponentially decreasing initial damping
-        factor (see `df0`).
-    
-    df_decay : float, optional
-        The decay multiplier for the damping factor used if the resulting
-        posterior covariance or cavity distributions are not positive definite.
-        Default value is 0.9.
-    
-    df_treshold : float, optional
-        The treshold value for the damping factor. If the damping factor decays
-        below this value, the algorithm is stopped. Default is 1e-8.
     
     init_prev : bool, optional
         Indicates if the last sample of each chain in the site mcmc sampling is
@@ -530,6 +506,28 @@ class Master(object):
     smooth_ignore : int, optional
         If smoothing is applied, this non-negative integer indicates how many
         iterations are performed before the smoothing is started. Default is 1.
+    
+    df0 : float or function, optional
+        The initial damping factor for each iteration. Must be a number in the
+        range (0,1]. If a number is given, a constant initial damping factor for
+        each iteration is used. If a function is given, it must return the
+        desired initial damping factor when called with the iteration number.
+        If not provided, an exponentially decaying function from `df0_exp_start`
+        to `df0_exp_end` with speed `df0_exp_speed` is used (see the respective
+        parameters).
+    
+    df0_exp_start, df0_exp_end, df0_exp_speed : float, optional
+        The parameters for the default exponentially decreasing initial damping
+        factor (see `df0`).
+    
+    df_decay : float, optional
+        The decay multiplier for the damping factor used if the resulting
+        posterior covariance or cavity distributions are not positive definite.
+        Default value is 0.9.
+    
+    df_treshold : float, optional
+        The treshold value for the damping factor. If the damping factor decays
+        below this value, the algorithm is stopped. Default is 1e-8.
     
     Notes
     -----
@@ -991,6 +989,15 @@ class Master(object):
         out_S /= nsamp_tot - 1
         
         return out_S, out_m
+    
+    
+    def reset_smoothing(self):
+        """Reset the smoothing and forget the previous stored moments."""
+        try:
+            for worker in self.workers:
+                worker.prev_stored = 0
+        except AttributeError:
+            raise RuntimeError('Smoothing is not enabled')
 
 
 
