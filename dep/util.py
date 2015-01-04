@@ -16,12 +16,16 @@ import os
 import pickle
 import numpy as np
 from scipy import linalg
+from scipy.stats import multivariate_normal
 from pystan import StanModel
 
 from cython_util import copy_triu_to_tril
 
 # LAPACK positive definite inverse routine
 dpotri_routine = linalg.get_lapack_funcs('potri')
+
+# Precalculated constant
+_LOG_2PI = np.log(2*np.pi)
 
 
 def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
@@ -99,6 +103,77 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     # Copy the upper triangular into the bottom
     copy_triu_to_tril(out_A)
     return out_A, out_b
+
+
+def cv_moments(samp, lp, Q_tilde, r_tilde, S_hat=None, m_hat=None):
+    """Approximate moments using control variate
+    
+    Parameters
+    ----------
+    samp : ndarray
+        The samples from the distribution being approximated.
+    
+    lp : ndarray
+        Log probability density as the samples.
+    
+    Q_tilde, r_tilde : ndarray
+        The control variate distribution natural parameters.
+    
+    S_hat, m_hat : ndarray, optional
+        The output arrays.
+    
+    Returns
+    -------
+    S_hat, m_hat : ndarray
+        The approximated moment parameters.
+    
+    """
+    # TODO: enhance this function
+    
+    n = samp.shape[0]
+    d = samp.shape[1]
+    if S_hat is None:
+       S_hat = np.empty((d,d), order='F')
+    if m_hat is None:
+       m_hat = np.empty(d)
+    
+    # Invert Q_tilde, r_tilde to moment params
+    cho_tilde = linalg.cho_factor(Q_tilde)[0]  # This is used to calc det later
+    S_tilde, m_tilde = invert_normal_params(cho_tilde, r_tilde, cho_form=True)    
+    
+    # Calc lp_tilde
+    const = np.sum(np.log(np.diag(cho_tilde))) - 0.5*d*_LOG_2PI
+    dev = samp - m_tilde
+    # xQx = np.sum(dev.dot(Q)*dev, axis=1)
+    xQx = np.einsum('ij,jk,ki->i', dev, Q_tilde, dev.T) # A bit faster, use out
+    xQx *= 0.5
+    lp_tilde = const - xQx
+    
+    # Probability ratios
+    pr = np.exp(lp_tilde - lp)
+    
+    # Mean
+    f = samp
+    h = samp*pr[:,np.newaxis]
+    var_h = np.var(h, axis=0, ddof=1)
+    cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)/(n-1)
+    a = cov_fh / var_h
+    np.mean(f - a*h, axis=0, out=m_hat)
+    m_hat += a*m_tilde
+    
+    # Covariance
+    # dev = samp - m_tilde # Calculated before
+    h = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
+    h *= pr[:,np.newaxis,np.newaxis]
+    dev = samp - m_hat
+    f = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
+    var_h = np.var(h, axis=0, ddof=1)
+    cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)/(n-1)
+    a = cov_fh / var_h
+    np.sum(f - a*h, axis=0, out=S_hat.T)
+    S_hat += (n-1)*a*S_tilde
+    
+    return S_hat, m_hat
 
 
 def get_last_sample(fit, out=None):

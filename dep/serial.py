@@ -20,6 +20,7 @@ from scipy import linalg
 
 from util import (
     invert_normal_params,
+    cv_moments,
     get_last_sample,
     suppress_stdout,
     load_stan
@@ -54,6 +55,7 @@ class Worker(object):
     
     DEFAULT_OPTIONS = {
         'init_prev'     : True,
+        'control_var'   : True,
         'smooth'        : None,
         'smooth_ignore' : 1,
         'tmp_fix_32bit' : False # FIXME: Temp fix for RandomState problem
@@ -137,6 +139,9 @@ class Worker(object):
                 # If init_prev is used, init option has to be a string
                 raise ValueError("Arg. `init` has to be a string if "
                                  "`init_prev` is True")
+        
+        # Control variate
+        self.control_var = options['control_var']
         
         # Smoothing
         self.smooth = options['smooth']
@@ -255,17 +260,19 @@ class Worker(object):
         # TODO: Make a non-copying extract
         samp = fit.extract(pars='phi')['phi']
         self.nsamp = samp.shape[0]
-        # After this the fit object can be deleted
-        del fit
         
         # Assign arrays
         St = self.Mat
         mt = self.vec
         
         # Sample mean and covariance
-        np.mean(samp, 0, out=mt)
-        samp -= mt
-        np.dot(samp.T, samp, out=St.T)
+        if self.control_var:
+            lp = fit.extract(pars='lp__')['lp__']
+            cv_moments(samp, lp, self.Q, self.r, S_hat=St, m_hat=mt)
+        else:
+            np.mean(samp, 0, out=mt)
+            samp -= mt
+            np.dot(samp.T, samp, out=St.T)
         
         if not self.smooth is None:
             # Smoothen the distribution (use dri and dQi as temp arrays)
@@ -494,6 +501,10 @@ class Master(object):
         StanModel.sampling). If `init_prev` is True, this parameter affects only
         the sampling on the first iteration, and strings 'random' and '0' are
         the only acceptable values for this argument.
+    
+    control_var : bool, optional
+        Indicates if control variate method is used in the approximation of the
+        moments of the tilted distribution.
     
     smooth : {None, array_like}, optional
         A portion of samples from previous iterations to be taken into account
