@@ -68,7 +68,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
         out_A = A.copy(order='F')
     else:
         np.copyto(out_A, A)
-    if not out_A.flags.farray:
+    if not out_A.flags['FARRAY']:
         # Convert from C-order to F-order by transposing (note symmetric)
         out_A = out_A.T
         if not out_A.flags['FARRAY']:
@@ -99,6 +99,45 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     # Copy the upper triangular into the bottom
     copy_triu_to_tril(out_A)
     return out_A, out_b
+
+
+def olse_naive(S, out=None):
+    """Optimal linear shrinkage estimator.
+    
+    Estimate precision matrix form the given sample covariance matrix with
+    optimal linear shrinkage method [1]_ using the naive prior matrix 1/d I,
+    where d is the number of dimensions.
+    
+    Parameters
+    ----------
+    S : ndarray
+        The sample covariance matrix.
+    
+    out : {None, ndarray, 'in_place'}, optional
+        The output array for the precision matrix estimate.
+    
+    References
+    ----------
+    .. [1] Bodnar, T., Gupta, A.K. and Parolya, N., Optimal Linear Shrinkage
+       Estimator for Large Dimensional Precision Matrix, arXiv:1308.0931, 2014.
+    
+    """
+    # Process parameters
+    if out == 'in_place':
+        out = S
+    elif out is None:
+        out = S.copy(order='F')
+    else:
+        np.copyto(out, S)
+    if not out.flags['FARRAY']:
+        # Convert from C-order to F-order by transposing (note symmetric)
+        out = out.T
+        if not out.flags['FARRAY']:
+            raise ValueError('Provided array is inappropriate')
+    
+    invert_normal_params(out, out_A='in_place')
+    tr_norm = out.trace()
+    k_norm = np.multiply(Q,Q).sum()
 
 
 def get_last_sample(fit, out=None):
