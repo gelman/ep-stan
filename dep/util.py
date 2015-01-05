@@ -16,7 +16,6 @@ import os
 import pickle
 import numpy as np
 from scipy import linalg
-from scipy.stats import multivariate_normal
 from pystan import StanModel
 
 from cython_util import copy_triu_to_tril
@@ -105,7 +104,8 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     return out_A, out_b
 
 
-def cv_moments(samp, lp, Q_tilde, r_tilde, S_hat=None, m_hat=None):
+def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
+               ldet_Q_tilde=None, S_hat=None, m_hat=None):
     """Approximate moments using control variate
     
     Parameters
@@ -118,6 +118,13 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_hat=None, m_hat=None):
     
     Q_tilde, r_tilde : ndarray
         The control variate distribution natural parameters.
+    
+    S_tilde, m_tilde : ndarray, optional
+        The control variate distribution moment parameters.
+    
+    ldet_Q_tilde : float, optional
+        Half of the logarithm of the determinant of Q_tilde, i.e. sum of the
+        logarithm of the diagonal elements of Cholesky factorisation of Q_tilde.
     
     S_hat, m_hat : ndarray, optional
         The output arrays.
@@ -138,11 +145,17 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_hat=None, m_hat=None):
        m_hat = np.empty(d)
     
     # Invert Q_tilde, r_tilde to moment params
-    cho_tilde = linalg.cho_factor(Q_tilde)[0]  # This is used to calc det later
-    S_tilde, m_tilde = invert_normal_params(cho_tilde, r_tilde, cho_form=True)    
+    if S_tilde is None or m_tilde is None or ldet_Q_tilde is None:
+        cho_tilde = linalg.cho_factor(Q_tilde)[0]
+    if S_tilde is None or m_tilde is None:
+        S_tilde, m_tilde = \
+            invert_normal_params(cho_tilde, r_tilde, cho_form=True)
     
     # Calc lp_tilde
-    const = np.sum(np.log(np.diag(cho_tilde))) - 0.5*d*_LOG_2PI
+    if ldet_Q_tilde is None:
+        const = np.sum(np.log(np.diag(cho_tilde))) - 0.5*d*_LOG_2PI
+    else:
+        const = ldet_Q_tilde - 0.5*d*_LOG_2PI
     dev = samp - m_tilde
     # xQx = np.sum(dev.dot(Q)*dev, axis=1)
     xQx = np.einsum('ij,jk,ki->i', dev, Q_tilde, dev.T) # A bit faster, use out
