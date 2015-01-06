@@ -105,7 +105,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
 
 
 def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
-               ldet_Q_tilde=None, S_hat=None, m_hat=None):
+               ldet_Q_tilde=None, regulate_a=1, S_hat=None, m_hat=None):
     """Approximate moments using control variate
     
     Parameters
@@ -114,7 +114,7 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         The samples from the distribution being approximated.
     
     lp : ndarray
-        Log probability density as the samples.
+        Log probability density at the samples. Can be unnormalised.
     
     Q_tilde, r_tilde : ndarray
         The control variate distribution natural parameters.
@@ -126,6 +126,11 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         Half of the logarithm of the determinant of Q_tilde, i.e. sum of the
         logarithm of the diagonal elements of Cholesky factorisation of Q_tilde.
     
+    regulate_a : float, optional
+        Regularisation term for `a`. The estimate of `a` is multiplied with this
+        value. Closer to zero provides smaller bias but greater variance.
+        Providing 1 corresponds to no regularisation. Default value is 1.
+        
     S_hat, m_hat : ndarray, optional
         The output arrays.
     
@@ -133,6 +138,9 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     -------
     S_hat, m_hat : ndarray
         The approximated moment parameters.
+    
+    a_S, a_m : float
+        The respective estimates for `a`.
     
     """
     # TODO: enhance this function
@@ -168,11 +176,11 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     # Mean
     f = samp
     h = samp*pr[:,np.newaxis]
-    var_h = np.var(h, axis=0, ddof=1)
-    cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)/(n-1)
-    a = cov_fh / var_h
-    np.mean(f - a*h, axis=0, out=m_hat)
-    m_hat += a*m_tilde
+    var_h = np.sum((h-np.mean(h,axis=0))**2, axis=0)
+    cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)
+    a_m = regulate_a * cov_fh / var_h
+    np.mean(f - a_m*h, axis=0, out=m_hat)
+    m_hat += a_m*m_tilde
     
     # Covariance
     # dev = samp - m_tilde # Calculated before
@@ -180,13 +188,13 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     h *= pr[:,np.newaxis,np.newaxis]
     dev = samp - m_hat
     f = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
-    var_h = np.var(h, axis=0, ddof=1)
-    cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)/(n-1)
-    a = cov_fh / var_h
-    np.sum(f - a*h, axis=0, out=S_hat.T)
-    #S_hat += (n-1)*a*S_tilde
+    var_h = np.sum((h-np.mean(h,axis=0))**2, axis=0)
+    cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)
+    a_S = regulate_a * cov_fh / var_h
+    np.sum(f - a_S*h, axis=0, out=S_hat.T)
+    #S_hat += n*a_S*S_tilde
     
-    return S_hat, m_hat, a
+    return S_hat, m_hat, a_S, a_m
 
 
 def get_last_sample(fit, out=None):
