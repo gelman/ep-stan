@@ -184,9 +184,9 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)/(n-1)
     a = cov_fh / var_h
     np.sum(f - a*h, axis=0, out=S_hat.T)
-    S_hat += (n-1)*a*S_tilde
+    #S_hat += (n-1)*a*S_tilde
     
-    return S_hat, m_hat
+    return S_hat, m_hat, a
 
 
 def get_last_sample(fit, out=None):

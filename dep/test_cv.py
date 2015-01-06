@@ -12,13 +12,20 @@ S2 = np.array([[3.1,1.2,-0.7],[1.2,2.4,-0.4],[-0.7,-0.4,1.8]], order='F')
 m1 = np.array([1.0,0.0,-1.0])
 m2 = np.array([1.1,0.0,-0.9])
 
+#d = 2
+#m1 = np.array([0.1, 1.1])
+#m2 = np.array([-0.1, 1.0])
+#S1 = np.array([[2.1,-1.0],[-1.0,1.5]])
+#S2 = np.array([[2.0,-1.1],[-1.1,1.4]])
+
+
 Q2, r2 = invert_normal_params(S2, m2)
 ldet_Q_tilde = np.sum(np.log(np.diag(linalg.cho_factor(Q2)[0])))
 
 N1 = multivariate_normal(mean=m1, cov=S1)
 
 n = 60
-N = 8000
+N = 2000
 
 S_hats = np.empty((d,d,N), order='F')
 m_hats = np.empty((d,N), order='F')
@@ -32,42 +39,49 @@ for i in xrange(N):
     lp = N1.logpdf(samp)
     
     # cv estimates
-    cv_moments(samp, lp, Q2, r2,
+    _, _, a_cov = cv_moments(samp, lp, Q2, r2,
                S_tilde=S2, m_tilde=m2, ldet_Q_tilde=ldet_Q_tilde,
                S_hat=S_hats[:,:,i], m_hat=m_hats[:,i])
-    S_hats[:,:,i] /= n-1
+    S_hats[:,:,i] /= n
+    S_hats[:,:,i] += a_cov*S2
     
     # Basic sample estimates
     S_samps[:,:,i] = np.cov(samp, rowvar=0).T
     m_samps[:,i] = np.mean(samp, axis=0)
-    
-# Set precision to 3 display trailing zeroes
-np.set_printoptions(precision=3, formatter={'float': '{: 0.3f}'.format})
+
 
 # Print
-print '---- Mean ----'
-print 'Real:'
-print np.array2string(m1,precision=3)
-print 'CV, expectation:'
-print np.mean(m_hats, axis=-1)
-#print 'CV, var:'
-#print np.sqrt(np.var(m_hats, ddof=1, axis=-1))
-print 'Sample, expectation:'
-print np.mean(m_samps, axis=-1)
-#print 'Sample, var:'
-#print np.sqrt(np.var(m_samps, ddof=1, axis=-1))
-
-print '---- Covariance ----'
-print 'Real:'
-print S1
-print 'CV, expectation:'
-print np.mean(S_hats, axis=-1)
-#print 'CV, var:'
-#print np.sqrt(np.var(S_hats, ddof=1, axis=-1))
-print 'Sample, expectation:'
-print np.mean(S_samps, axis=-1)
-#print 'Sample, var:'
-#print np.sqrt(np.var(S_samps, ddof=1, axis=-1))
+print '-'*77
+print '{:8} {:>8} |{:^28}|{:^28}|'.format(
+      'variable', 'real', 'cv', 'sample')
+print '{:8} {:>8} | {:>8} {:>8} {:>8} | {:>8} {:>8} {:>8} |'.format(
+      '', '', 'mean', 'std', 'mse', 'mean', 'sdt', 'mse')
+print '-'*77
+for i in xrange(d):
+    print ('{:8} {:>8.2f} |'+3*' {:>8.3f}'+' |'+3*' {:>8.3f}'+' |') \
+        .format(
+            'm[{}]'.format(i),
+            m1[i],
+            np.mean(m_hats[i]),
+            np.sqrt(np.var(m_hats[i], ddof=1)),
+            np.mean((m_hats[i]-m1[i])**2),
+            np.mean(m_samps[i]),
+            np.sqrt(np.var(m_samps[i], ddof=1)),
+            np.mean((m_samps[i]-m1[i])**2)
+        )
+for i in xrange(d):
+    for j in xrange(i,d):
+        print ('{:8} {:>8.2f} |'+3*' {:>8.3f}'+' |'+3*' {:>8.3f}'+' |') \
+            .format(
+                'S[{},{}]'.format(i,j),
+                S1[i,j],
+                np.mean(S_hats[i,j]),
+                np.sqrt(np.var(S_hats[i,j], ddof=1)),
+                np.mean((S_hats[i,j]-S1[i,j])**2),
+                np.mean(S_samps[i,j]),
+                np.sqrt(np.var(S_samps[i,j], ddof=1)),
+                np.mean((S_samps[i,j]-S1[i,j])**2)
+            )
 
 
 
