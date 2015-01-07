@@ -105,7 +105,8 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
 
 
 def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
-               ldet_Q_tilde=None, regulate_a=1, S_hat=None, m_hat=None):
+               ldet_Q_tilde=None, regulate_a=1, max_a=None,
+               S_hat=None, m_hat=None):
     """Approximate moments using control variate
     
     Parameters
@@ -127,9 +128,14 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         logarithm of the diagonal elements of Cholesky factorisation of Q_tilde.
     
     regulate_a : float, optional
-        Regularisation term for `a`. The estimate of `a` is multiplied with this
-        value. Closer to zero provides smaller bias but greater variance.
-        Providing 1 corresponds to no regularisation. Default value is 1.
+        Regularisation multiplier for correlation term `a`. The estimate of `a`
+        is multiplied with this value. Closer to zero may provide smaller bias
+        but greater variance. Providing 1 corresponds to no regularisation.
+        Default value is 1.
+    
+    max_a : {None, float}, optional
+        Maximum absolute value for correlation term `a`. If not provided or
+        None, `a` is not limited.
         
     S_hat, m_hat : ndarray, optional
         The output arrays.
@@ -173,37 +179,73 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     # Probability ratios
     pr = np.exp(lp_tilde - lp)
     
-    # Mean
+    # ------ Mean ------
     f = samp
+    fs = np.sum(f, axis=0)
+    fc = f - fs/n
+    
     h = samp*pr[:,np.newaxis]
-    var_h = np.sum((h-np.mean(h,axis=0))**2, axis=0)
-    cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)
-    if np.any(var_h == 0):
-        a_m = cov_fh
-        a_m[var_h != 0] = regulate_a * cov_fh[var_h != 0] / var_h[var_h != 0]
+    hs = np.sum(h, axis=0)
+    hc = h - m_tilde
+    
+    var_h = np.sum((hc)**2, axis=0)
+    cov_fh = np.sum(fc*hc, axis=0)
+    # Unbiased: var_h is divided by n and cov_fh by n-1
+    nnzind = var_h == 0
+    if np.any(nnzind):
+        a_m = np.zeros(d)
+        a_m[nnzind] = (cov_fh[nnzind] * n) / (var_h[nnzind] * (n-1))
     else:
-        a_m = regulate_a * cov_fh / var_h
-    np.mean(f - a_m*h, axis=0, out=m_hat)
+        a_m = (cov_fh * n) / (var_h * (n-1))
+    a_m *= regulate_a
+    if max_a:
+        np.maximum(np.minimum(a_m, max_a, out=a_m), -max_a, out=a_m)
+    
+    var_h_m = var_h/n
+    
+    # Estimate m_hat from f, h, a_m and m_tilde
+    np.multiply(hs, a_m, out=m_hat)
+    np.subtract(fs, m_hat, out=m_hat)
+    m_hat /= n
     m_hat += a_m*m_tilde
     
-    # Covariance
+    # ------ Covariance ------
     # dev = samp - m_tilde # Calculated before
     h = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
     h *= pr[:,np.newaxis,np.newaxis]
-#    dev = samp - np.mean(samp,axis=0)
-    dev = samp - m_hat
-    f = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
-    var_h = np.sum((h-np.mean(h,axis=0))**2, axis=0)
-    cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)
-    if np.any(var_h == 0):
-        a_S = cov_fh
-        a_S[var_h != 0] = regulate_a * cov_fh[var_h != 0] / var_h[var_h != 0]
-    else:
-        a_S = regulate_a * cov_fh / var_h
-    np.sum(f - a_S*h, axis=0, out=S_hat.T)
-    #S_hat += n*a_S*S_tilde
+    hc = h - S_tilde.T
     
-    return S_hat, m_hat, a_S, a_m
+    # Use here sample mean i.e. dev = samp - mean(samp, axis=0)
+#    dev = fc # Calculated before 
+    # Or use the new estimate
+    dev = samp - m_hat
+    
+    f = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
+    fm = np.sum(f, axis=0)/(n-1)  # Should here be n-1 or n ?
+    fc = f - fm
+    var_h = np.sum(hc**2, axis=0)
+    cov_fh = np.sum(fc*hc, axis=0)
+    # Unbiased: var_h is divided by n and cov_fh by n-1
+    nnzind = var_h == 0
+    if np.any(nnzind):
+        a_S = np.zeros((d,d))
+        a_S[nnzind] = (cov_fh[nnzind] * n) / (var_h[nnzind] * (n-1))
+    else:
+        a_S = (cov_fh * n) / (var_h * (n-1))
+    a_S *= regulate_a
+    if max_a:
+        np.maximum(np.minimum(a_S, max_a, out=a_S), -max_a, out=a_S)
+    
+    # Estimate S_hat from f, h, a_S and S_tilde
+    np.sum(h, axis=0, out=S_hat.T)
+    np.multiply(S_hat.T, a_S, out=S_hat.T)
+    S_hat /= n
+    np.subtract(fm, S_hat.T, out=S_hat.T)
+    S_hat += a_m.T*S_tilde
+    
+    var_h_S = var_h/n
+    
+    return S_hat, m_hat, a_S.T, a_m, var_h_S.T, var_h_m
 
 
 def get_last_sample(fit, out=None):
