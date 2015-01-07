@@ -178,7 +178,11 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     h = samp*pr[:,np.newaxis]
     var_h = np.sum((h-np.mean(h,axis=0))**2, axis=0)
     cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)
-    a_m = regulate_a * cov_fh / var_h
+    if np.any(var_h == 0):
+        a_m = cov_fh
+        a_m[var_h != 0] = regulate_a * cov_fh[var_h != 0] / var_h[var_h != 0]
+    else:
+        a_m = regulate_a * cov_fh / var_h
     np.mean(f - a_m*h, axis=0, out=m_hat)
     m_hat += a_m*m_tilde
     
@@ -186,11 +190,16 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     # dev = samp - m_tilde # Calculated before
     h = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
     h *= pr[:,np.newaxis,np.newaxis]
+#    dev = samp - np.mean(samp,axis=0)
     dev = samp - m_hat
     f = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
     var_h = np.sum((h-np.mean(h,axis=0))**2, axis=0)
     cov_fh = np.sum((f-np.mean(f,axis=0))*(h-np.mean(h,axis=0)), axis=0)
-    a_S = regulate_a * cov_fh / var_h
+    if np.any(var_h == 0):
+        a_S = cov_fh
+        a_S[var_h != 0] = regulate_a * cov_fh[var_h != 0] / var_h[var_h != 0]
+    else:
+        a_S = regulate_a * cov_fh / var_h
     np.sum(f - a_S*h, axis=0, out=S_hat.T)
     #S_hat += n*a_S*S_tilde
     

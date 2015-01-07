@@ -11,6 +11,7 @@ np.random.seed(0)
 
 rand_distr_every_iter = True
 d = 3
+indep_distr = True
 diff = 0.8
 regulate_a = 1
 
@@ -22,28 +23,36 @@ if not rand_distr_every_iter:
     #m1 = np.array([1.0,0.0,-1.0])
     #m2 = np.array([1.1,0.0,-0.9])
     
-    #d = 2
-    #m1 = np.array([0.1, 1.1])
-    #m2 = np.array([-0.1, 1.0])
-    #S1 = np.array([[2.1,-1.0],[-1.0,1.5]])
-    #S2 = np.array([[2.0,-1.1],[-1.1,1.4]])
+#    d = 2
+#    m1 = np.array([0.1, 1.1])
+#    m2 = 100*np.array([-0.1, 1.0])
+#    S1 = np.array([[2.1,-1.0],[-1.0,1.5]])
+#    S2 = np.array([[2.0,-1.1],[-1.1,1.4]])
     
     # Random
-    S1 = 2*np.random.rand(d,d)-1
-    S1 = (S1.dot(S1.T)+(d+2*diff)*np.eye(d)).T
-    S2 = S1 + (2*np.random.rand(d,d) -1)*diff
-    m1 = np.random.randn(d)+np.random.randn()
-    m2 = m1 + (2*np.random.rand(d) -1)*diff
+    if indep_distr:
+        S1 = 2*np.random.rand(d,d)-1
+        S1 = (S1.dot(S1.T)+d*np.eye(d)).T
+        m1 = np.random.randn(d)+np.random.randn()
+        S2 = 2*np.random.rand(d,d)-1
+        S2 = (S2.dot(S2.T)+d*np.eye(d)).T
+        m2 = np.random.randn(d)+np.random.randn()
+    else:
+        S1 = 2*np.random.rand(d,d)-1
+        S1 = (S1.dot(S1.T)+(d+2*diff)*np.eye(d)).T
+        m1 = np.random.randn(d)+np.random.randn()
+        S2 = S1 + (2*np.random.rand(d,d) -1)*diff
+        m2 = m1 + (2*np.random.rand(d) -1)*diff
     
     N1 = multivariate_normal(mean=m1, cov=S1)
-
+    
     # Convert S2,m2 to natural parameters
     Q2, r2 = invert_normal_params(S2, m2)
     ldet_Q_tilde = np.sum(np.log(np.diag(linalg.cho_factor(Q2)[0])))
 
 # Sample sizes
 n = 40       # Samples for one estimate
-N = 5000    # Number of estimate samples
+N = 4000    # Number of estimate samples
 
 # Output arrays
 S_hats = np.empty((d,d,N), order='F')
@@ -65,11 +74,21 @@ else:
 for i in xrange(N):
     
     if rand_distr_every_iter:
-        S1 = 2*np.random.rand(d,d)-1
-        S1 = (S1.dot(S1.T)+(d+2*diff)*np.eye(d)).T
-        S2 = S1 + (2*np.random.rand(d,d) -1)*diff
-        m1 = np.random.randn(d)+np.random.randn()
-        m2 = m1 + (2*np.random.rand(d) -1)*diff
+        # Random
+        if indep_distr:
+            S1 = 2*np.random.rand(d,d)-1
+            S1 = (S1.dot(S1.T)+d*np.eye(d)).T
+            m1 = np.random.randn(d)+np.random.randn()
+            S2 = 2*np.random.rand(d,d)-1
+            S2 = (S2.dot(S2.T)+d*np.eye(d)).T
+            m2 = np.random.randn(d)+np.random.randn()
+        else:
+            S1 = 2*np.random.rand(d,d)-1
+            S1 = (S1.dot(S1.T)+(d+2*diff)*np.eye(d)).T
+            m1 = np.random.randn(d)+np.random.randn()
+            S2 = S1 + (2*np.random.rand(d,d) -1)*diff
+            m2 = m1 + (2*np.random.rand(d) -1)*diff
+        
         N1 = multivariate_normal(mean=m1, cov=S1)
         # Convert S2,m2 to natural parameters
         Q2, r2 = invert_normal_params(S2, m2)
@@ -77,6 +96,9 @@ for i in xrange(N):
         
         m1s[:,i] = m1
         S1s[:,:,i] = S1
+    
+    if i == 2716:
+        pass
     
     # Get samples
     samp = N1.rvs(n)
@@ -106,7 +128,7 @@ for i in xrange(N):
 # Print
 print '\nEstimate distributions'
 print ('{:9}'+4*' {:>13}').format(
-      'estimate', 'bias', 'std', 'mse', '97.5se')
+      'estimate', 'me (bias)', 'std', 'mse', '97.5se')
 print 65*'-'
 for i in xrange(d):
     print 'm[{}]'.format(i)    
