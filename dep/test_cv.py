@@ -9,7 +9,7 @@ from util import invert_normal_params, cv_moments
 from cython_util import copy_triu_to_tril
 
 
-#np.random.seed(0)
+np.random.seed(0)
 
 def random_cov(d, diff=None):
     S = 0.8*np.random.randn(d,d)
@@ -23,11 +23,11 @@ def random_cov(d, diff=None):
         S += np.diag(np.exp(drand))
     if not diff:
         return S.T
-    S2 = S + diff*np.random.randn(d,d)
+    S2 = S * np.random.randint(2, size=(d,d))*np.exp(diff*np.random.randn(d,d))
     copy_triu_to_tril(S2)
     np.fill_diagonal(S2,0)
     mineig = linalg.eigvalsh(S2, eigvals=(0,0))[0]
-    drand += np.log(1+diff*np.random.randn(d)/np.e)
+    drand += diff*np.random.randn(d)
     if mineig < 0:
         S2 += np.diag(np.exp(drand)-mineig)
     else:
@@ -75,7 +75,7 @@ if not rand_distr_every_iter:
 
 # Sample sizes
 n = 40         # Samples for one estimate
-N = 6000       # Number of estimates
+N = 10000       # Number of estimates
 
 # Output arrays
 S_hats = np.empty((d,d,N), order='F')
@@ -90,9 +90,13 @@ var_h_ms = np.empty((d,N), order='F')
 if rand_distr_every_iter:
     m1s = np.empty((d,N), order='F')
     S1s = np.empty((d,d,N), order='F')
+    m2s = np.empty((d,N), order='F')
+    S2s = np.empty((d,d,N), order='F')
 else:
-    m1s = m1
-    S1s = S1
+    m1s = m1[:,np.newaxis]
+    S1s = S1[:,:,np.newaxis]
+    m2s = m2[:,np.newaxis]
+    S2s = S2[:,:,np.newaxis]
 
 # Sample estimates
 for i in xrange(N):
@@ -116,6 +120,8 @@ for i in xrange(N):
         
         m1s[:,i] = m1
         S1s[:,:,i] = S1
+        m2s[:,i] = m2
+        S2s[:,:,i] = S2
     
     if i == 2262:
         pass
@@ -179,14 +185,14 @@ for i in xrange(d):
               np.percentile((S_samps[i,j] - S1s[i,j])**2, 97.5))
 
 # Plot squared error vs a
+plt.figure()
+plt.scatter(a_ms, m_hats - m1s, alpha=0.3)
 #plt.figure()
-#plt.scatter(a_ms, (m_hats - m1s)**2)
-#plt.figure()
-#plt.scatter(var_h_ms, (m_hats - m1s)**2)
-#plt.show()
+#plt.scatter(var_h_ms, m_hats - m1s, alpha=0.3)
+plt.show()
 
-mse_samps = (m_samps - m1s[:,np.newaxis])**2
-mse_hats = (m_hats - m1s[:,np.newaxis])**2
+mse_samps = (m_samps - m1s)**2
+mse_hats = (m_hats - m1s)**2
 
 
 # Plot hist of a[0]

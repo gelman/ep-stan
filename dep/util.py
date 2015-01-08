@@ -203,13 +203,19 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     if max_a:
         np.maximum(np.minimum(a_m, max_a, out=a_m), -max_a, out=a_m)
     
-    var_h_m = var_h/n
-    
     # Estimate m_hat from f, h, a_m and m_tilde
-    np.multiply(hs, a_m, out=m_hat)
-    np.subtract(fs, m_hat, out=m_hat)
+#    np.multiply(hs, a_m, out=m_hat)
+#    np.subtract(fs, m_hat, out=m_hat)
+#    m_hat /= n
+#    m_hat += a_m*m_tilde
+    
+    hc *= a_m
+    f_hat = f - hc
+    np.sum(f_hat, axis=0, out=m_hat)
     m_hat /= n
-    m_hat += a_m*m_tilde
+    
+    var_h_m = var_h/n # Temp
+    
     
     # ------ Covariance ------
     # dev = samp - m_tilde # Calculated before
@@ -239,13 +245,18 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         np.maximum(np.minimum(a_S, max_a, out=a_S), -max_a, out=a_S)
     
     # Estimate S_hat from f, h, a_S and S_tilde
-    np.sum(h, axis=0, out=S_hat.T)
-    np.multiply(S_hat.T, a_S, out=S_hat.T)
-    S_hat /= n
-    np.subtract(fm, S_hat.T, out=S_hat.T)
-    S_hat += a_m.T*S_tilde
+#    np.sum(h, axis=0, out=S_hat.T)
+#    np.multiply(S_hat.T, a_S, out=S_hat.T)
+#    S_hat /= n
+#    np.subtract(fm, S_hat.T, out=S_hat.T)
+#    S_hat += a_m.T*S_tilde
     
-    var_h_S = var_h/n
+    hc *= a_S
+    f -= hc
+    np.sum(f, axis=0, out=S_hat.T)
+    S_hat /= n-1
+    
+    var_h_S = var_h/n # Temp
     
     return S_hat, m_hat, a_S.T, a_m, var_h_S.T, var_h_m
 
