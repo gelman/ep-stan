@@ -6,14 +6,40 @@ from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
 
 from util import invert_normal_params, cv_moments
+from cython_util import copy_triu_to_tril
 
-np.random.seed(0)
+
+#np.random.seed(0)
+
+def random_cov(d, diff=None):
+    S = 0.8*np.random.randn(d,d)
+    copy_triu_to_tril(S)
+    np.fill_diagonal(S,0)
+    mineig = linalg.eigvalsh(S, eigvals=(0,0))[0]
+    drand = 0.8*np.random.randn(d)
+    if mineig < 0:
+        S += np.diag(np.exp(drand)-mineig)
+    else:
+        S += np.diag(np.exp(drand))
+    if not diff:
+        return S.T
+    S2 = S + diff*np.random.randn(d,d)
+    copy_triu_to_tril(S2)
+    np.fill_diagonal(S2,0)
+    mineig = linalg.eigvalsh(S2, eigvals=(0,0))[0]
+    drand += np.log(1+diff*np.random.randn(d)/np.e)
+    if mineig < 0:
+        S2 += np.diag(np.exp(drand)-mineig)
+    else:
+        S2 += np.diag(np.exp(drand))
+    return S.T, S2.T
 
 rand_distr_every_iter = True
 d = 3
 indep_distr = False
-diff = 1
+diff = 0.1
 regulate_a = 1
+unnormalised_lp = None #np.log(0.4)
 
 if not rand_distr_every_iter:
     # Predefined distributions
@@ -23,26 +49,23 @@ if not rand_distr_every_iter:
     #m1 = np.array([1.0,0.0,-1.0])
     #m2 = np.array([1.1,0.0,-0.9])
     
-#    d = 2
-#    m1 = np.array([0.1, 1.1])
-#    m2 = 100*np.array([-0.1, 1.0])
-#    S1 = np.array([[2.1,-1.0],[-1.0,1.5]])
-#    S2 = np.array([[2.0,-1.1],[-1.1,1.4]])
+    d = 2
+    m1 = np.array([0.1, 1.1])
+    m2 = np.array([-0.1, 1.0])
+    S1 = np.array([[2.1,-1.0],[-1.0,1.5]])
+    S2 = np.array([[2.0,-1.1],[-1.1,1.4]])
     
-    # Random
-    if indep_distr:
-        S1 = 2*np.random.rand(d,d)-1
-        S1 = (S1.dot(S1.T)+d*np.eye(d)).T
-        m1 = np.random.randn(d)+np.random.randn()
-        S2 = 2*np.random.rand(d,d)-1
-        S2 = (S2.dot(S2.T)+d*np.eye(d)).T
-        m2 = np.random.randn(d)+np.random.randn()
-    else:
-        S1 = 2*np.random.rand(d,d)-1
-        S1 = (S1.dot(S1.T)+(d+2*diff)*np.eye(d)).T
-        m1 = np.random.randn(d)+np.random.randn()
-        S2 = S1 + (2*np.random.rand(d,d) -1)*diff
-        m2 = m1 + (2*np.random.rand(d) -1)*diff
+#    # Random
+#    if indep_distr:
+#        S1 = random_cov(d)
+#        m1 = np.random.randn(d) + 0.8*np.random.randn()
+#        S2 = random_cov(d)
+#        m2 = np.random.randn(d) + 0.8*np.random.randn()
+#    else:
+#        S1, S2 = random_cov(d, diff=diff)
+#        m1 = np.random.randn(d) + 0.6*np.random.randn()
+#        m2 = m1 + diff*np.random.randn(d)
+        
     
     N1 = multivariate_normal(mean=m1, cov=S1)
     
@@ -52,7 +75,7 @@ if not rand_distr_every_iter:
 
 # Sample sizes
 n = 40         # Samples for one estimate
-N = 10000       # Number of estimates
+N = 6000       # Number of estimates
 
 # Output arrays
 S_hats = np.empty((d,d,N), order='F')
@@ -77,18 +100,14 @@ for i in xrange(N):
     if rand_distr_every_iter:
         # Random
         if indep_distr:
-            S1 = 2*np.random.rand(d,d)-1
-            S1 = (S1.dot(S1.T)+d*np.eye(d)).T
-            m1 = np.random.randn(d)+np.random.randn()
-            S2 = 2*np.random.rand(d,d)-1
-            S2 = (S2.dot(S2.T)+d*np.eye(d)).T
-            m2 = np.random.randn(d)+np.random.randn()
+            S1 = random_cov(d)
+            m1 = np.random.randn(d) + 0.8*np.random.randn()
+            S2 = random_cov(d)
+            m2 = np.random.randn(d) + 0.8*np.random.randn()
         else:
-            S1 = 2*np.random.rand(d,d)-1
-            S1 = (S1.dot(S1.T)+(d+2*diff)*np.eye(d)).T
-            m1 = np.random.randn(d)+np.random.randn()
-            S2 = S1 + (2*np.random.rand(d,d) -1)*diff
-            m2 = m1 + (2*np.random.rand(d) -1)*diff
+            S1, S2 = random_cov(d, diff=diff)
+            m1 = np.random.randn(d) + 0.6*np.random.randn()
+            m2 = m1 + diff*np.random.randn(d)
         
         N1 = multivariate_normal(mean=m1, cov=S1)
         # Convert S2,m2 to natural parameters
@@ -104,6 +123,8 @@ for i in xrange(N):
     # Get samples
     samp = N1.rvs(n)
     lp = N1.logpdf(samp)
+    if unnormalised_lp:
+        lp += unnormalised_lp
     
     # cv estimates
     _, _, a_S, a_m, var_h_S, var_h_m = cv_moments(
@@ -159,23 +180,13 @@ for i in xrange(d):
 
 # Plot squared error vs a
 #plt.figure()
-#plt.scatter(a_ms, ((m_hats - m1s)**2)/((m_samps - m1s)**2))
+#plt.scatter(a_ms, (m_hats - m1s)**2)
 #plt.figure()
-#plt.scatter(var_h_ms, ((m_hats - m1s)**2)/((m_samps - m1s)**2))
+#plt.scatter(var_h_ms, (m_hats - m1s)**2)
 #plt.show()
 
-
-
-
-
-mse_samps = (m_samps - m1s)**2
-mse_hats = (m_hats - m1s)**2
-# Bad inds
-bi = (np.array([0, 0, 1, 1, 1, 2]), np.array([  13, 2262, 5989, 6446, 7594, 9711]))
-# Worst relative
-wr = 2262
-#wors
-w = 11743
+mse_samps = (m_samps - m1s[:,np.newaxis])**2
+mse_hats = (m_hats - m1s[:,np.newaxis])**2
 
 
 # Plot hist of a[0]

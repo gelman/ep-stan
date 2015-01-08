@@ -71,10 +71,10 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
         out_A = A.copy(order='F')
     else:
         np.copyto(out_A, A)
-    if not out_A.flags.farray:
+    if not out_A.flags['FARRAY']:
         # Convert from C-order to F-order by transposing (note symmetric)
         out_A = out_A.T
-        if not out_A.flags['FARRAY']:
+        if not out_A.flags['FARRAY'] and out_A.shape[0] > 1:
             raise ValueError('Provided array A is inappropriate')
     if not b is None:
         if out_b == 'in_place':
@@ -115,7 +115,7 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         The samples from the distribution being approximated.
     
     lp : ndarray
-        Log probability density at the samples. Can be unnormalised.
+        Log probability density at the samples.
     
     Q_tilde, r_tilde : ndarray
         The control variate distribution natural parameters.
@@ -152,6 +152,8 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     # TODO: enhance this function
     
     n = samp.shape[0]
+    if len(samp.shape) == 1:
+        samp = samp[:,np.newaxis]
     d = samp.shape[1]
     if S_hat is None:
        S_hat = np.empty((d,d), order='F')
@@ -188,7 +190,7 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     hs = np.sum(h, axis=0)
     hc = h - m_tilde
     
-    var_h = np.sum((hc)**2, axis=0)
+    var_h = np.sum(hc**2, axis=0)
     cov_fh = np.sum(fc*hc, axis=0)
     # Unbiased: var_h is divided by n and cov_fh by n-1
     nnzind = var_h == 0
