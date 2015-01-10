@@ -11,7 +11,9 @@ cimport cython
 cimport numpy as np
 ctypedef np.float64_t DTYPE_t
 
+
 @cython.boundscheck(False)
+@cython.wraparound(False)
 def copy_triu_to_tril(np.ndarray[DTYPE_t, ndim=2] A):
     """Copy upper triangular into the lower triangular.
     
@@ -27,11 +29,58 @@ def copy_triu_to_tril(np.ndarray[DTYPE_t, ndim=2] A):
     system and the size of the array. 
     
     """
-    assert A.dtype == np.float64
-    cdef int n = A.shape[0]
-    assert n == A.shape[1]
+    cdef unsigned int n = A.shape[0]
+    if n != A.shape[1]:
+        raise ValueError("Input array is not square")
     cdef unsigned int x, y
     for x in range(n-1):
         for y in range(x+1,n):
             A[y,x] = A[x,y]
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def auto_outer(np.ndarray[DTYPE_t, ndim=2] A):
+    """Outer product with itself.
+    
+    Calculates the outer product of each row of `A` with itself. Each row of the
+    two diensional output array contains the product of each combination of the
+    elements in the corresponding row in the input array. The order of the
+    combinations is the same as with np.triu_indices.
+    
+    Parameters
+    ----------
+    A : ndarray
+        The input array of shape (n,d).
+    
+    Returns
+    -------
+    out : ndarray
+        Output array of shape (n,d'), where d' = d+1 choose 2 = d*(d+1)/2.
+    
+    """
+    if A.dtype != np.float64:
+        raise ValueError("Currently only np.float64 type supported")
+    cdef Py_ssize_t n = A.shape[0]
+    cdef Py_ssize_t d = A.shape[1]
+    cdef Py_ssize_t d2
+    if d % 2 == 0:
+        d2 = d >> 1
+        d2 *= d+1
+    else:
+        d2 = (d+1) >> 1
+        d2 *= d
+    cdef np.ndarray out = np.empty((n, d2), dtype=np.float64)
+    cdef Py_ssize_t x, y, z, c
+    cdef double tmp
+    for z in range(n):
+        c = 0
+        for x in range(d):
+            tmp = A[z,x]
+            for y in range(x,d):
+                out[z,c] = tmp * A[z,y]
+                c += 1
+    return out
+
+
 
