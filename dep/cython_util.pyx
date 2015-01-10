@@ -20,8 +20,7 @@ def copy_triu_to_tril(np.ndarray[DTYPE_t, ndim=2] A):
     Parameters
     ----------
     A : ndarray
-        The array to operate on. It has to be a square matrix of
-        type np.float64.
+        The array to operate on. It has to be a square matrix.
     
     Notes
     -----
@@ -29,10 +28,10 @@ def copy_triu_to_tril(np.ndarray[DTYPE_t, ndim=2] A):
     system and the size of the array. 
     
     """
-    cdef unsigned int n = A.shape[0]
+    cdef Py_ssize_t n = A.shape[0]
     if n != A.shape[1]:
         raise ValueError("Input array is not square")
-    cdef unsigned int x, y
+    cdef Py_ssize_t x, y
     for x in range(n-1):
         for y in range(x+1,n):
             A[y,x] = A[x,y]
@@ -40,7 +39,7 @@ def copy_triu_to_tril(np.ndarray[DTYPE_t, ndim=2] A):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def auto_outer(np.ndarray[DTYPE_t, ndim=2] A):
+def auto_outer(np.ndarray[DTYPE_t, ndim=2] A, np.ndarray[DTYPE_t, ndim=2] out):
     """Outer product with itself.
     
     Calculates the outer product of each row of `A` with itself. Each row of the
@@ -53,34 +52,29 @@ def auto_outer(np.ndarray[DTYPE_t, ndim=2] A):
     A : ndarray
         The input array of shape (n,d).
     
-    Returns
-    -------
     out : ndarray
         Output array of shape (n,d'), where d' = d+1 choose 2 = d*(d+1)/2.
     
     """
-    if A.dtype != np.float64:
-        raise ValueError("Currently only np.float64 type supported")
     cdef Py_ssize_t n = A.shape[0]
     cdef Py_ssize_t d = A.shape[1]
     cdef Py_ssize_t d2
+    # Check shapes
     if d % 2 == 0:
         d2 = d >> 1
         d2 *= d+1
     else:
         d2 = (d+1) >> 1
         d2 *= d
-    cdef np.ndarray out = np.empty((n, d2), dtype=np.float64)
+    if out.shape[0] != n or out.shape[1] != d2:
+        raise ValueError("Shapes of `A` and `out` does not match")
     cdef Py_ssize_t x, y, z, c
-    cdef double tmp
     for z in range(n):
         c = 0
         for x in range(d):
-            tmp = A[z,x]
             for y in range(x,d):
-                out[z,c] = tmp * A[z,y]
+                out[z,c] = A[z,x] * A[z,y]
                 c += 1
-    return out
 
 
 
