@@ -38,8 +38,10 @@ rand_distr_every_iter = True
 d = 3
 indep_distr = False
 diff = 0.1
-regulate_a = 1
-unnormalised_lp = None #np.log(0.4)
+regulate_a = None
+max_a = None
+multiple_cv = True
+unnormalised_lp = False #np.log(0.4)
 
 if not rand_distr_every_iter:
     # Predefined distributions
@@ -75,17 +77,16 @@ if not rand_distr_every_iter:
 
 # Sample sizes
 n = 40         # Samples for one estimate
-N = 10000       # Number of estimates
+N = 1000       # Number of estimates
 
 # Output arrays
+d2 = (d*(d+1))/2
 S_hats = np.empty((d,d,N), order='F')
 m_hats = np.empty((d,N), order='F')
 S_samps = np.empty((d,d,N), order='F')
 m_samps = np.empty((d,N), order='F')
-a_Ss = np.empty((d,d,N), order='F')
-a_ms = np.empty((d,N), order='F')
-var_h_Ss = np.empty((d,d,N), order='F')
-var_h_ms = np.empty((d,N), order='F')
+a_Ss = np.empty((d2,d2,N), order='F')
+a_ms = np.empty((d,d,N), order='F')
 
 if rand_distr_every_iter:
     m1s = np.empty((d,N), order='F')
@@ -133,16 +134,21 @@ for i in xrange(N):
         lp += unnormalised_lp
     
     # cv estimates
-    _, _, a_S, a_m, var_h_S, var_h_m = cv_moments(
+    _, _, a_S, a_m = cv_moments(
         samp, lp, Q2, r2,
-        S_tilde=S2, m_tilde=m2,
-        ldet_Q_tilde=ldet_Q_tilde, regulate_a=regulate_a,
-        S_hat=S_hats[:,:,i], m_hat=m_hats[:,i]
+        S_tilde = S2,
+        m_tilde = m2,
+        ldet_Q_tilde = ldet_Q_tilde,
+        regulate_a = regulate_a,
+        max_a = max_a,
+        multiple_cv = multiple_cv,
+        S_hat = S_hats[:,:,i],
+        m_hat = m_hats[:,i],
+        ret_a = True
     )
+    S_hats[:,:,i] /= n # Divided by n seems to give better results
     a_Ss[:,:,i] = a_S
-    a_ms[:,i] = a_m
-    var_h_Ss[:,:,i] = var_h_S
-    var_h_ms[:,i] = var_h_m
+    a_ms[:,:,i] = a_m
     
     # Basic sample estimates
     S_samps[:,:,i] = np.cov(samp, rowvar=0).T
@@ -185,14 +191,12 @@ for i in xrange(d):
               np.percentile((S_samps[i,j] - S1s[i,j])**2, 97.5))
 
 # Plot squared error vs a
-plt.figure()
-plt.scatter(a_ms, m_hats - m1s, alpha=0.3)
 #plt.figure()
-#plt.scatter(var_h_ms, m_hats - m1s, alpha=0.3)
-plt.show()
+#plt.scatter(a_ms, m_hats - m1s, alpha=0.3)
+#plt.show()
 
-mse_samps = (m_samps - m1s)**2
-mse_hats = (m_hats - m1s)**2
+#mse_samps = (m_samps - m1s)**2
+#mse_hats = (m_hats - m1s)**2
 
 
 # Plot hist of a[0]

@@ -270,7 +270,7 @@ class Worker(object):
             lp = fit.extract(pars='lp__')['lp__']
             cv_moments(samp, lp, self.Q, self.r, S_hat=St, m_hat=mt)
         else:
-            np.mean(samp, 0, out=mt)
+            np.mean(samp, axis=0, out=mt)
             samp -= mt
             np.dot(samp.T, samp, out=St.T)
         

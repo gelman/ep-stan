@@ -18,7 +18,7 @@ import numpy as np
 from scipy import linalg
 from pystan import StanModel
 
-from cython_util import copy_triu_to_tril
+from cython_util import copy_triu_to_tril, auto_outer, ravel_triu, unravel_triu
 
 # LAPACK positive definite inverse routine
 dpotri_routine = linalg.get_lapack_funcs('potri')
@@ -104,6 +104,43 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     return out_A, out_b
 
 
+def _cv_estim(f, hc, divide_f_hat, opt, ddof_f=0, out=None):
+    """Estimate f_hat. Used by function cv_moments."""
+    n = f.shape[0]
+    d = f.shape[1]
+    if out is None:
+        out = np.empty(d)
+    np.sum(f, axis=0, out=out)
+    out /= n - ddof_f
+    fc = f - out
+    if opt['multiple_cv']:
+        # Unbiased: var_h is divided by n and cov_fh by n-1
+        var_h = hc.T.dot(hc).T
+        var_h *= n-1
+        cov_fh = fc.T.dot(hc).T
+        cov_fh *= n
+        a = linalg.solve(var_h, cov_fh, overwrite_a=True, overwrite_b=True)
+    else:
+        var_h = np.sum(hc**2, axis=0)
+        cov_fh = np.sum(fc*hc, axis=0)
+        a = (cov_fh * n) / (var_h * (n-1))
+    # Regulate
+    if opt['regulate_a']:
+        a *= regulate_a
+    if opt['max_a']:
+        np.clip(a, -max_a, max_a, out=a)
+    # Calc E[f_hat]
+    if opt['multiple_cv']:
+        f_hat = np.dot(hc, a, out=fc)
+    else:
+        f_hat = np.multiply(hc, a, out=fc)
+    np.subtract(f, f_hat, out=f_hat)
+    np.sum(f_hat, axis=0, out=out)
+    if divide_f_hat:
+        out /= n - ddof_f
+    return out, a
+    
+
 def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
                ldet_Q_tilde=None, multiple_cv=True, regulate_a=None, max_a=None,
                S_hat=None, m_hat=None, ret_a=False):
@@ -146,7 +183,7 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         The output arrays (S_hat in F-order).
     
     ret_a : bool, optional
-        Indicates whether a_s and a_m are returned. Default value is False.
+        Indicates whether a_S and a_m are returned. Default value is False.
     
     Returns
     -------
@@ -154,21 +191,27 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         The approximated moment parameters.
     
     a_S, a_m : float
-        The respective estimates for `a`.
+        The respective estimates for `a`. Returned if `ret_a` is True.
     
     """
-    # TODO: enhance this function
     
+    opt = dict(
+        multiple_cv = multiple_cv,
+        regulate_a = regulate_a,
+        max_a = max_a
+    )
     n = samp.shape[0]
     if len(samp.shape) == 1:
+        # Force samp to two dimensional
         samp = samp[:,np.newaxis]
     d = samp.shape[1]
+    
     if S_hat is None:
        S_hat = np.empty((d,d), order='F')
     if m_hat is None:
        m_hat = np.empty(d)
     
-    # Invert Q_tilde, r_tilde to moment params
+    # Invert Q_tilde, r_tilde to moment params if not provided
     if S_tilde is None or m_tilde is None or ldet_Q_tilde is None:
         cho_tilde = linalg.cho_factor(Q_tilde)[0]
     if S_tilde is None or m_tilde is None:
@@ -180,82 +223,72 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         const = np.sum(np.log(np.diag(cho_tilde))) - 0.5*d*_LOG_2PI
     else:
         const = ldet_Q_tilde - 0.5*d*_LOG_2PI
-    dev = samp - m_tilde
-    # xQx = np.sum(dev.dot(Q)*dev, axis=1)
-    xQx = np.einsum('ij,jk,ki->i', dev, Q_tilde, dev.T) # A bit faster, use out
-    xQx *= 0.5
-    lp_tilde = const - xQx
+    dev_tilde = samp - m_tilde
+    lp_tilde = np.sum(dev_tilde.dot(Q_tilde)*dev_tilde, axis=1)
+    lp_tilde *= 0.5
+    np.subtract(const, lp_tilde, out=lp_tilde)
     
     # Probability ratios
-    pr = np.exp(lp_tilde - lp)
+    pr = np.subtract(lp_tilde, lp, out=lp_tilde)
+    pr = np.exp(pr, out=pr)
     
-    # ------ Mean ------
+    # If tilted distribution is not very good estimate, return normal estimates
+    if np.all(pr < np.finfo(np.float64).eps):
+        np.mean(samp, axis=0, out=m_hat)
+        samp -= m_hat
+        np.dot(samp.T, samp, out=S_hat.T)
+        if ret_a:
+            return S_hat, m_hat, 0, 0
+        else:
+            return S_hat, m_hat
+    
+    # ----------------------------------
+    #   Mean
+    # ----------------------------------
     f = samp
     hc = samp*pr[:,np.newaxis]
     hc -= m_tilde
+#    hc -= np.mean(hc, axis=0)
     
-    if multiple_cv:
-        # Unbiased: var_h is divided by n and cov_fh by n-1
-        var_h = hc.T.dot(hc).T
-        var_h /= n
-        cov_fh = (f - np.mean(f, axis=0)).T.dot(hc).T
-        cov_fh /= n-1
-        a_m = linalg.solve(var_h, cov_fh, overwrite_a=True, overwrite_b=True)
+    _, a_m = _cv_estim(f, hc, True, opt, out=m_hat)    
+    if not ret_a:
+        del a_m
+    
+    # ----------------------------------
+    #   Covariance
+    # ----------------------------------
+    
+    # Calc d+1 choose 2
+    if d % 2 == 0:
+        d2 = (d >> 1) * (d+1)
     else:
-        var_h = np.sum(hc**2, axis=0)
-        cov_fh = np.sum((f - np.mean(f, axis=0))*hc, axis=0)
-        a_m = (cov_fh * n) / (var_h * (n-1))
-    # Regulate a
-    if regulate_a:
-        a_m *= regulate_a
-    if max_a:
-        np.clip(a_m, -max_a, max_a, out=a_m)
-    # Calc E[f_hat]
-    if multiple_cv:
-        hca = hc.dot(a_m)
-    else:
-        hca = np.multiply(hc, a_m, out=hc)
-    f_hat = f - hca
-    np.mean(f_hat, axis=0, out=m_hat)
+        d2 = ((d+1) >> 1) * d
+    d2vec = np.empty(d2)
     
-    # ------ Covariance ------
-    # dev = samp - m_tilde # Calculated before
-    hc = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
-    hc *= pr[:,np.newaxis,np.newaxis]
-    hc -= S_tilde.T
+    # Calc h
+    # dev_tilde = samp - m_tilde # Calculated before
+    hc = np.empty((n,d2))
+    auto_outer(dev_tilde, hc)
+    hc *= pr[:,np.newaxis]
+    ravel_triu(S_tilde.T, d2vec)
+    hc -= d2vec
+#    hc -= np.mean(hc, axis=0)
     
-    # Use here sample mean i.e. dev = samp - mean(samp, axis=0)
-    # dev = fc # Calculated before 
-    # Or use the new estimate
+    # Use here the new estimate instead of dev = samp - mean(samp, axis=0)
     dev = samp - m_hat
-    f = dev[:,np.newaxis,:] * dev[:,:,np.newaxis]
-    fc = f - np.sum(f, axis=0)/(n-1) # Should here be n-1 or n ?
+    f = np.empty((n,d2))
+    auto_outer(dev, f)
     
-    if multiple_cv:
+    # Estimate f_hat
+    _, a_S = _cv_estim(f, hc, False, opt, ddof_f=0, out=d2vec)
+    if not ret_a:
+        del a_S
     
-    else:
-    
-    var_h = np.sum(hc**2, axis=0)
-    cov_fh = np.sum(fc*hc, axis=0)
-    # Unbiased: var_h is divided by n and cov_fh by n-1
-    nnzind = var_h < np.finfo(np.float64).eps
-    if np.any(nnzind):
-        a_S = np.zeros((d,d))
-        a_S[nnzind] = (cov_fh[nnzind] * n) / (var_h[nnzind] * (n-1))
-    else:
-        a_S = (cov_fh * n) / (var_h * (n-1))
-    if regulate_a:
-        a_S *= regulate_a
-    if max_a:
-        np.clip(a_S, -max_a, max_a, out=a_S)
-    
-    hc *= a_S
-    f -= hc
-    np.sum(f, axis=0, out=S_hat.T)
-    S_hat /= n-1
+    # Reshape f_hat into covariance matrix S_hat
+    unravel_triu(d2vec, S_hat.T)
     
     if ret_a:
-        return S_hat, m_hat, a_S.T, a_m
+        return S_hat, m_hat, a_S, a_m
     else:
         return S_hat, m_hat
 
