@@ -1,17 +1,62 @@
+"""Sckript for testing the control variates method for estimating the moment
+parameters, see util.cv_moments.
+
+The most recent version of the code can be found on GitHub:
+https://github.com/gelman/ep-stan
+
+"""
+
+# Licensed under the 3-clause BSD license.
+# http://opensource.org/licenses/BSD-3-Clause
+#
+# Copyright (C) 2014 Tuomas Sivula
+# All rights reserved.
 
 from __future__ import division
 import numpy as np
 from scipy import linalg
 from scipy.stats import multivariate_normal
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 from util import invert_normal_params, cv_moments
 from cython_util import copy_triu_to_tril
 
 
-np.random.seed(0)
+# ------------------------------------------------------------------------------
+#     Configurations
+# ------------------------------------------------------------------------------
+np.random.seed(0)               # Seed
+n = 80                          # Samples for one estimate
+N = 10000                       # Number of estimates
+d = 4                           # Dimension of the test distributions
+rand_distr_every_iter = True    # Separate distribution for each estimate
+indep_distr = False             # Target and cv distributions are independent
+diff = 0.1                      # Difference between target and cv distributions
+                                # see random_cov function
+regulate_a = None               # Multiplier for the correlation term a
+max_a = None                    # Maximum absolute value of a
+multiple_cv = True              # Multiple control variate method
+m_treshold = 0.9                # Treshold for skipping control variate
+unnormalised_lp = False         # Unnormalised target distribution
+
+# ------------------------------------------------------------------------------
+#     Pre-defined distributions
+# ------------------------------------------------------------------------------
+use_pre_defined = False         # In order to use the following, set to True
+S1 = np.array([[3.0,1.5,-1.0],[1.5,2.5,-0.2],[-1.0,-0.2,1.5]], order='F')
+S2 = np.array([[3.1,1.2,-0.7],[1.2,2.4,-0.4],[-0.7,-0.4,1.8]], order='F')
+m1 = np.array([1.0,0.0,-1.0])
+m2 = np.array([1.1,0.0,-0.9])
+d = m1.shape[0]
+
 
 def random_cov(d, diff=None):
+    """Generate random covariance matrix.
+    
+    Generates a random covariance matrix, or two dependent covariance matrices
+    if the argument `diff` is given.
+    
+    """
     S = 0.8*np.random.randn(d,d)
     copy_triu_to_tril(S)
     np.fill_diagonal(S,0)
@@ -34,51 +79,27 @@ def random_cov(d, diff=None):
         S2 += np.diag(np.exp(drand))
     return S.T, S2.T
 
-rand_distr_every_iter = True
-d = 3
-indep_distr = False
-diff = 0.1
-regulate_a = None
-max_a = None
-multiple_cv = True
-unnormalised_lp = False #np.log(0.4)
-
+# Preprocess
+if use_pre_defined:
+    rand_distr_every_iter = False
 if not rand_distr_every_iter:
-    # Predefined distributions
-    #d = 3
-    #S1 = np.array([[3.0,1.5,-1.0],[1.5,2.5,-0.2],[-1.0,-0.2,1.5]], order='F')
-    #S2 = np.array([[3.1,1.2,-0.7],[1.2,2.4,-0.4],[-0.7,-0.4,1.8]], order='F')
-    #m1 = np.array([1.0,0.0,-1.0])
-    #m2 = np.array([1.1,0.0,-0.9])
-    
-    d = 2
-    m1 = np.array([0.1, 1.1])
-    m2 = np.array([-0.1, 1.0])
-    S1 = np.array([[2.1,-1.0],[-1.0,1.5]])
-    S2 = np.array([[2.0,-1.1],[-1.1,1.4]])
-    
-#    # Random
-#    if indep_distr:
-#        S1 = random_cov(d)
-#        m1 = np.random.randn(d) + 0.8*np.random.randn()
-#        S2 = random_cov(d)
-#        m2 = np.random.randn(d) + 0.8*np.random.randn()
-#    else:
-#        S1, S2 = random_cov(d, diff=diff)
-#        m1 = np.random.randn(d) + 0.6*np.random.randn()
-#        m2 = m1 + diff*np.random.randn(d)
-        
-    
+    if not use_pre_defined:
+        # Generate random distr
+        if indep_distr:
+            S1 = random_cov(d)
+            m1 = np.random.randn(d) + 0.8*np.random.randn()
+            S2 = random_cov(d)
+            m2 = np.random.randn(d) + 0.8*np.random.randn()
+        else:
+            S1, S2 = random_cov(d, diff=diff)
+            m1 = np.random.randn(d) + 0.6*np.random.randn()
+            m2 = m1 + diff*np.random.randn(d)
+    # Freezed distr
     N1 = multivariate_normal(mean=m1, cov=S1)
-    
     # Convert S2,m2 to natural parameters
     Q2, r2 = invert_normal_params(S2, m2)
+    # Calc half det of Q2
     ldet_Q_tilde = np.sum(np.log(np.diag(linalg.cho_factor(Q2)[0])))
-
-# Sample sizes
-n = 40         # Samples for one estimate
-N = 10000       # Number of estimates
-#N = 3
 
 # Output arrays
 d2 = (d*(d+1))/2
@@ -88,9 +109,7 @@ S_samps = np.empty((d,d,N), order='F')
 m_samps = np.empty((d,N), order='F')
 a_Ss = np.empty((d2,d2,N), order='F')
 a_ms = np.empty((d,d,N), order='F')
-
 tresh = np.empty(N, dtype=bool)
-
 if rand_distr_every_iter:
     m1s = np.empty((d,N), order='F')
     S1s = np.empty((d,d,N), order='F')
@@ -106,7 +125,7 @@ else:
 for i in xrange(N):
     
     if rand_distr_every_iter:
-        # Random
+        # Generate random distr
         if indep_distr:
             S1 = random_cov(d)
             m1 = np.random.randn(d) + 0.8*np.random.randn()
@@ -116,19 +135,15 @@ for i in xrange(N):
             S1, S2 = random_cov(d, diff=diff)
             m1 = np.random.randn(d) + 0.6*np.random.randn()
             m2 = m1 + diff*np.random.randn(d)
-        
         N1 = multivariate_normal(mean=m1, cov=S1)
         # Convert S2,m2 to natural parameters
         Q2, r2 = invert_normal_params(S2, m2)
         ldet_Q_tilde = np.sum(np.log(np.diag(linalg.cho_factor(Q2)[0])))
-        
+        # Store distributions
         m1s[:,i] = m1
         S1s[:,:,i] = S1
         m2s[:,i] = m2
         S2s[:,:,i] = S2
-    
-    if i == 2262:
-        pass
     
     # Get samples
     samp = N1.rvs(n)
@@ -145,29 +160,23 @@ for i in xrange(N):
         regulate_a = regulate_a,
         max_a = max_a,
         multiple_cv = multiple_cv,
+        m_treshold = m_treshold,
         S_hat = S_hats[:,:,i],
         m_hat = m_hats[:,i],
         ret_a = True
     )
-    if tres:
-        # CV used
-        # Divided by n instead of n-1 seems to give better mse but worse bias
-        S_hats[:,:,i] /= n-1
-    else:
-        S_hats[:,:,i] /= n-1
+    # Store a and tresh exceeding info
     a_Ss[:,:,i] = a_S
     a_ms[:,:,i] = a_m
-    
     tresh[i] = tres
     
     # Basic sample estimates
     S_samps[:,:,i] = np.cov(samp, rowvar=0).T
     m_samps[:,i] = np.mean(samp, axis=0)
 
-print np.count_nonzero(tresh)/N
-
-# Print
-print '\nEstimate distributions'
+# Print result statistics
+print 'Statistics of {} estimates'.format(N)
+print 'Ratio of cv estimates: {}'.format(np.count_nonzero(tresh)/N)
 print ('{:9}'+4*' {:>13}').format(
       'estimate', 'me (bias)', 'std', 'mse', '97.5se')
 print 65*'-'
@@ -200,23 +209,6 @@ for i in xrange(d):
               np.sqrt(np.var(S_samps[i,j], ddof=1)),
               np.mean((S_samps[i,j] - S1s[i,j])**2),
               np.percentile((S_samps[i,j] - S1s[i,j])**2, 97.5))
-
-# Plot squared error vs a
-#plt.figure()
-#plt.scatter(a_ms, m_hats - m1s, alpha=0.3)
-#plt.show()
-
-#mse_samps = (m_samps - m1s)**2
-#mse_hats = (m_hats - m1s)**2
-
-
-# Plot hist of a[0]
-#plt.figure()
-#plt.hist(a_ms[0,:], bins=20)
-#plt.figure()
-#plt.hist(a_Ss[0,0,:], bins=20)
-#plt.show()
-
 
 
 
