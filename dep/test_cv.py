@@ -77,7 +77,8 @@ if not rand_distr_every_iter:
 
 # Sample sizes
 n = 40         # Samples for one estimate
-N = 1000       # Number of estimates
+N = 10000       # Number of estimates
+#N = 3
 
 # Output arrays
 d2 = (d*(d+1))/2
@@ -87,6 +88,8 @@ S_samps = np.empty((d,d,N), order='F')
 m_samps = np.empty((d,N), order='F')
 a_Ss = np.empty((d2,d2,N), order='F')
 a_ms = np.empty((d,d,N), order='F')
+
+tresh = np.empty(N, dtype=bool)
 
 if rand_distr_every_iter:
     m1s = np.empty((d,N), order='F')
@@ -134,7 +137,7 @@ for i in xrange(N):
         lp += unnormalised_lp
     
     # cv estimates
-    _, _, a_S, a_m = cv_moments(
+    _, _, tres, a_S, a_m = cv_moments(
         samp, lp, Q2, r2,
         S_tilde = S2,
         m_tilde = m2,
@@ -146,14 +149,22 @@ for i in xrange(N):
         m_hat = m_hats[:,i],
         ret_a = True
     )
-    S_hats[:,:,i] /= n # Divided by n seems to give better results
+    if tres:
+        # CV used
+        # Divided by n instead of n-1 seems to give better mse but worse bias
+        S_hats[:,:,i] /= n-1
+    else:
+        S_hats[:,:,i] /= n-1
     a_Ss[:,:,i] = a_S
     a_ms[:,:,i] = a_m
+    
+    tresh[i] = tres
     
     # Basic sample estimates
     S_samps[:,:,i] = np.cov(samp, rowvar=0).T
     m_samps[:,i] = np.mean(samp, axis=0)
 
+print np.count_nonzero(tresh)/N
 
 # Print
 print '\nEstimate distributions'
