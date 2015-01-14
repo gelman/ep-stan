@@ -155,7 +155,9 @@ def _cv_estim(f, h, Eh, opt, cov_k=None, var_k=None, ddof_f=0, ddof_h=0,
 def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
                ldet_Q_tilde=None, multiple_cv=True, regulate_a=None, max_a=None,
                m_treshold=0.9, S_hat=None, m_hat=None, ret_a=False):
-    """Approximate moments using control variate
+    """Approximate moments using control variate.
+    
+    N.B. This requires that the sample log probabilities are normalised!
     
     Parameters
     ----------
