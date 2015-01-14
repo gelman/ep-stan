@@ -14,6 +14,34 @@ ctypedef np.float64_t DTYPE_t
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def fro_norm_squared(np.ndarray[DTYPE_t, ndim=2] A):
+    """Squared Frobenius norm of matrix.
+    
+    Parameters
+    ----------
+    A : ndarray
+        The two dimensional input array. Works faster if this is C-contiguous.
+    
+    Returns
+    -------
+    out : ndarray
+        Squared frobenius norm, i.e. np.sum(A**2)
+    
+    """
+    cdef Py_ssize_t n = A.shape[0]
+    cdef Py_ssize_t d = A.shape[1]
+    cdef Py_ssize_t x, y
+    cdef DTYPE_t cur
+    cdef DTYPE_t tot = 0
+    for x in range(n):
+        for y in range(d):
+            cur = A[x,y]
+            tot += cur*cur
+    return tot
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def auto_outer(np.ndarray[DTYPE_t, ndim=2] A, np.ndarray[DTYPE_t, ndim=2] out):
     """Outer product with itself.
     

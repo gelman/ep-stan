@@ -18,7 +18,13 @@ import numpy as np
 from scipy import linalg
 from pystan import StanModel
 
-from cython_util import copy_triu_to_tril, auto_outer, ravel_triu, unravel_triu
+from cython_util import (
+    copy_triu_to_tril,
+    auto_outer,
+    ravel_triu,
+    unravel_triu,
+    fro_norm_squared
+)
 
 # LAPACK positive definite inverse routine
 dpotri_routine = linalg.get_lapack_funcs('potri')
@@ -104,12 +110,11 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     return out_A, out_b
 
 
-<<<<<<< HEAD
-def olse_naive(S, out=None):
+def olse(S, n, P=None, out=None):
     """Optimal linear shrinkage estimator.
     
     Estimate precision matrix form the given sample covariance matrix with
-    optimal linear shrinkage method [1]_ using the naive prior matrix 1/d I,
+    optimal linear shrinkage method [1]_. using the naive prior matrix 1/d I,
     where d is the number of dimensions.
     
     Parameters
@@ -117,8 +122,20 @@ def olse_naive(S, out=None):
     S : ndarray
         The sample covariance matrix.
     
+    n : int
+        Number of contributing samples
+    
+    P : {None, ndarray}, optional
+        The prior matrix. Providing None uses the naive prior 1/d I, where d is
+        the number of dimensions. Default is None.
+    
     out : {None, ndarray, 'in_place'}, optional
         The output array for the precision matrix estimate.
+    
+    Returns
+    -------
+    out : ndarray
+        The precision matrix estimate.
     
     References
     ----------
@@ -137,12 +154,31 @@ def olse_naive(S, out=None):
         # Convert from C-order to F-order by transposing (note symmetric)
         out = out.T
         if not out.flags['FARRAY']:
-            raise ValueError('Provided array is inappropriate')
-    
+            raise ValueError('Provided array should be in F-order')
+    # Calculate
+    d = out.shape[0]
     invert_normal_params(out, out_A='in_place')
-    tr_norm = out.trace()
-    k_norm = np.multiply(Q,Q).sum()
-=======
+    tr = np.trace(out)
+    tr2 = tr**2
+    f2 = fro_norm_squared(out.T)
+    if P is None:
+        # Naive prior
+        alpha = 1 - (d + tr2/(f2 - tr2/d))/n
+        beta = tr*(1-d/n-alpha)
+        out *= alpha
+        out.flat[::out.shape[1]+1] += beta/d    # Add beta/d to the diagonal
+    else:
+        # Use provided prior
+        f2p = fro_norm_squared(P.T)
+        temp = out*P
+        trSP = np.sum(temp)
+        alpha = 1 - (d + tr2*f2p/(f2*f2p - trSP**2))/n
+        beta = (trSP/f2p)*(1-d/n-alpha)
+        out *= alpha
+        out += np.multiply(beta, P, out=temp)
+    return out
+
+
 def _cv_estim(f, h, Eh, opt, cov_k=None, var_k=None, ddof_f=0, ddof_h=0,
               out=None):
     """Estimate f_hat. Used by function cv_moments."""
@@ -358,7 +394,6 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         return S_hat, m_hat, True, a_S, a_m
     else:
         return S_hat, m_hat, True
->>>>>>> master
 
 
 def get_last_sample(fit, out=None):
