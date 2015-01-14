@@ -20,6 +20,7 @@ from scipy import linalg
 
 from util import (
     invert_normal_params,
+    olse,
     get_last_sample,
     suppress_stdout,
     load_stan
@@ -53,20 +54,25 @@ class Worker(object):
     """
     
     DEFAULT_OPTIONS = {
-        'init_prev'     : True,
-        'smooth'        : None,
-        'smooth_ignore' : 1,
-        'tmp_fix_32bit' : False # FIXME: Temp fix for RandomState problem
+        'init_prev'       : True,
+        'prec_estim'      : 'sample',
+        'prec_estim_skip' : 0,
+        'smooth'          : None,
+        'smooth_ignore'   : 1,
+        'tmp_fix_32bit'   : False # FIXME: Temp fix for RandomState problem
     }
     
     DEFAULT_STAN_PARAMS = {
-        'chains'        : 4,
-        'iter'          : 1000,
-        'warmup'        : None,
-        'thin'          : 2,
-        'init'          : 'random',
-        'seed'          : None
+        'chains'          : 4,
+        'iter'            : 1000,
+        'warmup'          : None,
+        'thin'            : 2,
+        'init'            : 'random',
+        'seed'            : None
     }
+    
+    # Available values for option `prec_estim`
+    PREC_ESTIM_OPTIONS = ('sample', 'olse')
     
     def __init__(self, index, stan_model, dphi, X, y, A={}, **options):
         
@@ -137,6 +143,13 @@ class Worker(object):
                 # If init_prev is used, init option has to be a string
                 raise ValueError("Arg. `init` has to be a string if "
                                  "`init_prev` is True")
+        
+        # Tilted precision estimate method
+        self.prec_estim = options['prec_estim']
+        if not self.prec_estim in self.PREC_ESTIM_OPTIONS:
+            raise ValueError("Invalid value for option `prec_estim`")
+        if self.prec_estim != 'sample':
+            self.prec_estim_skip = options['prec_estim_skip']
         
         # Smoothing
         self.smooth = options['smooth']
@@ -269,13 +282,36 @@ class Worker(object):
             # Smoothen the distribution (use dri and dQi as temp arrays)
             St, mt = self._apply_smooth(dri, dQi)
         
-        # Normalise St into dQi
-        np.divide(St, self.nsamp - 1, out=dQi)
-        # Convert moment params to natural params, St and mt are preserved
+        # Estimate precision matrix
         try:
-            invert_normal_params(dQi, mt, out_A='in_place', out_b=dri)
+            # Basic sample estimate
+            if self.prec_estim == 'sample' or self.prec_estim_skip > 0:
+                # Normalise St unbiased into dQi
+                np.divide(St, self.nsamp - 1, out=dQi)
+                # Convert moment params to natural params
+                invert_normal_params(dQi, mt, out_A='in_place', out_b=dri)
+                # Unbiased natural parameter estimates
+                unbias_k = (self.nsamp-self.dphi-2)/(self.nsamp-1)
+                dQi *= unbias_k
+                dri *= unbias_k
+            
+            # Optimal linear shrinkage estimate
+            elif self.prec_estim == 'olse':
+                # Normalise St into dQi
+                np.divide(St, self.nsamp, out=dQi)
+                # Estimate
+                olse(dQi, self.nsamp, P=self.Q, out='in_place')
+                np.dot(dQi, mt, out=dri)
+            
+            else:
+                raise ValueError("Invalid value for option `prec_estim`")
+            
+            # Calculate the difference into the output arrays
+            np.subtract(dQi, self.Q, out=dQi)
+            np.subtract(dri, self.r, out=dri)
+            
         except linalg.LinAlgError:
-            # Not positive definite
+            # Precision estimate failed
             pos_def = False
             self.phase = 0
             dQi.fill(0)
@@ -287,16 +323,9 @@ class Worker(object):
                 # Reset initialisation method
                 self.init = self.init_orig
         else:
-            # Positive definite
+            # Set return and phase flag
             pos_def = True
             self.phase = 2
-            # Unbiased natural parameter estimates
-            unbias_k = (self.nsamp-self.dphi-2)/(self.nsamp-1)
-            dQi *= unbias_k
-            dri *= unbias_k
-            # Calculate the difference into the output arrays
-            np.subtract(dQi, self.Q, out=dQi)
-            np.subtract(dri, self.r, out=dri)
         
         self.iteration += 1
         return pos_def
@@ -492,6 +521,18 @@ class Master(object):
         StanModel.sampling). If `init_prev` is True, this parameter affects only
         the sampling on the first iteration, and strings 'random' and '0' are
         the only acceptable values for this argument.
+    
+    prec_estim : {'sample', 'olse'}
+        Method for estimating the precision matrix from the tilted distribution
+        samples. The available methods are:
+            'sample'    : basic sample estimate
+            'olse'      : optimal linear shrinkage estimate (see util.olse)
+        The default method is 'sample'.
+    
+    prec_estim_skip : int
+        Non-negative integer indicating on how many iterations from the begining
+        the tilted distribution precision matrix is estimated using the default
+        sample estimate instead of anything else.
     
     smooth : {None, array_like}, optional
         A portion of samples from previous iterations to be taken into account

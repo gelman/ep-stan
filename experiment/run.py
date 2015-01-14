@@ -86,6 +86,10 @@ THIN = 2
 # ====== Number of EP iterations ===============================================
 EP_ITER = 6
 
+# ====== Tilted distribution precision estimate method =========================
+# Available options are 'sample' and 'olse', see class serial.Master.
+PREC_ESTIM = 'olse'
+
 # ====== 32bit Python ? ========================================================
 # Temp fix for the RandomState seed problem with pystan in 32bit Python. Set
 # the following to True if using 32bit Python.
@@ -159,12 +163,13 @@ def main(filename='res.npz'):
     
     # Options for the ep-algorithm see documentation of dep.serial.Master
     options = {
-        'seed'      : SEED_MCMC,
-        'init_prev' : True,
-        'chains'    : CHAINS,
-        'iter'      : ITER,
-        'warmup'    : WARMUP,
-        'thin'      : THIN
+        'seed'       : SEED_MCMC,
+        'init_prev'  : True,
+        'prec_estim' : PREC_ESTIM,
+        'chains'     : CHAINS,
+        'iter'       : ITER,
+        'warmup'     : WARMUP,
+        'thin'       : THIN
     }
     
     # Temp fix for the RandomState seed problem with pystan in 32bit Python
