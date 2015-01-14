@@ -104,7 +104,8 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     return out_A, out_b
 
 
-def _cv_estim(f, h, Eh, opt, ddof_f=0, ddof_h=0, hc_precise=True, out=None):
+def _cv_estim(f, h, Eh, opt, cov_k=None, var_k=None, ddof_f=0, ddof_h=0,
+              out=None):
     """Estimate f_hat. Used by function cv_moments."""
     n = f.shape[0]
     d = f.shape[1]
@@ -114,28 +115,23 @@ def _cv_estim(f, h, Eh, opt, ddof_f=0, ddof_h=0, hc_precise=True, out=None):
     np.sum(f, axis=0, out=out)
     out /= n - ddof_f
     fc = f - out
-    hm = np.sum(h, axis=0)
-    hm /= n - ddof_h
-    if hc_precise:
-        hc = h - Eh
-    else:
-        hc = h - hm
+    hc = h - Eh
     # Estimate a
     if opt['multiple_cv']:
         var_h = hc.T.dot(hc).T
         cov_fh = fc.T.dot(hc).T
-        if hc_precise:
-            # Unbiased: var_h is divided by n and cov_fh by n-1
-            var_h *= n-1
-            cov_fh *= n
+        if cov_k:
+            cov_fh *= cov_k
+        if var_k:
+            var_h *= var_k
         a = linalg.solve(var_h, cov_fh, overwrite_a=True, overwrite_b=True)
     else:
         var_h = np.sum(hc**2, axis=0)
         cov_fh = np.sum(fc*hc, axis=0)
-        if hc_precise:
-            # Unbiased: var_h is divided by n and cov_fh by n-1
-            var_h *= n-1
-            cov_fh *= n
+        if cov_k:
+            cov_fh *= cov_k
+        if var_k:
+            var_h *= var_k
         a = cov_fh / var_h
     # Regulate a
     if opt['regulate_a']:
@@ -143,7 +139,12 @@ def _cv_estim(f, h, Eh, opt, ddof_f=0, ddof_h=0, hc_precise=True, out=None):
     if opt['max_a']:
         np.clip(a, -max_a, max_a, out=a)
     # Calc f_hat
-    hm -= Eh
+    if ddof_h == 0:
+        hm = np.mean(hc, axis=0)
+    else:
+        hm = np.sum(h, axis=0)
+        hm /= n - ddof_h
+        hm -= Eh
     if opt['multiple_cv']:
         out -= np.dot(hm, a)
     else:
@@ -249,7 +250,7 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     
     # Probability ratios
     pr = np.subtract(lp_tilde, lp, out=lp_tilde)
-    pr = np.exp(pr, out=pr)
+    pr = np.exp(pr, out=pr)    
     
     # ----------------------------------
     #   Mean
@@ -274,7 +275,7 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
                 return S_hat, m_hat, False
     
     # Estimate f_hat
-    _, a_m = _cv_estim(f, h, m_tilde, opt, out=m_hat)
+    _, a_m = _cv_estim(f, h, m_tilde, opt, cov_k = n, var_k = n-1, out = m_hat)
     if not ret_a:
         del a_m
     
@@ -296,14 +297,17 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     Eh = np.empty(d2)
     ravel_triu(S_tilde.T, Eh)
     
-    # Calc f
-    # Use here the new estimate instead of dev = samp - mean(samp, axis=0)
+    # Calc f with either using the new m_hat or sample mean. If the former is
+    # used, the unbiasness (ddof_f) should be examined.
     dev = samp - m_hat
+    # dev = samp - np.mean(samp, axis=0)
+    
     f = np.empty((n,d2))
     auto_outer(dev, f)
     
-    # Estimate f_hat
-    _, a_S = _cv_estim(f, h, Eh, opt, ddof_f=1, ddof_h=1, out=d2vec)
+    # Estimate f_hat (for some reason ddof_h=1 might give better results)
+    _, a_S = _cv_estim(f, h, Eh, opt, cov_k = n**2, var_k = (n-1)**2,
+                       ddof_f = 1, ddof_h = 0, out = d2vec)
     if not ret_a:
         del a_S
     # Reshape f_hat into covariance matrix S_hat

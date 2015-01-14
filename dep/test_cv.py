@@ -26,7 +26,7 @@ from cython_util import copy_triu_to_tril
 #     Configurations
 # ------------------------------------------------------------------------------
 np.random.seed(0)               # Seed
-n = 80                          # Samples for one estimate
+n = 60                          # Samples for one estimate
 N = 10000                       # Number of estimates
 d = 4                           # Dimension of the test distributions
 rand_distr_every_iter = True    # Separate distribution for each estimate
@@ -47,7 +47,7 @@ S1 = np.array([[3.0,1.5,-1.0],[1.5,2.5,-0.2],[-1.0,-0.2,1.5]], order='F')
 S2 = np.array([[3.1,1.2,-0.7],[1.2,2.4,-0.4],[-0.7,-0.4,1.8]], order='F')
 m1 = np.array([1.0,0.0,-1.0])
 m2 = np.array([1.1,0.0,-0.9])
-d = m1.shape[0]
+
 
 
 def random_cov(d, diff=None):
@@ -82,6 +82,7 @@ def random_cov(d, diff=None):
 # Preprocess
 if use_pre_defined:
     rand_distr_every_iter = False
+    d = m1.shape[0]
 if not rand_distr_every_iter:
     if not use_pre_defined:
         # Generate random distr
@@ -149,7 +150,12 @@ for i in xrange(N):
     samp = N1.rvs(n)
     lp = N1.logpdf(samp)
     if unnormalised_lp:
-        lp += unnormalised_lp
+        lp = lp + np.log(unnormalised_lp)
+        # Experiment for normalisation
+        norm_m = np.mean(samp, axis=0)
+        norm_c = np.cov(samp, rowvar=0)
+        lpe = multivariate_normal(mean=norm_m, cov=norm_c).logpdf(samp)
+        lp -= np.mean(lp-lpe)
     
     # cv estimates
     _, _, tres, a_S, a_m = cv_moments(
