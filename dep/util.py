@@ -18,10 +18,13 @@ import numpy as np
 from scipy import linalg
 from pystan import StanModel
 
-from cython_util import copy_triu_to_tril
+from cython_util import copy_triu_to_tril, auto_outer, ravel_triu, unravel_triu
 
 # LAPACK positive definite inverse routine
 dpotri_routine = linalg.get_lapack_funcs('potri')
+
+# Precalculated constant
+_LOG_2PI = np.log(2*np.pi)
 
 
 def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
@@ -71,7 +74,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     if not out_A.flags['FARRAY']:
         # Convert from C-order to F-order by transposing (note symmetric)
         out_A = out_A.T
-        if not out_A.flags['FARRAY']:
+        if not out_A.flags['FARRAY'] and out_A.shape[0] > 1:
             raise ValueError('Provided array A is inappropriate')
     if not b is None:
         if out_b == 'in_place':
@@ -101,6 +104,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     return out_A, out_b
 
 
+<<<<<<< HEAD
 def olse_naive(S, out=None):
     """Optimal linear shrinkage estimator.
     
@@ -138,6 +142,223 @@ def olse_naive(S, out=None):
     invert_normal_params(out, out_A='in_place')
     tr_norm = out.trace()
     k_norm = np.multiply(Q,Q).sum()
+=======
+def _cv_estim(f, h, Eh, opt, cov_k=None, var_k=None, ddof_f=0, ddof_h=0,
+              out=None):
+    """Estimate f_hat. Used by function cv_moments."""
+    n = f.shape[0]
+    d = f.shape[1]
+    if out is None:
+        out = np.empty(d)
+    # Calc mean of f and h
+    np.sum(f, axis=0, out=out)
+    out /= n - ddof_f
+    fc = f - out
+    hc = h - Eh
+    # Estimate a
+    if opt['multiple_cv']:
+        var_h = hc.T.dot(hc).T
+        cov_fh = fc.T.dot(hc).T
+        if cov_k:
+            cov_fh *= cov_k
+        if var_k:
+            var_h *= var_k
+        a = linalg.solve(var_h, cov_fh, overwrite_a=True, overwrite_b=True)
+    else:
+        var_h = np.sum(hc**2, axis=0)
+        cov_fh = np.sum(fc*hc, axis=0)
+        if cov_k:
+            cov_fh *= cov_k
+        if var_k:
+            var_h *= var_k
+        a = cov_fh / var_h
+    # Regulate a
+    if opt['regulate_a']:
+        a *= regulate_a
+    if opt['max_a']:
+        np.clip(a, -max_a, max_a, out=a)
+    # Calc f_hat
+    if ddof_h == 0:
+        hm = np.mean(hc, axis=0)
+    else:
+        hm = np.sum(h, axis=0)
+        hm /= n - ddof_h
+        hm -= Eh
+    if opt['multiple_cv']:
+        out -= np.dot(hm, a)
+    else:
+        out -= np.multiply(hm, a, out=hm)
+    return out, a
+    
+
+def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
+               ldet_Q_tilde=None, multiple_cv=True, regulate_a=None, max_a=None,
+               m_treshold=0.9, S_hat=None, m_hat=None, ret_a=False):
+    """Approximate moments using control variate.
+    
+    N.B. This requires that the sample log probabilities are normalised!
+    
+    Parameters
+    ----------
+    samp : ndarray
+        The samples from the distribution being approximated.
+    
+    lp : ndarray
+        Log probability density at the samples.
+    
+    Q_tilde, r_tilde : ndarray
+        The control variate distribution natural parameters.
+    
+    S_tilde, m_tilde : ndarray, optional
+        The control variate distribution moment parameters.
+    
+    ldet_Q_tilde : float, optional
+        Half of the logarithm of the determinant of Q_tilde, i.e. sum of the
+        logarithm of the diagonal elements of Cholesky factorisation of Q_tilde.
+    
+    multiple_cv : bool, optional
+        If this is set to True, each dimension of h is used to control each
+        dimension of f. Otherwise each dimension of h control only the
+        corresponding dimension of f. Default value is True.
+    
+    regulate_a : {None, float}, optional
+        Regularisation multiplier for correlation term `a`. The estimate of `a`
+        is multiplied with this value. Closer to zero may provide smaller bias
+        but greater variance. Providing 1 or None corresponds to no
+        regularisation.
+    
+    max_a : {None, float}, optional
+        Maximum absolute value for correlation term `a`. If not provided or
+        None, `a` is not limited.
+    
+    m_treshold : {float, None}, optional
+        If the fraction of samples of h in one side of `m_tilde` is greater than
+        this, the normal sample estimates are used instead. Providing None
+        indicates that no treshold is used.
+    
+    S_hat, m_hat : ndarray, optional
+        The output arrays (S_hat in F-order).
+    
+    ret_a : bool, optional
+        Indicates whether a_S and a_m are returned. Default value is False.
+    
+    Returns
+    -------
+    S_hat, m_hat : ndarray
+        The approximated moment parameters.
+    
+    treshold_exceeded : bool
+        True if the control variate estimate was used and False if the normal
+        sample estimate was used.
+    
+    a_S, a_m : float
+        The respective estimates for `a`. Returned if `ret_a` is True.
+    
+    """
+    
+    opt = dict(
+        multiple_cv = multiple_cv,
+        regulate_a = regulate_a,
+        max_a = max_a
+    )
+    n = samp.shape[0]
+    if len(samp.shape) == 1:
+        # Force samp to two dimensional
+        samp = samp[:,np.newaxis]
+    d = samp.shape[1]
+    
+    if S_hat is None:
+       S_hat = np.empty((d,d), order='F')
+    if m_hat is None:
+       m_hat = np.empty(d)
+    
+    # Invert Q_tilde, r_tilde to moment params if not provided
+    if S_tilde is None or m_tilde is None or ldet_Q_tilde is None:
+        cho_tilde = linalg.cho_factor(Q_tilde)[0]
+    if S_tilde is None or m_tilde is None:
+        S_tilde, m_tilde = \
+            invert_normal_params(cho_tilde, r_tilde, cho_form=True)
+    
+    # Calc lp_tilde
+    if ldet_Q_tilde is None:
+        const = np.sum(np.log(np.diag(cho_tilde))) - 0.5*d*_LOG_2PI
+    else:
+        const = ldet_Q_tilde - 0.5*d*_LOG_2PI
+    dev_tilde = samp - m_tilde
+    lp_tilde = np.sum(dev_tilde.dot(Q_tilde)*dev_tilde, axis=1)
+    lp_tilde *= 0.5
+    np.subtract(const, lp_tilde, out=lp_tilde)
+    
+    # Probability ratios
+    pr = np.subtract(lp_tilde, lp, out=lp_tilde)
+    pr = np.exp(pr, out=pr)    
+    
+    # ----------------------------------
+    #   Mean
+    # ----------------------------------
+    f = samp
+    h = samp*pr[:,np.newaxis]
+    
+    if m_treshold:
+        # Check if the treshold ratio is exceeded
+        if m_treshold < 0.5:
+            m_treshold = 1 - m_treshold
+        thratios = np.sum(samp < m_tilde, axis=0)/n
+        if np.any(thratios > m_treshold) or np.any(thratios < 1 - m_treshold):
+            # Return normal sample estimates instead
+            np.mean(samp, axis=0, out=m_hat)
+            samp -= m_hat
+            np.dot(samp.T, samp, out=S_hat.T)
+            S_hat /= n-1
+            if ret_a:
+                return S_hat, m_hat, False, 0, 0
+            else:
+                return S_hat, m_hat, False
+    
+    # Estimate f_hat
+    _, a_m = _cv_estim(f, h, m_tilde, opt, cov_k = n, var_k = n-1, out = m_hat)
+    if not ret_a:
+        del a_m
+    
+    # ----------------------------------
+    #   Covariance
+    # ----------------------------------
+    # Calc d+1 choose 2
+    if d % 2 == 0:
+        d2 = (d >> 1) * (d+1)
+    else:
+        d2 = ((d+1) >> 1) * d
+    d2vec = np.empty(d2)
+    
+    # Calc h
+    # dev_tilde = samp - m_tilde # Calculated before
+    h = np.empty((n,d2))
+    auto_outer(dev_tilde, h)
+    h *= pr[:,np.newaxis]
+    Eh = np.empty(d2)
+    ravel_triu(S_tilde.T, Eh)
+    
+    # Calc f with either using the new m_hat or sample mean. If the former is
+    # used, the unbiasness (ddof_f) should be examined.
+    dev = samp - m_hat
+    # dev = samp - np.mean(samp, axis=0)
+    
+    f = np.empty((n,d2))
+    auto_outer(dev, f)
+    
+    # Estimate f_hat (for some reason ddof_h=1 might give better results)
+    _, a_S = _cv_estim(f, h, Eh, opt, cov_k = n**2, var_k = (n-1)**2,
+                       ddof_f = 1, ddof_h = 0, out = d2vec)
+    if not ret_a:
+        del a_S
+    # Reshape f_hat into covariance matrix S_hat
+    unravel_triu(d2vec, S_hat.T)
+    
+    if ret_a:
+        return S_hat, m_hat, True, a_S, a_m
+    else:
+        return S_hat, m_hat, True
+>>>>>>> master
 
 
 def get_last_sample(fit, out=None):

@@ -255,15 +255,13 @@ class Worker(object):
         # TODO: Make a non-copying extract
         samp = fit.extract(pars='phi')['phi']
         self.nsamp = samp.shape[0]
-        # After this the fit object can be deleted
-        del fit
         
         # Assign arrays
         St = self.Mat
         mt = self.vec
         
         # Sample mean and covariance
-        np.mean(samp, 0, out=mt)
+        np.mean(samp, axis=0, out=mt)
         samp -= mt
         np.dot(samp.T, samp, out=St.T)
         
