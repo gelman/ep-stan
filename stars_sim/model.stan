@@ -34,9 +34,8 @@ model {
     vector[N] f;
     eta ~ normal(0, 1);
     phi ~ multi_normal(mu_phi, Sigma_phi);
-    f <- X * beta;
     for (n in 1:N){
-        f[n] <- alpha[j_ind[n]] + f[n];
+        f[n] <- alpha[j_ind[n]] + X[n]*beta;
     }
     y ~ normal(f, sigma);
 }
