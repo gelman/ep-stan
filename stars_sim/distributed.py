@@ -1,4 +1,4 @@
-"""Simulated stars-data experiment using full model.
+"""Simulated stars-data experiment.
 
 Execute with:
     $ python run.py <filename>
@@ -32,8 +32,8 @@ if os.path.exists(os.path.join(parent_dir, 'dep')):
     if parent_dir not in os.sys.path:
         os.sys.path.insert(0, parent_dir)
 
-# from dep.serial import Master
-from dep.util import load_stan
+from dep.serial import Master
+from dep.util import load_stan, suppress_stdout
 
 
 # ------------------------------------------------------------------------------
@@ -67,9 +67,16 @@ V0 = np.array([1.5,1.5,1.5,1.5])**2
 
 # ====== Sampling parameters ===================================================
 CHAINS = 4
-ITER = 1600
-WARMUP = 800
+ITER = 800
+WARMUP = 400
 THIN = 2
+
+# ====== Number of EP iterations ===============================================
+EP_ITER = 4
+
+# ====== Tilted distribution precision estimate method =========================
+# Available options are 'sample' and 'olse', see class serial.Master.
+PREC_ESTIM = 'sample'
 
 # ====== 32bit Python ? ========================================================
 # Temp fix for the RandomState seed problem with pystan in 32bit Python. Set
@@ -81,7 +88,7 @@ TMP_FIX_32BIT = False
 # ------------------------------------------------------------------------------
 
 
-def main(filename='res_full.npz'):
+def main(filename='res.npz'):
     
     # ------------------------------------------------------
     #     Simulate data
@@ -137,41 +144,122 @@ def main(filename='res_full.npz'):
     prior = {'Q':Q0, 'r':r0}
     
     # ------------------------------------------------------
-    #     Full model
+    #     Distributed EP
     # ------------------------------------------------------
     
-    print "Full model..."
+    print "Distributed model..."
     
-    # Set seed
-    rnd_mcmc = np.random.RandomState(seed=SEED_MCMC)
+    # Options for the ep-algorithm see documentation of dep.serial.Master
+    options = {
+        'seed'       : SEED_MCMC,
+        'init_prev'  : True,
+        'prec_estim' : PREC_ESTIM,
+        'chains'     : CHAINS,
+        'iter'       : ITER,
+        'warmup'     : WARMUP,
+        'thin'       : THIN
+    }
     
-    data = dict(
-        N=N,
-        J=J,
-        X=X,
-        y=y,
-        j_ind=j_ind+1,
-        mu_phi=m0,
-        Sigma_phi=S0.T    # S0 transposed in order to get C-contiguous
-    )
+    # Temp fix for the RandomState seed problem with pystan in 32bit Python
+    options['tmp_fix_32bit'] = TMP_FIX_32BIT
     
-    # Sample and extract parameters
     model = load_stan('model')
-    fit = model.sampling(
-        data=data,
-        seed=(rnd_mcmc.randint(2**31-1) if TMP_FIX_32BIT else rnd_mcmc),
-        chains=CHAINS,
-        iter=ITER,
-        warmup=WARMUP,
-        thin=THIN
-    )
-    samp = fit.extract(pars='phi')['phi']
-    m_phi_full = samp.mean(axis=0)
-    var_phi_full = samp.var(axis=0, ddof=1)
+    if K < 2:
+        raise ValueError("K should be at least 2.")
+    elif K < J:
+        # ---- Many groups per site ----
+        # Combine smallest pairs of consecutive groups until K has been reached
+        Nk = Nj.tolist()
+        Njd = (Nj[:-1]+Nj[1:]).tolist()
+        Nj_k = [1]*J
+        for _ in xrange(J-K):
+            ind = Njd.index(min(Njd))
+            if ind+1 < len(Njd):
+                Njd[ind+1] += Nk[ind]
+            if ind > 0:
+                Njd[ind-1] += Nk[ind+1]
+            Nk[ind] = Njd[ind]
+            Nk.pop(ind+1)
+            Njd.pop(ind)
+            Nj_k[ind] += Nj_k[ind+1]
+            Nj_k.pop(ind+1)
+        Nk = np.array(Nk)                       # Number of samples per site
+        Nj_k = np.array(Nj_k)                   # Number of groups per site
+        j_ind_k = np.empty(N, dtype=np.int32)   # Within site group index
+        k_lim = np.concatenate(([0], np.cumsum(Nj_k)))
+        for k in xrange(K):
+            for ji in xrange(Nj_k[k]):
+                ki = ji + k_lim[k]
+                j_ind_k[j_lim[ki]:j_lim[ki+1]] = ji        
+        # Create the Master instance
+        dep_master = Master(
+            model,
+            X,
+            y,
+            A_k={'J':Nj_k},
+            A_n={'j_ind':j_ind_k+1},
+            site_sizes=Nk,
+            prior=prior,
+            **options
+        )
+    elif K == J:
+        # ---- One group per site ----
+        # Create the Master instance
+        dep_master = Master(
+            model,
+            X,
+            y,
+            A_k={'J': np.ones(K, dtype=np.int64)},
+            A_n={'j_ind': np.ones(N, dtype=np.int64)},
+            site_sizes=Nj,
+            prior=prior,
+            **options
+        )
+    elif K <= N:
+        # ---- Multiple sites per group ----
+        # Split biggest groups until enough sites are formed
+        ppg = np.ones(J, dtype=np.int64)    # Parts per group
+        Nj2 = Nj.astype(np.float)
+        for _ in xrange(K-J):
+            cur_max = Nj2.argmax()
+            ppg[cur_max] += 1
+            Nj2[cur_max] = Nj[cur_max]/ppg[cur_max]
+        Nj2 = Nj//ppg
+        rem = Nj%ppg
+        # Form the number of samples for each site
+        Nk = np.empty(K, dtype=np.int64)
+        k = 0
+        for j in xrange(J):
+            for kj in xrange(ppg[j]):
+                if kj < rem[j]:
+                    Nk[k] = Nj2[j] + 1
+                else:
+                    Nk[k] = Nj2[j]
+                k += 1
+        # Create the Master instance
+        dep_master = Master(
+            model,
+            X,
+            y,
+            A_k={'J': np.ones(K, dtype=np.int64)},
+            A_n={'j_ind': np.ones(N, dtype=np.int64)},
+            site_sizes=Nk,
+            prior=prior,
+            **options
+        )
+    else:
+        raise ValueError("K cant be greater than number of samples")
     
-    print "Full model sampled:"
-    print "    exp(phi) = {}" \
-          .format(np.array2string(np.exp(m_phi_full), precision=1))
+    # Run the algorithm for `EP_ITER` iterations
+    print "Run distributed EP algorithm for {} iterations.".format(EP_ITER)
+    m_phi, var_phi = dep_master.run(EP_ITER)
+    print "Form the final approximation " \
+          "by mixing the samples from all the sites."
+    S_mix, m_mix = dep_master.mix_samples()
+    var_mix = np.diag(S_mix)
+    
+    print "Distributed model sampled:"
+    print "    exp(phi) = {}".format(np.array2string(np.exp(m_mix), precision=1))
     print "True values:"
     print "    exp(phi) = {}".format([MU, TAU, BETA, SIGMA])
     
@@ -187,11 +275,14 @@ def main(filename='res_full.npz'):
         Nj=Nj,
         N=N,
         dphi=dphi,
+        niter=EP_ITER,
         m0=M0,
         V0=V0,
         phi_true=phi_true,
-        m_phi_full=m_phi_full,
-        var_phi_full=var_phi_full
+        m_phi=m_phi,
+        var_phi=var_phi,
+        m_mix=m_mix,
+        var_mix=var_mix
     )
 
 
