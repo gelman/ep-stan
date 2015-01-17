@@ -114,6 +114,10 @@ class Worker(object):
         self.Q = None
         self.r = None
         
+        # Temporary arrays for calculations
+        self.temp_M = np.empty((dphi,dphi), order='F')
+        self.temp_v = np.empty(dphi)
+        
         # Data for stan model in method tilted
         self.data = dict(
             N=X.shape[0],
@@ -162,9 +166,6 @@ class Worker(object):
             if options['smooth_ignore'] < 0:
                 raise ValueError("Arg. `smooth_ignore` has to be non-negative")
             self.prev_stored = -options['smooth_ignore']
-            # Temporary array for calculations
-            self.prev_M = np.empty((dphi,dphi), order='F')
-            self.prev_v = np.empty(dphi)
             # Arrays from the previous iterations
             self.prev_St = [np.empty((dphi,dphi), order='F')
                             for _ in range(len(self.smooth))]
@@ -207,6 +208,11 @@ class Worker(object):
         try:
             invert_normal_params(self.Mat, self.vec,
                                  out_A='in_place', out_b='in_place')
+            # Ensure that numerical error has not broken the positive
+            # definiteness. This all could be avoided if Stan would accept
+            # natural parameters.
+            np.copyto(self.temp_M, self.Mat)
+            linalg.cho_factor(self.temp_M, overwrite_a=True)
         except linalg.LinAlgError:
             # Not positive definite
             self.phase = 0
@@ -363,8 +369,8 @@ class Worker(object):
             pmt = self.prev_mt
             pSt = self.prev_St
             ps = self.prev_stored                
-            mt_new = self.prev_v
-            St_new = self.prev_M
+            mt_new = self.temp_v
+            St_new = self.temp_M
             # Calc combined mean
             np.multiply(pmt[ps-1], self.smooth[ps-1], out=mt_new)
             for i in range(ps-2,-1,-1):
@@ -403,8 +409,8 @@ class Worker(object):
             pSt[0] = St
             pmt[0] = mt
             # Redirect other pointers in the object
-            self.prev_M = temp_M2
-            self.prev_v = temp_v2
+            self.temp_M = temp_M2
+            self.temp_v = temp_v2
             self.Mat = St_new
             self.vec = mt_new
             self.data['mu_phi'] = self.vec
