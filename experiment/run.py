@@ -56,9 +56,9 @@ SEED_DATA = 0       # Seed for simulating the data
 SEED_MCMC = 0       # Seed for the inference algorithms
 
 # ====== Data size =============================================================
-J = 10              # Number of hierarchical groups
-D = 10              # Number of inputs
-K = 8              # Number of sites
+J = 50              # Number of hierarchical groups
+D = 50              # Number of inputs
+K = 22              # Number of sites
 NPG = [40,60]       # Number of observations per group (constant or [min, max])
 
 # ====== Set parameters ========================================================
@@ -88,12 +88,12 @@ EP_ITER = 6
 
 # ====== Tilted distribution precision estimate method =========================
 # Available options are 'sample' and 'olse', see class serial.Master.
-PREC_ESTIM = 'sample'
+PREC_ESTIM = 'olse'
 
 # ====== 32bit Python ? ========================================================
 # Temp fix for the RandomState seed problem with pystan in 32bit Python. Set
 # the following to True if using 32bit Python.
-TMP_FIX_32BIT = True
+TMP_FIX_32BIT = False
 
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
