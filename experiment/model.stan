@@ -13,7 +13,7 @@ data {
     int<lower=0,upper=1> y[N];
     int<lower=1,upper=J> j_ind[N];
     vector[D+1] mu_phi;
-    cov_matrix[D+1] Sigma_phi;
+    matrix[D+1,D+1] Omega_phi;
 }
 parameters {
     vector[D+1] phi;
@@ -28,7 +28,7 @@ transformed parameters {
 model {
     vector[N] f;
     eta ~ normal(0, 1);
-    phi ~ multi_normal(mu_phi, Sigma_phi);
+    phi ~ multi_normal_prec(mu_phi, Omega_phi);
     f <- X * tail(phi, D);
     for (n in 1:N){
         f[n] <- alpha[j_ind[n]] + f[n];

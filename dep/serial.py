@@ -18,6 +18,8 @@ from __future__ import division
 import numpy as np
 from scipy import linalg
 
+import pickle
+
 from util import (
     invert_normal_params,
     olse,
@@ -74,6 +76,8 @@ class Worker(object):
     # Available values for option `prec_estim`
     PREC_ESTIM_OPTIONS = ('sample', 'olse')
     
+    RESERVED_STAN_PARAMETER_NAMES = ['X', 'y', 'N', 'D', 'mu_phi', 'Omega_phi']
+    
     def __init__(self, index, stan_model, dphi, X, y, A={}, **options):
         
         # Parse options
@@ -94,9 +98,10 @@ class Worker(object):
                 raise TypeError("Unexpected option '{}'".format(kw))
         
         # Allocate space for calculations
-        # After calling the method cavity, these arrays hold the moment
-        # parameters of the cavity distribution, and after calling the method
-        # tilted, these hold the moment parameters of the tilted distributions.
+        # After calling the method cavity, self.Mat holds the precision matrix
+        # and self.vec holds the mean of the cavity distribution. After calling
+        # the method tilted, self.Mat holds the unnormalised covariance matrix
+        # and self.vec holds the mean of the tilted distributions.
         self.Mat = np.empty((dphi,dphi), order='F')
         self.vec = np.empty(dphi)
         # The instance variable self.phase indicates if self.Mat and self.vec
@@ -124,7 +129,7 @@ class Worker(object):
             X=X,
             y=y,
             mu_phi=self.vec,
-            Sigma_phi=self.Mat.T,  # Mat transposed in order to get C-order
+            Omega_phi=self.Mat.T,  # Mat transposed in order to get C-order
             **A
         )
         # Add param `D` only if `X` is two dimensional
@@ -204,15 +209,11 @@ class Worker(object):
         np.subtract(self.Q, Qi, out=self.Mat)
         np.subtract(self.r, ri, out=self.vec)
         
-        # Convert to mean-cov parameters for Stan
+        # Check if positive definite and solve the mean
         try:
-            invert_normal_params(self.Mat, self.vec,
-                                 out_A='in_place', out_b='in_place')
-            # Ensure that numerical error has not broken the positive
-            # definiteness. This all could be avoided if Stan would accept
-            # natural parameters.
             np.copyto(self.temp_M, self.Mat)
-            linalg.cho_factor(self.temp_M, overwrite_a=True)
+            cho = linalg.cho_factor(self.temp_M, overwrite_a=True)
+            linalg.cho_solve(cho, self.vec, overwrite_b=True)
         except linalg.LinAlgError:
             # Not positive definite
             self.phase = 0
@@ -256,12 +257,20 @@ class Worker(object):
             self.stan_params['seed'] = self.rstate.randint(2**31-1)
         
         # Sample from the model
-        with suppress_stdout():
-            fit = self.stan_model.sampling(
-                    data=self.data,
-                    pars=('phi'),
-                    **self.stan_params
-            )
+        try:
+            with suppress_stdout():
+                fit = self.stan_model.sampling(
+                        data=self.data,
+                        pars=('phi'),
+                        **self.stan_params
+                )
+        except ValueError:
+            print 'Worker {} failed'.format(self.index)
+            with open('stan_params.pkl', 'wb') as f:
+                pickle.dump(self.stan_params, f)
+            with open('data.pkl', 'wb') as f:
+                pickle.dump(self.data, f)
+            raise ValueError('Jaahast')
         
         if self.init_prev:
             # Store the last sample of each chain
@@ -414,7 +423,7 @@ class Worker(object):
             self.Mat = St_new
             self.vec = mt_new
             self.data['mu_phi'] = self.vec
-            self.data['Sigma_phi'] = self.Mat.T                
+            self.data['Omega_phi'] = self.Mat.T                
             
             if self.prev_stored < len(self.smooth):
                 self.prev_stored += 1
@@ -694,7 +703,7 @@ class Master(object):
         self.A = kwargs['A']
         # Check for name clashes
         for key in self.A.iterkeys():
-            if key in ['X', 'y', 'N', 'D', 'mu_phi', 'Sigma_phi']:
+            if key in Worker.RESERVED_STAN_PARAMETER_NAMES:
                 raise ValueError("Additional data name {} clashes.".format(key))
         # Process A_n
         self.A_n = kwargs['A_n'].copy()
@@ -703,7 +712,7 @@ class Master(object):
                 raise ValueError("The shapes of `A_n[{}]` and `X` does not "
                                  "match".format(repr(key)))
             # Check for name clashes
-            if (    key in ['X', 'y', 'N', 'D', 'mu_phi', 'Sigma_phi']
+            if (    key in Worker.RESERVED_STAN_PARAMETER_NAMES
                  or key in self.A
                ):
                 raise ValueError("Additional data name {} clashes.".format(key))
@@ -719,7 +728,7 @@ class Master(object):
                                  "(should be: {}, found: {})"
                                  .format(self.K, len(val)))
             # Check for name clashes
-            if (    key in ['X', 'y', 'N', 'D', 'mu_phi', 'Sigma_phi']
+            if (    key in Worker.RESERVED_STAN_PARAMETER_NAMES
                  or key in self.A
                  or key in self.A_n
                ):

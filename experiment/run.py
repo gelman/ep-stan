@@ -56,9 +56,9 @@ SEED_DATA = 0       # Seed for simulating the data
 SEED_MCMC = 0       # Seed for the inference algorithms
 
 # ====== Data size =============================================================
-J = 50              # Number of hierarchical groups
-D = 50              # Number of inputs
-K = 22              # Number of sites
+J = 10              # Number of hierarchical groups
+D = 10              # Number of inputs
+K = 8              # Number of sites
 NPG = [40,60]       # Number of observations per group (constant or [min, max])
 
 # ====== Set parameters ========================================================
@@ -88,12 +88,12 @@ EP_ITER = 6
 
 # ====== Tilted distribution precision estimate method =========================
 # Available options are 'sample' and 'olse', see class serial.Master.
-PREC_ESTIM = 'olse'
+PREC_ESTIM = 'sample'
 
 # ====== 32bit Python ? ========================================================
 # Temp fix for the RandomState seed problem with pystan in 32bit Python. Set
 # the following to True if using 32bit Python.
-TMP_FIX_32BIT = False
+TMP_FIX_32BIT = True
 
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -288,7 +288,7 @@ def main(filename='res.npz'):
         y=y,
         j_ind=j_ind+1,
         mu_phi=m0,
-        Sigma_phi=S0.T    # S0 transposed in order to get C-contiguous
+        Omega_phi=Q0.T    # Q0 transposed in order to get C-contiguous
     )
     if model is None:
         model = load_stan('model')

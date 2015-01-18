@@ -11,7 +11,7 @@ data {
     matrix[N,D] X;
     int<lower=0,upper=1> y[N];
     vector[D+1] mu_phi;
-    cov_matrix[D+1] Sigma_phi;
+    matrix[D+1,D+1] Omega_phi;
 }
 parameters {
     vector[D+1] phi;
@@ -25,7 +25,7 @@ transformed parameters {
 }
 model {
     eta ~ normal(0, 1);
-    phi ~ multi_normal(mu_phi, Sigma_phi);
+    phi ~ multi_normal_prec(mu_phi, Omega_phi);
     y ~ bernoulli_logit(alpha + X * tail(phi, D));
 }
 

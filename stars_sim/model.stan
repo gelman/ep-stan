@@ -12,7 +12,7 @@ data {
     real<lower=0> y[N];
     int<lower=1,upper=J> j_ind[N];
     vector[4] mu_phi;
-    cov_matrix[4] Sigma_phi;
+    matrix[4,4] Omega_phi;
 }
 parameters {
     vector[4] phi;
@@ -33,7 +33,7 @@ transformed parameters {
 model {
     vector[N] f;
     eta ~ normal(0, 1);
-    phi ~ multi_normal(mu_phi, Sigma_phi);
+    phi ~ multi_normal_prec(mu_phi, Omega_phi);
     for (n in 1:N){
         f[n] <- alpha[j_ind[n]] + X[n]*beta;
     }

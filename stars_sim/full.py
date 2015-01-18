@@ -152,7 +152,7 @@ def main(filename='res_full.npz'):
         y=y,
         j_ind=j_ind+1,
         mu_phi=m0,
-        Sigma_phi=S0.T    # S0 transposed in order to get C-contiguous
+        Omega_phi=Q0.T    # Q0 transposed in order to get C-contiguous
     )
     
     # Sample and extract parameters
