@@ -1,9 +1,7 @@
 """Plot the results of the experiment from a result file.
 
 Execute with:
-    $ python plot_res.py <filename>
-where <filename> is the name of the result '.npz' file. If <filename> is
-omitted, the default filename 'res.npz' is used.
+    $ python plot_res.py <model_name>
 
 The most recent version of the code can be found on GitHub:
 https://github.com/gelman/ep-stan
@@ -61,21 +59,27 @@ def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None):
     return fig
 
 
-def plot_results(filename='res.npz'):
+def plot_results(model_name):
     """Plot three plots from the results."""
     
-    # Load result file
-    res = np.load(filename)
-    # Read necessary variables into current namespace
-    niter = res['niter']
-    phi_true = res['phi_true']
-    m_phi = res['m_phi']
-    var_phi = res['var_phi']
-    m_mix = res['m_mix']
-    var_mix = res['var_mix']
-    m_phi_full = res['m_phi_full']
-    var_phi_full = res['var_phi_full']
-    res.close()
+    # Load distributed result file
+    res_d = np.load('results/res_d_{}.npz'.format(model_name))
+    # Read necessary variables
+    phi_true = res_d['phi_true']
+    m_phi = res_d['m_phi']
+    var_phi = res_d['var_phi']
+    m_mix = res_d['m_mix']
+    var_mix = res_d['var_mix']
+    res_d.close()
+    
+    # Load full result file
+    res_f = np.load('results/res_f_{}.npz'.format(model_name))
+    m_phi_full = res_f['m_phi_full']
+    var_phi_full = res_f['var_phi_full']
+    res_f.close()
+    
+    niter = m_phi.shape[0]
+    dphi = m_phi.shape[1]
     
     # Plot mean and variance as a function of the iteration
     fig, axs = plt.subplots(2, 1, sharex=True)
@@ -104,7 +108,7 @@ if __name__ == '__main__':
     if len(sys.argv) == 2:
         plot_results(sys.argv[1])
     else:
-        plot_results()
+        raise TypeError("Provide the model name as command line argument")
 
 
 

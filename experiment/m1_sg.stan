@@ -5,34 +5,29 @@
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
+# Model 1 with single group
+
 data {
     int<lower=1> N;
     int<lower=1> D;
-    int<lower=1> J;
     matrix[N,D] X;
     int<lower=0,upper=1> y[N];
-    int<lower=1,upper=J> j_ind[N];
     vector[D+1] mu_phi;
     matrix[D+1,D+1] Omega_phi;
 }
 parameters {
     vector[D+1] phi;
-    vector[J] eta;
+    real eta;
 }
 transformed parameters {
-    vector[J] alpha;
+    real alpha;
     real<lower=0> sigma_a;
     sigma_a <- exp(phi[1]);
     alpha <- eta * sigma_a;
 }
 model {
-    vector[N] f;
     eta ~ normal(0, 1);
     phi ~ multi_normal_prec(mu_phi, Omega_phi);
-    f <- X * tail(phi, D);
-    for (n in 1:N){
-        f[n] <- alpha[j_ind[n]] + f[n];
-    }
-    y ~ bernoulli_logit(f);
+    y ~ bernoulli_logit(alpha + X * tail(phi, D));
 }
 
