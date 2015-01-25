@@ -3,13 +3,15 @@ algorithm described in an article "Expectation propagation as a way of life"
 (arXiv:1412.4869).
 
 Group index j = 1 ... J
-Model m1:
-    y_j ~ bernoulli_logit(alpha_j + beta * x_j)
+Model m2:
+    y_j ~ bernoulli_logit(alpha_j + beta_j * x_j)
     alpha_j ~ N(0,sigma_a)
-    beta ~ N(0,sigma_b)
+    beta_j ~ N(0,sigma_b)
+        Cov([beta_j]_a, [beta_j]_b) = 0, a != b
     sigma_a ~ log-N(0,sigma_aH)
-    Fixed sigma_aH, sigma_b
-    phi = [log(sigma_a), beta]
+    sigma_b ~ log-N(0,sigma_bH)
+    Fixed sigma_aH, sigma_bH
+    phi = [log(sigma_a), log(sigma_b)]
 
 Execute with:
     $ python fit_<model_name>.py [mtype]
@@ -57,15 +59,13 @@ NPG = [40,60]       # Number of observations per group (constant or [min, max])
 # If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
 SIGMA_A = 2
 SIGMA_AH = None
-# If BETA is None, it is sampled from N(0,SIGMA_B)
-BETA = None
-SIGMA_B = 1
+SIGMA_BH = 1
 
 # ====== Prior =================================================================
 # Prior for log(sigma_a)
 M0_A = 0
 V0_A = 1**2
-# Prior for beta
+# Prior for log(sigma_b)
 M0_B = 0
 V0_B = 2**2
 
@@ -98,7 +98,7 @@ def main(mtype='both'):
     if mtype != 'both' and mtype != 'full' and mtype != 'distributed':
         raise ValueError("Invalid argument `mtype`")
     
-    model_name = 'm1'
+    model_name = 'm2'
     
     # ------------------------------------------------------
     #     Simulate data
@@ -127,17 +127,17 @@ def main(mtype='both'):
         sigma_a = np.exp(rnd_data.randn()*SIGMA_AH)
     else:
         sigma_a = SIGMA_A
-    if BETA is None:
-        beta = rnd_data.randn(D)*SIGMA_B
-    else:
-        beta = BETA
+    sigma_b = np.exp(rnd_data.randn(D)*SIGMA_BH)
     alpha_j = rnd_data.randn(J)*sigma_a
-    phi_true = np.append(np.log(sigma_a), beta)
+    beta_j = rnd_data.randn(J,D)*sigma_b
+    phi_true = np.append(np.log(sigma_a), np.log(sigma_b))
     dphi = D+1  # Number of shared parameters
     
     # Simulate data
     X = rnd_data.randn(N,D)
-    y = alpha_j[j_ind] + X.dot(beta)
+    y = np.empty(N)
+    for n in xrange(N):
+        y[n] = alpha_j[j_ind[n]] + X[n].dot(beta_j[j_ind[n]])
     y = 1/(1+np.exp(-y))
     y = (rnd_data.rand(N) < y).astype(int)
     

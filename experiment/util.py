@@ -86,7 +86,6 @@ def fit_distributed(model_name, niter, J, K, Nj, X, y, phi_true, options):
             X,
             y,
             site_sizes=Nj,
-            prior=prior,
             **options
         )
     elif K <= N:
@@ -117,7 +116,6 @@ def fit_distributed(model_name, niter, J, K, Nj, X, y, phi_true, options):
             X,
             y,
             site_sizes=Nk,
-            prior=prior,
             **options
         )
     else:
