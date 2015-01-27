@@ -35,7 +35,7 @@ from __future__ import division
 import os
 import numpy as np
 
-from util import fit_distributed, fit_full
+from fit import fit_distributed, fit_full
 
 
 # ------------------------------------------------------------------------------
