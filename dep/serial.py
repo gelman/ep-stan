@@ -18,8 +18,6 @@ from __future__ import division
 import numpy as np
 from scipy import linalg
 
-import pickle
-
 from util import (
     invert_normal_params,
     olse,
@@ -257,20 +255,12 @@ class Worker(object):
             self.stan_params['seed'] = self.rstate.randint(2**31-1)
         
         # Sample from the model
-        try:
-            with suppress_stdout():
-                fit = self.stan_model.sampling(
-                        data=self.data,
-                        pars=('phi'),
-                        **self.stan_params
-                )
-        except ValueError:
-            print 'Worker {} failed'.format(self.index)
-            with open('stan_params.pkl', 'wb') as f:
-                pickle.dump(self.stan_params, f)
-            with open('data.pkl', 'wb') as f:
-                pickle.dump(self.data, f)
-            raise ValueError('Jaahast')
+        with suppress_stdout():
+            fit = self.stan_model.sampling(
+                    data=self.data,
+                    pars=('phi'),
+                    **self.stan_params
+            )
         
         if self.init_prev:
             # Store the last sample of each chain
