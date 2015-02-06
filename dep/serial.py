@@ -301,12 +301,10 @@ class Worker(object):
         try:
             # Basic sample estimate
             if self.prec_estim == 'sample' or self.prec_estim_skip > 0:
-                # Normalise St unbiased into dQi
-                np.divide(St, self.nsamp - 1, out=dQi)
                 # Convert moment params to natural params
-                invert_normal_params(dQi, mt, out_A='in_place', out_b=dri)
+                invert_normal_params(St, mt, out_A=dQi, out_b=dri)
                 # Unbiased natural parameter estimates
-                unbias_k = (self.nsamp-self.dphi-2)/(self.nsamp-1)
+                unbias_k = (self.nsamp-self.dphi-2)
                 dQi *= unbias_k
                 dri *= unbias_k
             
