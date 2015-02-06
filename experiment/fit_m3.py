@@ -70,16 +70,16 @@ SIGMA_SB = 1
 # ====== Prior =================================================================
 # Prior for mu_a
 M0_MA = 0
-V0_MA = 2**2
+V0_MA = 1**2
 # Prior for log(sigma_a)
 M0_SA = 0
-V0_SA = 2**2
+V0_SA = 1**2
 # Prior for mu_b
 M0_MB = 0
-V0_MB = 2**2
+V0_MB = 1**2
 # Prior for log(sigma_b)
 M0_SB = 0
-V0_SB = 2**2
+V0_SB = 1**2
 
 # ====== Sampling parameters ===================================================
 CHAINS = 4

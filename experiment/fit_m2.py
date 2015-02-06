@@ -67,7 +67,7 @@ M0_A = 0
 V0_A = 1**2
 # Prior for log(sigma_b)
 M0_B = 0
-V0_B = 2**2
+V0_B = 1**2
 
 # ====== Sampling parameters ===================================================
 CHAINS = 4
