@@ -36,11 +36,11 @@ transformed parameters {
 }
 model {
     vector[N] f;
+    phi ~ multi_normal_prec(mu_phi, Omega_phi);
     eta ~ normal(0, 1);
     for (j in 1:J){
         etb[j] ~ normal(0, 1);
     }
-    phi ~ multi_normal_prec(mu_phi, Omega_phi);
     for (n in 1:N){
         f[n] <- alpha[j_ind[n]] + X[n] * beta[j_ind[n]];
     }

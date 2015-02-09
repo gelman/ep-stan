@@ -117,6 +117,9 @@ class Worker(object):
         self.Q = None
         self.r = None
         
+        # The last fit object
+        self.fit = None
+        
         # Temporary arrays for calculations
         self.temp_M = np.empty((dphi,dphi), order='F')
         self.temp_v = np.empty(dphi)
@@ -256,22 +259,21 @@ class Worker(object):
         
         # Sample from the model
         with suppress_stdout():
-            fit = self.stan_model.sampling(
-                    data=self.data,
-                    pars=('phi'),
-                    **self.stan_params
+            self.fit = self.stan_model.sampling(
+                data=self.data,
+                **self.stan_params
             )
         
         if self.init_prev:
             # Store the last sample of each chain
             if isinstance(self.stan_params['init'], basestring):
                 # No samples stored before ... initialise list of dicts
-                self.stan_params['init'] = get_last_sample(fit)
+                self.stan_params['init'] = get_last_sample(self.fit)
             else:
-                get_last_sample(fit, out=self.stan_params['init'])
+                get_last_sample(self.fit, out=self.stan_params['init'])
         
         # TODO: Make a non-copying extract
-        samp = fit.extract(pars='phi')['phi']
+        samp = self.fit.extract(pars='phi')['phi']
         self.nsamp = samp.shape[0]
         
         # Assign arrays
@@ -981,10 +983,10 @@ class Master(object):
             return m_phi_s, var_phi_s
     
     
-    def mix_samples(self, out_S=None, out_m=None):
-        """Form the posterior approximation by mixing the last samples.
+    def mix_phi(self, out_S=None, out_m=None):
+        """Form the posterior approximation of phi by mixing the last samples.
         
-        Mixes the last obtained mcmc samples from the tilted distributions to
+        Mixes the last obtained MCMC samples from the tilted distributions to
         obtain an approximation to the posterior.
         
         Parameters
@@ -1031,6 +1033,87 @@ class Master(object):
         out_S /= nsamp_tot - 1
         
         return out_S, out_m
+    
+    
+    def mix_pred(self, params, sites=None):
+        """Get mean and variance prediction of required parameters.
+        
+        Mixes the last obtained MCMC samples from the tilted distributions to
+        obtain an approximation to the posterior of required parameters.
+        
+        N.B. Smoothing is not used here.
+        
+        Parameters
+        ----------
+        params : str or list of str
+            The required parameter names.
+        
+        sites : ndarray or list of ndarray
+            Boolean arrays of shape (K, <shape_of_param>) indicating which sites
+            contribute to which parameter.
+        
+        Returns
+        -------
+        mean, var : ndarray or list of ndarray
+            The corresponding mean and variance of the required parameters.
+        
+        """
+        if self.iter == 0:
+            raise RuntimeError("Can not mix samples before at least one "
+                               "iteration has been done.")
+        
+        # Check if one or multiple parameters are requested
+        if isinstance(params, basestring):
+            only_one_param = True
+            params = [params]
+            sites = [sites] # TODO
+        else:
+            only_one_param = False
+        
+        # Process each parameter
+        mean = []
+        var = []
+        for ip in xrange(len(params)):
+            
+            # Gather moments from each worker
+            par = params[ip]
+            samp = self.workers[0].fit.extract(pars=par)[par]
+            ns = np.empty(len(self.workers), dtype=np.int64)
+            if samp.ndim == 1:
+                ms = np.empty(len(self.workers))
+                vs = np.empty(len(self.workers))
+            else:
+                par_shape = list(samp.shape)
+                par_shape[0] = len(self.workers)
+                ms = np.empty(par_shape)
+                vs = np.empty(par_shape)
+            ns[0] = samp.shape[0]
+            ms[0] = np.mean(samp, axis=0)
+            vs[0] = np.sum(samp**2, axis=0) - ns[0]*(ms[0]**2)
+            for iw in xrange(1,len(self.workers)):
+                samp = self.workers[iw].fit.extract(pars=par)[par]
+                ns[iw] = samp.shape[0]
+                ms[iw] = np.mean(samp, axis=0)
+                vs[iw] = np.sum(samp**2, axis=0) - ns[iw]*(ms[iw]**2)
+            
+            # Combine moments
+            n = np.sum(ns)
+            mc = np.sum((ms.T*ns).T, axis=0)
+            mc /= n
+            temp = ms-mc
+            np.square(temp, out=temp)
+            np.multiply(temp.T, ns, out=temp.T)
+            temp += vs
+            vc = np.sum(temp, axis=0)
+            vc /= (n-1)
+            mean.append(mc)
+            var.append(vc)
+        
+        # Return
+        if only_one_param:
+            return mean[0], var[0]
+        else:
+            return mean, var
     
     
     def reset_smoothing(self):

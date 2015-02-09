@@ -31,9 +31,9 @@ transformed parameters {
     beta <- etb .* sigma_b;
 }
 model {
+    phi ~ multi_normal_prec(mu_phi, Omega_phi);
     eta ~ normal(0, 1);
     etb ~ normal(0, 1);
-    phi ~ multi_normal_prec(mu_phi, Omega_phi);
     y ~ bernoulli_logit(alpha + X * beta);
 }
 

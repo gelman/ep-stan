@@ -126,7 +126,7 @@ def fit_distributed(model_name, niter, J, K, Nj, X, y, phi_true, options):
     m_phi, var_phi = dep_master.run(niter)
     print "Form the final approximation " \
           "by mixing the samples from all the sites."
-    S_mix, m_mix = dep_master.mix_samples()
+    S_mix, m_mix = dep_master.mix_phi()
     var_mix = np.diag(S_mix)
     
     print "Distributed model sampled."

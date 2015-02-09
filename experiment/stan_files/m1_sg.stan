@@ -26,8 +26,8 @@ transformed parameters {
     alpha <- eta * sigma_a;
 }
 model {
-    eta ~ normal(0, 1);
     phi ~ multi_normal_prec(mu_phi, Omega_phi);
+    eta ~ normal(0, 1);
     y ~ bernoulli_logit(alpha + X * tail(phi, D));
 }
 

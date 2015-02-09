@@ -29,8 +29,8 @@ transformed parameters {
 }
 model {
     vector[N] f;
-    eta ~ normal(0, 1);
     phi ~ multi_normal_prec(mu_phi, Omega_phi);
+    eta ~ normal(0, 1);
     f <- X * tail(phi, D);
     for (n in 1:N){
         f[n] <- alpha[j_ind[n]] + f[n];
