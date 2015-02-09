@@ -67,7 +67,7 @@ def fit_distributed(model_name, niter, J, K, Nj, X, y, phi_true, options):
                 ki = ji + k_lim[k]
                 j_ind_k[j_lim[ki]:j_lim[ki+1]] = ji        
         # Create the Master instance
-        model = load_stan(model_name)
+        model = load_stan('stan_files/'+model_name)
         dep_master = Master(
             model,
             X,
@@ -80,7 +80,7 @@ def fit_distributed(model_name, niter, J, K, Nj, X, y, phi_true, options):
     elif K == J:
         # ---- One group per site ----
         # Create the Master instance
-        model_single_group = load_stan(model_name+'_sg')
+        model_single_group = load_stan('stan_files/'+model_name+'_sg')
         dep_master = Master(
             model_single_group,
             X,
@@ -110,7 +110,7 @@ def fit_distributed(model_name, niter, J, K, Nj, X, y, phi_true, options):
                     Nk[k] = Nj2[j]
                 k += 1
         # Create the Master instance
-        model_single_group = load_stan(model_name+'_sg')
+        model_single_group = load_stan('stan_files/'+model_name+'_sg')
         dep_master = Master(
             model_single_group,
             X,
@@ -157,7 +157,7 @@ def fit_full(model_name, J, j_ind, X, y, phi_true, m0, Q0, seed):
         mu_phi=m0,
         Omega_phi=Q0.T    # Q0 transposed in order to get C-contiguous
     )
-    model = load_stan(model_name)
+    model = load_stan('stan_files/'+model_name)
     
     # Sample and extract parameters
     with suppress_stdout():

@@ -71,8 +71,8 @@ V0_B = 1**2
 
 # ====== Sampling parameters ===================================================
 CHAINS = 4
-ITER = 800
-WARMUP = 400
+ITER = 500
+WARMUP = 200
 THIN = 2
 
 # ====== Number of EP iterations ===============================================
