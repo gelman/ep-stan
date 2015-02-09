@@ -1035,7 +1035,7 @@ class Master(object):
         return out_S, out_m
     
     
-    def mix_pred(self, params, sites=None):
+    def mix_pred(self, params, smap=None, param_shapes=None):
         """Get mean and variance prediction of required parameters.
         
         Mixes the last obtained MCMC samples from the tilted distributions to
@@ -1048,9 +1048,16 @@ class Master(object):
         params : str or list of str
             The required parameter names.
         
-        sites : ndarray or list of ndarray
-            Boolean arrays of shape (K, <shape_of_param>) indicating which sites
-            contribute to which parameter.
+        smap : mapping or list of mapping
+            Mapping from each sites indexes to the global parameter indexes:
+            mapping[k] is an sequence of length of the shape of the site
+            parameter in site k, e.g. mapping[k] = ((1,3), slice(None)) will
+            map the whole row 0 from the site k to row 1 in the global parameter
+            and row 1 to 3. mapping None corresponds to direct index mapping
+            i.e. when site parameters are consistent with global parameters.
+        
+        param_shapes : seq or list o seq
+            The shape of the global parameter. Must be given if smap is used.
         
         Returns
         -------
@@ -1066,7 +1073,8 @@ class Master(object):
         if isinstance(params, basestring):
             only_one_param = True
             params = [params]
-            sites = [sites] # TODO
+            smap = [smap]
+            param_shapes = [param_shapes]
         else:
             only_one_param = False
         
@@ -1077,38 +1085,66 @@ class Master(object):
             
             # Gather moments from each worker
             par = params[ip]
-            samp = self.workers[0].fit.extract(pars=par)[par]
-            ns = np.empty(len(self.workers), dtype=np.int64)
-            if samp.ndim == 1:
-                ms = np.empty(len(self.workers))
-                vs = np.empty(len(self.workers))
-            else:
+            sit = smap[ip] if smap is not None else None
+            
+            if sit is None:
+                # Every site contribute to the parmeter
+                samp = self.workers[0].fit.extract(pars=par)[par]
                 par_shape = list(samp.shape)
                 par_shape[0] = len(self.workers)
+                ns = np.empty(len(self.workers), dtype=np.int64)
                 ms = np.empty(par_shape)
                 vs = np.empty(par_shape)
-            ns[0] = samp.shape[0]
-            ms[0] = np.mean(samp, axis=0)
-            vs[0] = np.sum(samp**2, axis=0) - ns[0]*(ms[0]**2)
-            for iw in xrange(1,len(self.workers)):
-                samp = self.workers[iw].fit.extract(pars=par)[par]
-                ns[iw] = samp.shape[0]
-                ms[iw] = np.mean(samp, axis=0)
-                vs[iw] = np.sum(samp**2, axis=0) - ns[iw]*(ms[iw]**2)
+                ns[0] = samp.shape[0]
+                ms[0] = np.mean(samp, axis=0)
+                vs[0] = np.sum(samp**2, axis=0) - ns[0]*(ms[0]**2)
+                for iw in xrange(1,len(self.workers)):
+                    samp = self.workers[iw].fit.extract(pars=par)[par]
+                    ns[iw] = samp.shape[0]
+                    ms[iw] = np.mean(samp, axis=0)
+                    vs[iw] = np.sum(samp**2, axis=0) - ns[iw]*(ms[iw]**2)
+                
+                # Combine moments
+                n = np.sum(ns)
+                mc = np.sum((ms.T*ns).T, axis=0)
+                mc /= n
+                temp = ms-mc
+                np.square(temp, out=temp)
+                np.multiply(temp.T, ns, out=temp.T)
+                temp += vs
+                vc = np.sum(temp, axis=0)
+                vc /= (n-1)
+                mean.append(mc)
+                var.append(vc)
             
-            # Combine moments
-            n = np.sum(ns)
-            mc = np.sum((ms.T*ns).T, axis=0)
-            mc /= n
-            temp = ms-mc
-            np.square(temp, out=temp)
-            np.multiply(temp.T, ns, out=temp.T)
-            temp += vs
-            vc = np.sum(temp, axis=0)
-            vc /= (n-1)
-            mean.append(mc)
-            var.append(vc)
-        
+            else:
+                # Only certain sites contribute to the parameter
+                par_shape = param_shapes[ip]
+                ns = np.empty(len(self.workers), dtype=np.int64)
+                ms = []
+                vs = []
+                for iw in xrange(len(self.workers)):
+                    samp = self.workers[iw].fit.extract(pars=par)[par]
+                    ns[iw] = samp.shape[0]
+                    ms.append(np.mean(samp, axis=0))
+                    vs.append(np.sum(samp**2, axis=0) - ns[iw]*(ms[iw]**2))
+                nc = np.zeros(par_shape, dtype=np.int64)
+                mc = np.zeros(par_shape)
+                vc = np.zeros(par_shape)
+                for iw in xrange(len(self.workers)):
+                    nc[sit[iw]] += ns[iw]
+                    mc[sit[iw]] += ns[iw]*ms[iw]
+                mc /= nc
+                for iw in xrange(len(self.workers)):
+                    temp = ms[iw] - mc[sit[iw]]
+                    np.square(temp, out=temp)
+                    temp *= ns[iw]
+                    temp += vs[iw]
+                    vc[sit[iw]] += temp
+                vc /= (nc-1)
+                mean.append(mc)
+                var.append(vc)
+            
         # Return
         if only_one_param:
             return mean[0], var[0]
