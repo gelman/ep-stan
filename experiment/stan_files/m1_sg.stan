@@ -21,13 +21,15 @@ parameters {
 }
 transformed parameters {
     real alpha;
+    vector[D] beta;
     real<lower=0> sigma_a;
     sigma_a <- exp(phi[1]);
     alpha <- eta * sigma_a;
+    beta <- tail(phi, D);
 }
 model {
     phi ~ multi_normal_prec(mu_phi, Omega_phi);
     eta ~ normal(0, 1);
-    y ~ bernoulli_logit(alpha + X * tail(phi, D));
+    y ~ bernoulli_logit(alpha + X * beta);
 }
 

@@ -1055,6 +1055,7 @@ class Master(object):
             map the whole row 0 from the site k to row 1 in the global parameter
             and row 1 to 3. mapping None corresponds to direct index mapping
             i.e. when site parameters are consistent with global parameters.
+            Do not provide this for scalar parameters.
         
         param_shapes : seq or list o seq
             The shape of the global parameter. Must be given if smap is used.
@@ -1063,6 +1064,11 @@ class Master(object):
         -------
         mean, var : ndarray or list of ndarray
             The corresponding mean and variance of the required parameters.
+        
+        Examples
+        --------
+        Global param alpha[3]
+        2 sites with first site sampling alpha[1] and alpha[2]
         
         """
         if self.iter == 0:
@@ -1089,9 +1095,15 @@ class Master(object):
             
             if sit is None:
                 # Every site contribute to the parmeter
-                samp = self.workers[0].fit.extract(pars=par)[par]
+                fit = self.workers[0].fit
+                samp = fit.extract(pars=par)[par]
+                # Ensure that one dimensional parameters with length 1 are not
+                # scalarised
+                if fit.par_dims[fit.model_pars.index(par)] == [1]:
+                    samp = samp[:,np.newaxis]
                 par_shape = list(samp.shape)
                 par_shape[0] = len(self.workers)
+                # Get the moments
                 ns = np.empty(len(self.workers), dtype=np.int64)
                 ms = np.empty(par_shape)
                 vs = np.empty(par_shape)
@@ -1099,7 +1111,13 @@ class Master(object):
                 ms[0] = np.mean(samp, axis=0)
                 vs[0] = np.sum(samp**2, axis=0) - ns[0]*(ms[0]**2)
                 for iw in xrange(1,len(self.workers)):
-                    samp = self.workers[iw].fit.extract(pars=par)[par]
+                    fit = self.workers[iw].fit
+                    samp = fit.extract(pars=par)[par]
+                    # Ensure that one dimensional parameters with length 1 are
+                    # not scalarised
+                    if fit.par_dims[fit.model_pars.index(par)] == [1]:
+                        samp = samp[:,np.newaxis]
+                    # Moments of current site
                     ns[iw] = samp.shape[0]
                     ms[iw] = np.mean(samp, axis=0)
                     samp -= ms[iw]
@@ -1127,8 +1145,14 @@ class Master(object):
                 vs = []
                 count = np.zeros(par_shape)
                 for iw in xrange(len(self.workers)):
-                    count[sit[iw]] += 1  # Check smap
-                    samp = self.workers[iw].fit.extract(pars=par)[par]
+                    count[sit[iw]] += 1  # Check smap                    
+                    fit = self.workers[iw].fit
+                    samp = fit.extract(pars=par)[par]
+                    # Ensure that one dimensional parameters with length 1 are
+                    # not scalarised
+                    if fit.par_dims[fit.model_pars.index(par)] == [1]:
+                        samp = samp[:,np.newaxis]
+                    # Moments of current site
                     ns[iw] = samp.shape[0]
                     ms.append(np.mean(samp, axis=0))
                     samp -= ms[iw]

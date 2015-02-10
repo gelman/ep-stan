@@ -18,8 +18,9 @@ Model m4:
 Execute with:
     $ python fit_<model_name>.py [mtype]
 where argument mtype can be either `full` or `distributed`. If type is omitted,
-both models are fit. The results are saved into files res_f_<model_name>.npz and
-res_d_<model_name>.npz into the folder results respectively.
+both models are fit. The results are saved into files `res_f_<model_name>.npz`
+and `res_d_<model_name>.npz` into the folder results respectively. The true
+values are saved into the file `true_vals_<model_name>.npz`.
 
 After running this skript for both full and distributed, the script plot_res.py
 can be used to plot the results.
@@ -115,7 +116,7 @@ PREC_ESTIM = 'olse'
 # ====== 32bit Python ? ========================================================
 # Temp fix for the RandomState seed problem with pystan in 32bit Python. Set
 # the following to True if using 32bit Python.
-TMP_FIX_32BIT = True
+TMP_FIX_32BIT = False
 
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -179,6 +180,16 @@ def main(mtype='both'):
         y[n] = alpha_j[j_ind[n]] + X[n].dot(beta_j[j_ind[n]])
     y = 1/(1+np.exp(-y))
     y = (rnd_data.rand(N) < y).astype(int)
+    
+    # Save true values
+    if not os.path.exists('results'):
+        os.makedirs('results')
+    np.savez('results/true_vals_{}.npz'.format(model_name),
+        seed_data = SEED_DATA,
+        phi       = phi_true,
+        beta      = beta_j,
+        alpha     = alpha_j
+    )
     
     # ------------------------------------------------------
     #     Prior
@@ -279,6 +290,7 @@ def main(mtype='both'):
         
         print "Distributed model sampled."
         
+        # Save results
         if not os.path.exists('results'):
             os.makedirs('results')
         np.savez('results/res_d_{}.npz'.format(model_name),
@@ -328,14 +340,28 @@ def main(mtype='both'):
         m_phi_full = samp.mean(axis=0)
         var_phi_full = samp.var(axis=0, ddof=1)
         
+        # Get mean and var of alpha and beta
+        samp = fit.extract('alpha')['alpha']
+        m_alpha = np.mean(samp, axis=0)
+        var_alpha = np.var(samp, axis=0, ddof=1)
+        samp = fit.extract('beta')['beta']
+        m_beta = np.mean(samp, axis=0)
+        var_beta = np.var(samp, axis=0, ddof=1)
+        
         print "Full model sampled."
         
+        # Save results
         if not os.path.exists('results'):
             os.makedirs('results')
         np.savez('results/res_f_{}.npz'.format(model_name),
-            phi_true=phi_true,
-            m_phi_full=m_phi_full,
-            var_phi_full=var_phi_full,
+            seed_data    = SEED_DATA,
+            seed_mcmc    = SEED_MCMC,
+            m_phi_full   = m_phi_full,
+            var_phi_full = var_phi_full,
+            m_alpha      = m_alpha,
+            var_alpha    = var_alpha,
+            m_beta       = m_beta,
+            var_beta     = var_beta
         )
     
 

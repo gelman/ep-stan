@@ -62,20 +62,33 @@ def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None):
 def plot_results(model_name):
     """Plot three plots from the results."""
     
+    # Load true values
+    true_vals = np.load('results/true_vals_{}.npz'.format(model_name))
+    phi_true = true_vals['phi']
+    alpha_true = true_vals['alpha']
+    beta_true = true_vals['beta']
+    true_vals.close()
+    
     # Load distributed result file
     res_d = np.load('results/res_d_{}.npz'.format(model_name))
-    # Read necessary variables
-    phi_true = res_d['phi_true']
     m_phi = res_d['m_phi']
     var_phi = res_d['var_phi']
-    m_mix = res_d['m_mix']
-    var_mix = res_d['var_mix']
+    m_phi_mix = res_d['m_phi_mix']
+    var_phi_mix = res_d['var_phi_mix']
+    m_alpha = res_d['m_alpha']
+    var_alpha = res_d['var_alpha']
+    m_beta = res_d['m_beta']
+    var_beta = res_d['var_beta']
     res_d.close()
     
     # Load full result file
     res_f = np.load('results/res_f_{}.npz'.format(model_name))
     m_phi_full = res_f['m_phi_full']
     var_phi_full = res_f['var_phi_full']
+    m_alpha_full = res_f['m_alpha_full']
+    var_alpha_full = res_f['var_alpha_full']
+    m_beta_full = res_f['m_beta_full']
+    var_beta_full = res_f['var_beta_full']
     res_f.close()
     
     niter = m_phi.shape[0]
@@ -84,22 +97,74 @@ def plot_results(model_name):
     # Plot mean and variance as a function of the iteration
     fig, axs = plt.subplots(2, 1, sharex=True)
     fig.subplots_adjust(hspace=0.1)
-    axs[0].plot(np.arange(niter+1), np.vstack((m_phi, m_mix)))
+    axs[0].plot(np.arange(niter+1), np.vstack((m_phi, m_phi_mix)))
     axs[0].set_ylabel('Mean of params')
-    axs[1].plot(np.arange(niter+1), np.sqrt(np.vstack((var_phi, var_mix))))
+    axs[1].plot(np.arange(niter+1), np.sqrt(np.vstack((var_phi, var_phi_mix))))
     axs[1].set_ylabel('Std of params')
     axs[1].set_xlabel('Iteration')
     
     # Plot estimates vs true values
-    compare_plot(phi_true, m_mix, b_err=3*np.sqrt(var_mix),
-                 a_label='True values',
-                 b_label='Estimated values ($\pm 3 \sigma$)')
+    compare_plot(
+        phi_true,
+        m_phi_mix,
+        b_err=3*np.sqrt(var_phi_mix),
+        a_label='True values',
+        b_label='Estimated values ($\pm 3 \sigma$)'
+    )
+    plt.title('phi')
     
     # Plot full vs distributed
-    compare_plot(m_phi_full, m_mix,
-                 a_err=1.96*np.sqrt(var_phi_full), b_err=1.96*np.sqrt(var_mix),
-                 a_label='Estimased from the full model ($\pm 1.96 \sigma$)',
-                 b_label='Estimased from the dep model ($\pm 1.96 \sigma$)')
+    compare_plot(
+        m_phi_full,
+        m_phi_mix,
+        a_err=1.96*np.sqrt(var_phi_full),
+        b_err=1.96*np.sqrt(var_phi_mix),
+        a_label='Estimased from the full model ($\pm 1.96 \sigma$)',
+        b_label='Estimased from the dep model ($\pm 1.96 \sigma$)'
+    )
+    plt.title('phi')
+    
+    # Plot estimates vs true values
+    compare_plot(
+        alpha_true,
+        m_alpha,
+        b_err=3*np.sqrt(var_alpha),
+        a_label='True values',
+        b_label='Estimated values ($\pm 3 \sigma$)'
+    )
+    plt.title('alpha')
+    
+    # Plot estimates vs true values
+    compare_plot(
+        beta_true,
+        m_beta,
+        b_err=3*np.sqrt(var_beta),
+        a_label='True values',
+        b_label='Estimated values ($\pm 3 \sigma$)'
+    )
+    plt.title('beta')
+    
+    # Plot full vs distributed
+    compare_plot(
+        m_alpha_full,
+        m_alpha,
+        a_err=1.96*np.sqrt(var_alpha_full),
+        b_err=1.96*np.sqrt(var_alpha),
+        a_label='Estimased from the full model ($\pm 1.96 \sigma$)',
+        b_label='Estimased from the dep model ($\pm 1.96 \sigma$)'
+    )
+    plt.title('alpha')
+    
+    # Plot full vs distributed
+    compare_plot(
+        m_beta_full,
+        m_beta,
+        a_err=1.96*np.sqrt(var_beta_full),
+        b_err=1.96*np.sqrt(var_beta),
+        a_label='Estimased from the full model ($\pm 1.96 \sigma$)',
+        b_label='Estimased from the dep model ($\pm 1.96 \sigma$)'
+    )
+    plt.title('beta')
     
     plt.show()
 
