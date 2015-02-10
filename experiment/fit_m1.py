@@ -61,9 +61,9 @@ SEED_DATA = 0       # Seed for simulating the data
 SEED_MCMC = 0       # Seed for the inference algorithms
 
 # ====== Data size =============================================================
-J = 10              # Number of hierarchical groups
-D = 10              # Number of inputs
-K = 10              # Number of sites
+J = 50              # Number of hierarchical groups
+D = 50              # Number of inputs
+K = 22              # Number of sites
 NPG = [40,60]       # Number of observations per group (constant or [min, max])
 
 # ====== Set parameters ========================================================
@@ -270,8 +270,6 @@ def main(mtype='both'):
                     i += 1
             shape_beta = (D,)
             smap_beta = None
-            
-            
         
         else:
             raise ValueError("K cant be greater than number of samples")

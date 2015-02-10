@@ -18,7 +18,7 @@ data {
 parameters {
     vector[2] phi;
     real eta;
-    real[D] etb;
+    vector[D] etb;
 }
 transformed parameters {
     real alpha;

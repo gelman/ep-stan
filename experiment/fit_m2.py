@@ -96,7 +96,7 @@ WARMUP_FULL = 500
 THIN_FULL = 2
 
 # ====== Number of EP iterations ===============================================
-EP_ITER = 3
+EP_ITER = 6
 
 # ====== Tilted distribution precision estimate method =========================
 # Available options are 'sample' and 'olse', see class serial.Master.
@@ -223,6 +223,15 @@ def main(mtype='both'):
                 site_sizes=Nk,
                 **options
             )
+            # Construct the map: which site contribute to which parameter
+            shape_alpha = (J,)
+            smap_alpha = []
+            i = 0
+            for k in xrange(K):
+                smap_alpha.append(np.arange(i,i+Nj_k[k]))
+                i += Nj_k[k]
+            shape_beta = (D,)
+            smap_beta = None
         
         elif K == J:
             # ------ One group per site ------
@@ -235,10 +244,15 @@ def main(mtype='both'):
                 site_sizes=Nj,
                 **options
             )
+            # Construct the map: which site contribute to which parameter
+            shape_alpha = (J,)
+            smap_alpha = np.arange(K)
+            shape_beta = (D,)
+            smap_beta = None
         
         elif K <= N:
             # ------ Multiple sites per group: split groups ------
-            Nk, _, _ = distribute_groups(J, K, Nj)
+            Nk, Nk_j, _ = distribute_groups(J, K, Nj)
             # Create the Master instance
             model_single_group = load_stan('stan_files/'+model_name+'_sg')
             dep_master = Master(
@@ -248,6 +262,16 @@ def main(mtype='both'):
                 site_sizes=Nk,
                 **options
             )
+            # Construct the map: which site contribute to which parameter
+            shape_alpha = (J,)
+            smap_alpha = np.empty(K, dtype=np.int32)
+            i = 0
+            for j in xrange(J):
+                for _ in xrange(Nk_j[j]):
+                    smap_alpha[i] = j
+                    i += 1
+            shape_beta = (D,)
+            smap_beta = None
         
         else:
             raise ValueError("K cant be greater than number of samples")
@@ -257,20 +281,29 @@ def main(mtype='both'):
         m_phi, var_phi = dep_master.run(EP_ITER)
         print "Form the final approximation " \
               "by mixing the samples from all the sites."
-        S_mix, m_mix = dep_master.mix_phi()
-        var_mix = np.diag(S_mix)
+        S_phi_mix, m_phi_mix = dep_master.mix_phi()
+        var_phi_mix = np.diag(S_phi_mix)
         
+        # Get mean and var of alpha and beta
+        m_alpha, var_alpha = dep_master.mix_pred(
+                'alpha', smap_alpha, shape_alpha)
+        m_beta, var_beta = dep_master.mix_pred('beta', smap_beta, shape_beta)
         print "Distributed model sampled."
         
         # Save results
         if not os.path.exists('results'):
             os.makedirs('results')
         np.savez('results/res_d_{}.npz'.format(model_name),
-            phi_true=phi_true,
-            m_phi=m_phi,
-            var_phi=var_phi,
-            m_mix=m_mix,
-            var_mix=var_mix,
+            seed_data   = SEED_DATA,
+            seed_mcmc   = SEED_MCMC,
+            m_phi       = m_phi,
+            var_phi     = var_phi,
+            m_phi_mix   = m_phi_mix,
+            var_phi_mix = var_phi_mix,
+            m_alpha     = m_alpha,
+            var_alpha   = var_alpha,
+            m_beta      = m_beta,
+            var_beta    = var_beta
         )
         
     
@@ -314,11 +347,11 @@ def main(mtype='both'):
         
         # Get mean and var of alpha and beta
         samp = fit.extract('alpha')['alpha']
-        m_alpha = np.mean(samp, axis=0)
-        var_alpha = np.var(samp, axis=0, ddof=1)
+        m_alpha_full = np.mean(samp, axis=0)
+        var_alpha_full = np.var(samp, axis=0, ddof=1)
         samp = fit.extract('beta')['beta']
-        m_beta = np.mean(samp, axis=0)
-        var_beta = np.var(samp, axis=0, ddof=1)
+        m_beta_full = np.mean(samp, axis=0)
+        var_beta_full = np.var(samp, axis=0, ddof=1)
         
         print "Full model sampled."
         
@@ -326,14 +359,14 @@ def main(mtype='both'):
         if not os.path.exists('results'):
             os.makedirs('results')
         np.savez('results/res_f_{}.npz'.format(model_name),
-            seed_data    = SEED_DATA,
-            seed_mcmc    = SEED_MCMC,
-            m_phi_full   = m_phi_full,
-            var_phi_full = var_phi_full,
-            m_alpha      = m_alpha,
-            var_alpha    = var_alpha,
-            m_beta       = m_beta,
-            var_beta     = var_beta
+            seed_data      = SEED_DATA,
+            seed_mcmc      = SEED_MCMC,
+            m_phi_full     = m_phi_full,
+            var_phi_full   = var_phi_full,
+            m_alpha_full   = m_alpha_full,
+            var_alpha_full = var_alpha_full,
+            m_beta_full    = m_beta_full,
+            var_beta_full  = var_beta_full
         )
     
 

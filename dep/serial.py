@@ -1043,6 +1043,12 @@ class Master(object):
         
         N.B. Smoothing is not used here.
         
+        TODO: It would be nice to be able to weight the contributions of the 
+        sites e.g. according to the number of samples. For example if there is 
+        two sites, a and b, which both have 200 samples of alpha. Samples in a 
+        have been sampled using 80 observations but b has only 5  associated 
+        observations. The moments of a should be weighed more maby?
+        
         Parameters
         ----------
         params : str or list of str
@@ -1184,7 +1190,7 @@ class Master(object):
                         mc[sit[iw]] += ns[iw]*ms[iw]
                     mc /= nc
                     for iw in xrange(len(self.workers)):
-                        temp = ms[iw] - mc[sit[iw]]
+                        temp = np.asarray(ms[iw] - mc[sit[iw]])
                         np.square(temp, out=temp)
                         temp *= ns[iw]
                         temp += vs[iw]

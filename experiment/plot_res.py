@@ -94,6 +94,14 @@ def plot_results(model_name):
     niter = m_phi.shape[0]
     dphi = m_phi.shape[1]
     
+    # Ravel beta if necessary
+    if beta_true.ndim != 1:
+        beta_true = beta_true.ravel()
+        m_beta = m_beta.ravel()
+        var_beta = var_beta.ravel()
+        m_beta_full = m_beta_full.ravel()
+        var_beta_full = var_beta_full.ravel()
+    
     # Plot mean and variance as a function of the iteration
     fig, axs = plt.subplots(2, 1, sharex=True)
     fig.subplots_adjust(hspace=0.1)
