@@ -62,9 +62,9 @@ SEED_DATA = 0       # Seed for simulating the data
 SEED_MCMC = 0       # Seed for the inference algorithms
 
 # ====== Data size =============================================================
-J = 10              # Number of hierarchical groups
-D = 10              # Number of inputs
-K = 7              # Number of sites
+J = 50              # Number of hierarchical groups
+D = 50              # Number of inputs
+K = 22              # Number of sites
 NPG = [40,60]       # Number of observations per group (constant or [min, max])
 
 # ====== Set parameters ========================================================
@@ -86,6 +86,12 @@ CHAINS = 4
 ITER = 500
 WARMUP = 200
 THIN = 2
+
+# ====== Sampling parameters for the full model ================================
+CHAINS_FULL = 4
+ITER_FULL = 1000
+WARMUP_FULL = 500
+THIN_FULL = 2
 
 # ====== Number of EP iterations ===============================================
 EP_ITER = 3
@@ -283,10 +289,10 @@ def main(mtype='both'):
             fit = model.sampling(
                 data=data,
                 seed=seed,
-                chains=4,
-                iter=1000,
-                warmup=500,
-                thin=2
+                chains=CHAINS_FULL,
+                iter=ITER_FULL,
+                warmup=WARMUP_FULL,
+                thin=THIN_FULL
             )
         samp = fit.extract(pars='phi')['phi']
         m_phi_full = samp.mean(axis=0)
