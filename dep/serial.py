@@ -1102,7 +1102,9 @@ class Master(object):
                     samp = self.workers[iw].fit.extract(pars=par)[par]
                     ns[iw] = samp.shape[0]
                     ms[iw] = np.mean(samp, axis=0)
-                    vs[iw] = np.sum(samp**2, axis=0) - ns[iw]*(ms[iw]**2)
+                    samp -= ms[iw]
+                    np.square(samp, out=samp)
+                    vs[iw] = np.sum(samp, axis=0)
                 
                 # Combine moments
                 n = np.sum(ns)
@@ -1118,33 +1120,63 @@ class Master(object):
                 var.append(vc)
             
             else:
-                # Only certain sites contribute to the parameter
+                # Parameters not consistent among sites
                 par_shape = param_shapes[ip]
                 ns = np.empty(len(self.workers), dtype=np.int64)
                 ms = []
                 vs = []
+                count = np.zeros(par_shape)
                 for iw in xrange(len(self.workers)):
+                    count[sit[iw]] += 1  # Check smap
                     samp = self.workers[iw].fit.extract(pars=par)[par]
                     ns[iw] = samp.shape[0]
                     ms.append(np.mean(samp, axis=0))
-                    vs.append(np.sum(samp**2, axis=0) - ns[iw]*(ms[iw]**2))
-                nc = np.zeros(par_shape, dtype=np.int64)
-                mc = np.zeros(par_shape)
-                vc = np.zeros(par_shape)
-                for iw in xrange(len(self.workers)):
-                    nc[sit[iw]] += ns[iw]
-                    mc[sit[iw]] += ns[iw]*ms[iw]
-                mc /= nc
-                for iw in xrange(len(self.workers)):
-                    temp = ms[iw] - mc[sit[iw]]
-                    np.square(temp, out=temp)
-                    temp *= ns[iw]
-                    temp += vs[iw]
-                    vc[sit[iw]] += temp
-                vc /= (nc-1)
-                mean.append(mc)
-                var.append(vc)
-            
+                    samp -= ms[iw]
+                    np.square(samp, out=samp)
+                    vs.append(np.sum(samp, axis=0))
+                if np.count_nonzero(count) != count.size:
+                    raise ValueError("Arg. `smap` does not fill the parameter")
+                
+                # Combine
+                onecont = count == 1
+                if np.all(onecont):
+                    
+                    # Every index has only one contribution
+                    mc = np.zeros(par_shape)
+                    vc = np.zeros(par_shape)
+                    for iw in xrange(len(self.workers)):
+                        mc[sit[iw]] = ms[iw]
+                        vc[sit[iw]] = vs[iw]/(ns[iw]-1)
+                    mean.append(mc)
+                    var.append(vc)
+                
+                else:
+                    # Combine every index
+                    nc = np.zeros(par_shape, dtype=np.int64)
+                    mc = np.zeros(par_shape)
+                    vc = np.zeros(par_shape)
+                    for iw in xrange(len(self.workers)):
+                        nc[sit[iw]] += ns[iw]
+                        mc[sit[iw]] += ns[iw]*ms[iw]
+                    mc /= nc
+                    for iw in xrange(len(self.workers)):
+                        temp = ms[iw] - mc[sit[iw]]
+                        np.square(temp, out=temp)
+                        temp *= ns[iw]
+                        temp += vs[iw]
+                        vc[sit[iw]] += temp
+                    vc /= (nc-1)
+                    
+                    if np.any(onecont):
+                        # Some indexes have only one contribution
+                        # Replace those with more precise values
+                        for iw in xrange(len(self.workers)):
+                            mc[sit[iw]] = ms[iw]
+                            vc[sit[iw]] = vs[iw]/(ns[iw]-1)
+                    
+                    mean.append(mc)
+                    var.append(vc)
+        
         # Return
         if only_one_param:
             return mean[0], var[0]
