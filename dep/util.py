@@ -495,6 +495,108 @@ def load_stan(filename, overwrite=False):
     return sm
 
 
+def distribute_groups(J, K, Nj):
+    """Distribute J groups to K sites.
+    
+    Parameters
+    ----------
+    J : int
+        Number of groups
+    
+    K : int
+        Number of sites
+    
+    Nj : ndarray or int
+        Number of items in each group. Providing an integer corresponds to 
+        constant number of items in each group.
+    
+    Returns
+    -------
+    Nk : ndarray
+        Number of samples per site (shape: (K,) ).
+    
+    Nj_k or Nk_j : ndarray
+        If K < J:  number of groups per site (shape (K,) )
+           K == J: None
+           K > J:  number of sites per group (shape (J,) )
+    
+    j_ind_k : ndarray
+        Within site group indexes. Shape (N,), where N is the total nuber of
+        samples, i.e. np.sum(Nj). Returned only if K < J, None otherwise.
+    
+    """
+    # Check arguments
+    if isinstance(Nj, int):
+        Nj = Nj*np.ones(J, dtype=np.int64)
+    elif len(Nj.shape) != 1 or Nj.shape[0] != J:
+        raise ValueError("Invalid shape of arg. `Nj`.")
+    if np.any(Nj <= 0):
+        raise ValueError("Every group must have at least one item")
+    N = Nj.sum()
+    
+    if K < 2:
+        raise ValueError("K should be at least 2.")
+    
+    elif K < J:
+        # ------ Many groups per site ------
+        # Combine smallest pairs of consecutive groups until K has been reached
+        j_lim = np.concatenate(([0], np.cumsum(Nj)))
+        Nk = Nj.tolist()
+        Njd = (Nj[:-1]+Nj[1:]).tolist()
+        Nj_k = [1]*J
+        for _ in xrange(J-K):
+            ind = Njd.index(min(Njd))
+            if ind+1 < len(Njd):
+                Njd[ind+1] += Nk[ind]
+            if ind > 0:
+                Njd[ind-1] += Nk[ind+1]
+            Nk[ind] = Njd[ind]
+            Nk.pop(ind+1)
+            Njd.pop(ind)
+            Nj_k[ind] += Nj_k[ind+1]
+            Nj_k.pop(ind+1)
+        Nk = np.array(Nk)                       # Number of samples per site
+        Nj_k = np.array(Nj_k)                   # Number of groups per site
+        j_ind_k = np.empty(N, dtype=np.int32)   # Within site group index
+        k_lim = np.concatenate(([0], np.cumsum(Nj_k)))
+        for k in xrange(K):
+            for ji in xrange(Nj_k[k]):
+                ki = ji + k_lim[k]
+                j_ind_k[j_lim[ki]:j_lim[ki+1]] = ji        
+        return Nk, Nj_k, j_ind_k
+    
+    elif K == J:
+        # ------ One group per site ------
+        # Nothing to do here really
+        return Nj, None, None
+    
+    elif K <= N:
+        # ------ Multiple sites per group ------
+        # Split biggest groups until enough sites are formed
+        ppg = np.ones(J, dtype=np.int64)    # Parts per group
+        Nj2 = Nj.astype(np.float)
+        for _ in xrange(K-J):
+            cur_max = Nj2.argmax()
+            ppg[cur_max] += 1
+            Nj2[cur_max] = Nj[cur_max]/ppg[cur_max]
+        Nj2 = Nj//ppg
+        rem = Nj%ppg
+        # Form the number of samples for each site
+        Nk = np.empty(K, dtype=np.int64)
+        k = 0
+        for j in xrange(J):
+            for kj in xrange(ppg[j]):
+                if kj < rem[j]:
+                    Nk[k] = Nj2[j] + 1
+                else:
+                    Nk[k] = Nj2[j]
+                k += 1
+        return Nk, ppg, None
+    
+    else:
+        raise ValueError("K cant be greater than number of samples")
+
+
 # >>> Temp solution to suppres output from STAN model (remove when fixed)
 # This part of the code is by jeremiahbuddha from:
 # http://stackoverflow.com/questions/11130156/suppress-stdout-stderr-print-from-python-functions

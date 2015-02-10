@@ -39,7 +39,19 @@ from __future__ import division
 import os
 import numpy as np
 
-from fit import fit_distributed, fit_full
+# Add parent dir to sys.path if not present already. This is only done because
+# of easy importing of the package dep. Adding the parent directory into the
+# PYTHONPATH works as well.
+parent_dir = os.path.abspath(os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                os.pardir))
+# Double check that the package is in the parent directory
+if os.path.exists(os.path.join(parent_dir, 'dep')):
+    if parent_dir not in os.sys.path:
+        os.sys.path.insert(0, parent_dir)
+
+from dep.serial import Master
+from dep.util import load_stan, distribute_groups, suppress_stdout
 
 
 # ------------------------------------------------------------------------------
@@ -54,7 +66,7 @@ SEED_MCMC = 0       # Seed for the inference algorithms
 # ====== Data size =============================================================
 J = 10              # Number of hierarchical groups
 D = 10              # Number of inputs
-K = 10              # Number of sites
+K = 7              # Number of sites
 NPG = [40,60]       # Number of observations per group (constant or [min, max])
 
 # ====== Set parameters ========================================================
@@ -88,7 +100,7 @@ WARMUP = 200
 THIN = 2
 
 # ====== Number of EP iterations ===============================================
-EP_ITER = 6
+EP_ITER = 3
 
 # ====== Tilted distribution precision estimate method =========================
 # Available options are 'sample' and 'olse', see class serial.Master.
@@ -184,10 +196,12 @@ def main(mtype='both'):
     prior = {'Q':Q0, 'r':r0}
     
     # ------------------------------------------------------
-    #     Fit model(s)
+    #     Fit distributed model
     # ------------------------------------------------------
     
     if mtype == 'both' or mtype == 'distributed':
+        
+        print "Distributed model {} ...".format(model_name)
         
         # Options for the ep-algorithm see documentation of dep.serial.Master
         options = {
@@ -203,16 +217,120 @@ def main(mtype='both'):
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
         options['tmp_fix_32bit'] = TMP_FIX_32BIT
         
-        fit_distributed(model_name, EP_ITER, J, K, Nj, X, y, phi_true, options)
+        if K < 2:
+            raise ValueError("K should be at least 2.")
+        
+        elif K < J:
+            # ------ Many groups per site: combine groups ------
+            Nk, Nj_k, j_ind_k = distribute_groups(J, K, Nj)
+            # Create the Master instance
+            model = load_stan('stan_files/'+model_name)
+            dep_master = Master(
+                model,
+                X,
+                y,
+                A_k={'J':Nj_k},
+                A_n={'j_ind':j_ind_k+1},
+                site_sizes=Nk,
+                **options
+            )
+        
+        elif K == J:
+            # ------ One group per site ------
+            # Create the Master instance
+            model_single_group = load_stan('stan_files/'+model_name+'_sg')
+            dep_master = Master(
+                model_single_group,
+                X,
+                y,
+                site_sizes=Nj,
+                **options
+            )
+        
+        elif K <= N:
+            # ------ Multiple sites per group: split groups ------
+            Nk, _, _ = distribute_groups(J, K, Nj)
+            # Create the Master instance
+            model_single_group = load_stan('stan_files/'+model_name+'_sg')
+            dep_master = Master(
+                model_single_group,
+                X,
+                y,
+                site_sizes=Nk,
+                **options
+            )
+        
+        else:
+            raise ValueError("K cant be greater than number of samples")
+        
+        # Run the algorithm for `EP_ITER` iterations
+        print "Run distributed EP algorithm for {} iterations.".format(EP_ITER)
+        m_phi, var_phi = dep_master.run(EP_ITER)
+        print "Form the final approximation " \
+              "by mixing the samples from all the sites."
+        S_mix, m_mix = dep_master.mix_phi()
+        var_mix = np.diag(S_mix)
+        
+        print "Distributed model sampled."
+        
+        if not os.path.exists('results'):
+            os.makedirs('results')
+        np.savez('results/res_d_{}.npz'.format(model_name),
+            phi_true=phi_true,
+            m_phi=m_phi,
+            var_phi=var_phi,
+            m_mix=m_mix,
+            var_mix=var_mix,
+        )
+        
+    
+    # ------------------------------------------------------
+    #     Fit full model
+    # ------------------------------------------------------
     
     if mtype == 'both' or mtype == 'full':
         
-        seed = np.random.RandomState(seed=SEED_MCMC)
+        print "Full model {} ...".format(model_name)
         
+        seed = np.random.RandomState(seed=SEED_MCMC)
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
         seed = seed.randint(2**31-1) if TMP_FIX_32BIT else seed
         
-        fit_full(model_name, J, j_ind, X, y, phi_true, m0, Q0, seed)
+        data = dict(
+            N=X.shape[0],
+            D=X.shape[1],
+            J=J,
+            X=X,
+            y=y,
+            j_ind=j_ind+1,
+            mu_phi=m0,
+            Omega_phi=Q0.T    # Q0 transposed in order to get C-contiguous
+        )
+        model = load_stan('stan_files/'+model_name)
+        
+        # Sample and extract parameters
+        with suppress_stdout():
+            fit = model.sampling(
+                data=data,
+                seed=seed,
+                chains=4,
+                iter=1000,
+                warmup=500,
+                thin=2
+            )
+        samp = fit.extract(pars='phi')['phi']
+        m_phi_full = samp.mean(axis=0)
+        var_phi_full = samp.var(axis=0, ddof=1)
+        
+        print "Full model sampled."
+        
+        if not os.path.exists('results'):
+            os.makedirs('results')
+        np.savez('results/res_f_{}.npz'.format(model_name),
+            phi_true=phi_true,
+            m_phi_full=m_phi_full,
+            var_phi_full=var_phi_full,
+        )
     
 
 if __name__ == '__main__':
