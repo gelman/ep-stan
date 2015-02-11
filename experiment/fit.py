@@ -2,27 +2,19 @@
 algorithm described in an article "Expectation propagation as a way of life"
 (arXiv:1412.4869).
 
-Group index j = 1 ... J
-Model m2:
-    y_j ~ bernoulli_logit(alpha_j + beta * x_j)
-    alpha_j ~ N(0,sigma_a)
-    beta ~ N(0,sigma_b)
-    sigma_a ~ log-N(0,sigma_aH)
-    sigma_b ~ log-N(0,sigma_bH)
-    Fixed sigma_aH, sigma_bH
-    phi = [log(sigma_a), log(sigma_b)]
-
 Execute with:
-    $ python fit_<model_name>.py [mtype, save_true]
+    $ python fit.py model_name [type [save_true]]
 where:
-    mtype     - which models are fit, available values are:
-                `both`, `full`, `distributed` and `none` (default `both`)
-    save_true - save the true values, available values are:
-                `true`, `false`, `1` and `0` (default `true`)
+    model_name - name of the model
+    type       - which models are fit, available values are:
+                 `both`, `full`, `distributed` and `none` (default `both`)
+    save_true  - save the true values, available values are:
+                 `true`, `false`, `1` and `0` (default `true`)
 
 The results of full model are saved into file `res_f_<model_name>.npz`,
 the results of distributed model are saved into file `res_d_<model_name>.npz`
-and the true values are saved into the file `true_vals_<model_name>.npz`.
+and the true values are saved into the file `true_vals_<model_name>.npz`
+into the folder results. Available models are in the folder models.
 
 After running this skript for both full and distributed, the script plot_res.py
 can be used to plot the results.
@@ -67,38 +59,22 @@ SEED_DATA = 0       # Seed for simulating the data
 SEED_MCMC = 0       # Seed for the inference algorithms
 
 # ====== Data size =============================================================
-J = 50              # Number of hierarchical groups
-D = 50              # Number of inputs
-K = 22              # Number of sites
+J   = 50            # Number of hierarchical groups
+D   = 50            # Number of inputs
+K   = 8            # Number of sites
 NPG = [40,60]       # Number of observations per group (constant or [min, max])
 
-# ====== Set parameters ========================================================
-# If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
-SIGMA_A = 2
-SIGMA_AH = None
-# If SIGMA_B is None, it is sampled from log-N(0,SIGMA_BH)
-SIGMA_B = 1
-SIGMA_BH = None
-
-# ====== Prior =================================================================
-# Prior for log(sigma_a)
-M0_A = 0
-V0_A = 1**2
-# Prior for log(sigma_b)
-M0_B = 0
-V0_B = 1**2
-
-# ====== Sampling parameters ===================================================
+# ====== Sampling parameters for the distributed model =========================
 CHAINS = 4
-ITER = 500
+ITER   = 500
 WARMUP = 200
-THIN = 2
+THIN   = 2
 
 # ====== Sampling parameters for the full model ================================
 CHAINS_FULL = 4
-ITER_FULL = 1000
+ITER_FULL   = 1000
 WARMUP_FULL = 500
-THIN_FULL = 2
+THIN_FULL   = 2
 
 # ====== Number of EP iterations ===============================================
 EP_ITER = 6
@@ -117,84 +93,32 @@ TMP_FIX_32BIT = False
 # ------------------------------------------------------------------------------
 
 
-def main(mtype='both', save_true=True):
+def main(model_name, mtype, save_true):
     
-    # Check mtype
-    if mtype != 'both' and mtype != 'full' and mtype != 'distributed':
-        raise ValueError("Invalid argument `mtype`")
+    # Import the model simulator module (import at runtime)
+    simulator = getattr(__import__('models.'+model_name), model_name)
     
-    model_name = 'm2'
-    
-    # ------------------------------------------------------
-    #     Simulate data
-    # ------------------------------------------------------
-    
-    # Set seed
-    rnd_data = np.random.RandomState(seed=SEED_DATA)
-    
-    # Parameters
-    # Number of observations for each group
-    if hasattr(NPG, '__getitem__') and len(NPG) == 2:
-        Nj = rnd_data.randint(NPG[0],NPG[1]+1, size=J)
-    else:
-        Nj = NPG*np.ones(J, dtype=np.int64)
-    # Total number of observations
-    N = np.sum(Nj)
-    # Observation index limits for J groups
-    j_lim = np.concatenate(([0], np.cumsum(Nj)))
-    # Group indices for each sample
-    j_ind = np.empty(N, dtype=np.int64)
-    for j in xrange(J):
-        j_ind[j_lim[j]:j_lim[j+1]] = j
-    
-    # Assign parameters
-    if SIGMA_A is None:
-        sigma_a = np.exp(rnd_data.randn()*SIGMA_AH)
-    else:
-        sigma_a = SIGMA_A
-    if SIGMA_B is None:
-        sigma_b = np.exp(rnd_data.randn()*SIGMA_BH)
-    else:
-        sigma_b = SIGMA_B
-    alpha_j = rnd_data.randn(J)*sigma_a
-    beta = rnd_data.randn(D)*sigma_b
-    phi_true = np.append(np.log(sigma_a), np.log(sigma_b))
-    dphi = 2  # Number of shared parameters
-    
-    # Simulate data
-    X = rnd_data.randn(N,D)
-    y = alpha_j[j_ind] + X.dot(beta)
-    y = 1/(1+np.exp(-y))
-    y = (rnd_data.rand(N) < y).astype(int)
+    # Simulate_data
+    X, y, Nj, j_ind, true_vals = simulator.simulate_data(J, D, NPG, seed=SEED_DATA)
     
     # Save true values
     if save_true:
         if not os.path.exists('results'):
             os.makedirs('results')
         np.savez('results/true_vals_{}.npz'.format(model_name),
-            seed_data = SEED_DATA,
-            phi       = phi_true,
-            beta      = beta,
-            alpha     = alpha_j
-        )
+                 seed_data = SEED_DATA, **true_vals)
         print "True values saved into results"
     
-    # ------------------------------------------------------
-    #     Prior
-    # ------------------------------------------------------
-    
-    # Moment parameters of the prior (transposed in order to get F-contiguous)
-    S0 = np.diag(np.append(V0_A, V0_B)).T
-    m0 = np.append(M0_A, M0_B)
-    # Natural parameters of the prior
-    Q0 = np.diag(np.append(1./V0_A, 1./V0_B)).T
-    r0 = np.append(M0_A/V0_A, M0_B/V0_B)
+    # Get the prior
+    S0, m0, Q0, r0 = simulator.get_prior(J, D)
     prior = {'Q':Q0, 'r':r0}
+    
+    # Get parameter information
+    pnames, pshapes, phiers = simulator.get_param_definitions(J, D)
     
     # ------------------------------------------------------
     #     Fit distributed model
     # ------------------------------------------------------
-    
     if mtype == 'both' or mtype == 'distributed':
         
         print "Distributed model {} ...".format(model_name)
@@ -213,6 +137,8 @@ def main(mtype='both', save_true=True):
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
         options['tmp_fix_32bit'] = TMP_FIX_32BIT
         
+        model = None
+        
         if K < 2:
             raise ValueError("K should be at least 2.")
         
@@ -220,7 +146,7 @@ def main(mtype='both', save_true=True):
             # ------ Many groups per site: combine groups ------
             Nk, Nj_k, j_ind_k = distribute_groups(J, K, Nj)
             # Create the Master instance
-            model = load_stan('stan_files/'+model_name)
+            model = load_stan('models/'+model_name)
             dep_master = Master(
                 model,
                 X,
@@ -231,19 +157,12 @@ def main(mtype='both', save_true=True):
                 **options
             )
             # Construct the map: which site contribute to which parameter
-            shape_alpha = (J,)
-            smap_alpha = []
-            i = 0
-            for k in xrange(K):
-                smap_alpha.append(np.arange(i,i+Nj_k[k]))
-                i += Nj_k[k]
-            shape_beta = (D,)
-            smap_beta = None
+            pmaps = _create_pmaps(phiers, Nj_k)
         
         elif K == J:
             # ------ One group per site ------
             # Create the Master instance
-            model_single_group = load_stan('stan_files/'+model_name+'_sg')
+            model_single_group = load_stan('models/'+model_name+'_sg')
             dep_master = Master(
                 model_single_group,
                 X,
@@ -252,16 +171,13 @@ def main(mtype='both', save_true=True):
                 **options
             )
             # Construct the map: which site contribute to which parameter
-            shape_alpha = (J,)
-            smap_alpha = np.arange(K)
-            shape_beta = (D,)
-            smap_beta = None
+            pmaps = _create_pmaps(phiers, None)
         
         elif K <= N:
             # ------ Multiple sites per group: split groups ------
             Nk, Nk_j, _ = distribute_groups(J, K, Nj)
             # Create the Master instance
-            model_single_group = load_stan('stan_files/'+model_name+'_sg')
+            model_single_group = load_stan('models/'+model_name+'_sg')
             dep_master = Master(
                 model_single_group,
                 X,
@@ -270,15 +186,7 @@ def main(mtype='both', save_true=True):
                 **options
             )
             # Construct the map: which site contribute to which parameter
-            shape_alpha = (J,)
-            smap_alpha = np.empty(K, dtype=np.int32)
-            i = 0
-            for j in xrange(J):
-                for _ in xrange(Nk_j[j]):
-                    smap_alpha[i] = j
-                    i += 1
-            shape_beta = (D,)
-            smap_beta = None
+            pmaps = _create_pmaps(phiers, Nk_j)
         
         else:
             raise ValueError("K cant be greater than number of samples")
@@ -291,10 +199,14 @@ def main(mtype='both', save_true=True):
         S_phi_mix, m_phi_mix = dep_master.mix_phi()
         var_phi_mix = np.diag(S_phi_mix)
         
-        # Get mean and var of alpha and beta
-        m_alpha, var_alpha = dep_master.mix_pred(
-                'alpha', smap_alpha, shape_alpha)
-        m_beta, var_beta = dep_master.mix_pred('beta', smap_beta, shape_beta)
+        # Get mean and var of inferred variables
+        pms, pvars = dep_master.mix_pred(pnames, pmaps, pshapes)
+        # Construct a dict of from these results
+        presults = {}
+        for i in xrange(len(pnames)):
+            pname = pnames[i]
+            presults['m_'+pname] = pms[i]
+            presults['var_'+pname] = pvars[i]
         
         # Save results
         if not os.path.exists('results'):
@@ -306,17 +218,13 @@ def main(mtype='both', save_true=True):
             var_phi     = var_phi,
             m_phi_mix   = m_phi_mix,
             var_phi_mix = var_phi_mix,
-            m_alpha     = m_alpha,
-            var_alpha   = var_alpha,
-            m_beta      = m_beta,
-            var_beta    = var_beta
+            **presults
         )
         print "Distributed model results saved."
     
     # ------------------------------------------------------
     #     Fit full model
     # ------------------------------------------------------
-    
     if mtype == 'both' or mtype == 'full':
         
         print "Full model {} ...".format(model_name)
@@ -335,7 +243,9 @@ def main(mtype='both', save_true=True):
             mu_phi=m0,
             Omega_phi=Q0.T    # Q0 transposed in order to get C-contiguous
         )
-        model = load_stan('stan_files/'+model_name)
+        # Load model if not loaded already
+        if model is None:
+            model = load_stan('models/'+model_name)
         
         # Sample and extract parameters
         with suppress_stdout():
@@ -351,15 +261,13 @@ def main(mtype='both', save_true=True):
         m_phi_full = samp.mean(axis=0)
         var_phi_full = samp.var(axis=0, ddof=1)
         
-        # Get mean and var of alpha and beta
-        samp = fit.extract('alpha')['alpha']
-        m_alpha_full = np.mean(samp, axis=0)
-        var_alpha_full = np.var(samp, axis=0, ddof=1)
-        samp = fit.extract('beta')['beta']
-        m_beta_full = np.mean(samp, axis=0)
-        var_beta_full = np.var(samp, axis=0, ddof=1)
-        
-        print "Full model sampled."
+        # Get mean and var of inferred variables
+        presults = {}
+        for i in xrange(len(pnames)):
+            pname = pnames[i]
+            samp = fit.extract(pname)[pname]
+            presults['m_'+pname+'_full'] = np.mean(samp, axis=0)
+            presults['var_'+pname+'_full'] = np.var(samp, axis=0, ddof=1)
         
         # Save results
         if not os.path.exists('results'):
@@ -369,20 +277,108 @@ def main(mtype='both', save_true=True):
             seed_mcmc      = SEED_MCMC,
             m_phi_full     = m_phi_full,
             var_phi_full   = var_phi_full,
-            m_alpha_full   = m_alpha_full,
-            var_alpha_full = var_alpha_full,
-            m_beta_full    = m_beta_full,
-            var_beta_full  = var_beta_full
+            **presults
         )
         print "Full model results saved."
     
 
+def _create_pmaps(phiers, Ns):
+    """Create the mappings for hierarhical parameters."""
+    if K < 2:
+        raise ValueError("K should be at least 2.")
+    
+    elif K < J:
+        # ------ Many groups per site: combined groups ------
+        pmaps = []
+        for pi in xrange(len(phiers)):
+            ih = phiers[pi]
+            if ih is None:
+                pmaps.append(None)
+            else:
+                pmap = []
+                i = 0
+                for k in xrange(K):
+                    # Create indexings until the ih dimension, remaining
+                    # dimension's slice(None) can be left out
+                    if ih == 0:
+                        pmap.append(slice(i, i+Ns[k]))
+                    else:
+                        pmap.append(
+                            tuple(
+                                slice(i, i+Ns[k])
+                                if i2 == ih else slice(None)
+                                for i2 in xrange(ih+1)
+                            )
+                        )
+                    i += Ns[k]
+                pmaps.append(pmap)
+    
+    elif K == J:
+        # ------ One group per site ------
+        pmaps = []
+        for pi in xrange(len(phiers)):
+            ih = phiers[pi]
+            if ih is None:
+                pmaps.append(None)
+            elif ih == 0:
+                # First dimensions can be mapped with one ndarray
+                pmaps.append(np.arange(K))
+            else:
+                pmap = []
+                for k in xrange(K):
+                    # Create indexings until the ih dimension, remaining
+                    # dimension's slice(None) can be left out
+                    pmap.append(
+                        tuple(
+                            k if i2 == ih else slice(None)
+                            for i2 in xrange(ih+1)
+                        )
+                    )
+                pmaps.append(pmap)
+    
+    else:
+        # ------ Multiple sites per group: split groups ------
+        pmaps = []
+        for pi in xrange(len(phiers)):
+            ih = phiers[pi]
+            if ih is None:
+                pmaps.append(None)
+            elif ih == 0:
+                # First dimensions can be mapped with one ndarray
+                pmap = np.empty(K, dtype=np.int32)
+                i = 0
+                for j in xrange(J):
+                    for _ in xrange(Ns[j]):
+                        pmap[i] = j
+                        i += 1
+                pmaps.append(pmap)
+            else:
+                pmap = []
+                i = 0
+                for j in xrange(J):
+                    for _ in xrange(Ns[j]):
+                        # Create indexings until the ih dimension, remaining
+                        # dimension's slice(None) can be left out
+                        pmap.append(
+                            tuple(
+                                j if i2 == ih else slice(None)
+                                for i2 in xrange(ih+1)
+                            )
+                        )
+                        i += 1
+                pmaps.append(pmap)
+    
+    return pmaps
+
+
 if __name__ == '__main__':
+    
     # Parse arguments
-    if len(os.sys.argv) > 3:
+    if len(os.sys.argv) > 4:
         raise TypeError("Wrong number of arguments")
-    if len(os.sys.argv) > 2:
-        save_true = os.sys.argv[2].lower()
+    
+    if len(os.sys.argv) > 3:
+        save_true = os.sys.argv[3].lower()
         if (     save_true != 'true'
              and save_true != 'false'
              and save_true != '1'
@@ -392,8 +388,9 @@ if __name__ == '__main__':
         save_true = save_true == 'true' or save_true == '1'
     else:
         save_true = True
-    if len(os.sys.argv) > 1:
-        mtype = os.sys.argv[1].lower()
+    
+    if len(os.sys.argv) > 2:
+        mtype = os.sys.argv[2].lower()
         if (     mtype != 'both'
              and mtype != 'full'
              and mtype != 'distributed'
@@ -402,8 +399,14 @@ if __name__ == '__main__':
             raise ValueError("Invalid argument `mtype`")
     else:
         mtype = 'both'
+    
+    if len(os.sys.argv) > 1:
+        model_name = os.sys.argv[1]
+    else:
+        raise ValueError("Give the model name (e.g. `m1`) as argument")
+    
     # Run
-    main(mtype, save_true)
+    main(model_name, mtype, save_true)
 
 
 
