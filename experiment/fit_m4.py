@@ -16,13 +16,16 @@ Model m4:
     phi = [mu_a, log(sigma_a), mu_b, log(sigma_b)]
 
 Execute with:
-    $ python fit_<model_name>.py [mtype]
-where argument mtype can be either `full`, `distributed` or `both`, indicating 
-which models are fit. Providing argument `save_true` as 'false' or '0' prevents
-saving of the true values. If type is omitted, both models are fit. The results 
-are saved into files `res_f_<model_name>.npz` and `res_d_<model_name>.npz` into 
-the folder results respectively. The true values are saved into the file 
-`true_vals_<model_name>.npz`.
+    $ python fit_<model_name>.py [mtype, save_true]
+where:
+    mtype     - which models are fit, available values are:
+                `both`, `full`, `distributed` and `none` (default `both`)
+    save_true - save the true values, available values are:
+                `true`, `false`, `1` and `0` (default `true`)
+
+The results of full model are saved into file `res_f_<model_name>.npz`,
+the results of distributed model are saved into file `res_d_<model_name>.npz`
+and the true values are saved into the file `true_vals_<model_name>.npz`.
 
 After running this skript for both full and distributed, the script plot_res.py
 can be used to plot the results.
@@ -193,6 +196,7 @@ def main(mtype='both', save_true=True):
             beta      = beta,
             alpha     = alpha_j
         )
+        print "True values saved into results"
     
     # ------------------------------------------------------
     #     Prior
@@ -321,7 +325,6 @@ def main(mtype='both', save_true=True):
         m_alpha, var_alpha = dep_master.mix_pred(
                 'alpha', smap_alpha, shape_alpha)
         m_beta, var_beta = dep_master.mix_pred('beta', smap_beta, shape_beta)
-        print "Distributed model sampled."
         
         # Save results
         if not os.path.exists('results'):
@@ -338,7 +341,7 @@ def main(mtype='both', save_true=True):
             m_beta      = m_beta,
             var_beta    = var_beta
         )
-        
+        print "Distributed model results saved."
     
     # ------------------------------------------------------
     #     Fit full model
@@ -401,13 +404,36 @@ def main(mtype='both', save_true=True):
             m_beta_full    = m_beta_full,
             var_beta_full  = var_beta_full
         )
+        print "Full model results saved."
     
 
 if __name__ == '__main__':
-    if len(os.sys.argv) == 2:
-        main(os.sys.argv[1])
+    # Parse arguments
+    if len(os.sys.argv) > 3:
+        raise TypeError("Wrong number of arguments")
+    if len(os.sys.argv) > 2:
+        save_true = os.sys.argv[2].lower()
+        if (     save_true != 'true'
+             and save_true != 'false'
+             and save_true != '1'
+             and save_true != '0'
+           ):
+            raise ValueError("Invalid argument `mtype`")
+        save_true = save_true == 'true' or save_true == '1'
     else:
-        main()
+        save_true = True
+    if len(os.sys.argv) > 1:
+        mtype = os.sys.argv[1].lower()
+        if (     mtype != 'both'
+             and mtype != 'full'
+             and mtype != 'distributed'
+             and mtype != 'none'
+           ):
+            raise ValueError("Invalid argument `mtype`")
+    else:
+        mtype = 'both'
+    # Run
+    main(mtype, save_true)
 
 
 
