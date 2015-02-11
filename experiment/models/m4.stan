@@ -24,16 +24,16 @@ parameters {
 }
 transformed parameters {
     vector[J] alpha;
-    real<lower=0> sigma_a;
     real mu_a;
+    real<lower=0> sigma_a;
     vector[D] beta[J];
-    vector<lower=0>[D] sigma_b;
     vector[D] mu_b;
-    sigma_a <- exp(phi[2]);
+    vector<lower=0>[D] sigma_b;
     mu_a <- phi[1];
+    sigma_a <- exp(phi[2]);
     alpha <- mu_a + eta * sigma_a;
-    sigma_b <- exp(segment(phi, 3, D));
-    mu_b <- tail(phi, D);
+    mu_b <- segment(phi, 3, D);
+    sigma_b <- exp(tail(phi, D));
     for (j in 1:J){
         beta[j] <- mu_b + etb[j] .* sigma_b;
     }

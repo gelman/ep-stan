@@ -22,16 +22,16 @@ parameters {
 }
 transformed parameters {
     real alpha;
-    real<lower=0> sigma_a;
     real mu_a;
+    real<lower=0> sigma_a;
     vector[D] beta;
-    vector<lower=0>[D] sigma_b;
     vector[D] mu_b;
+    vector<lower=0>[D] sigma_b;
     sigma_a <- exp(phi[2]);
     mu_a <- phi[1];
     alpha <- mu_a + eta * sigma_a;
-    sigma_b <- exp(segment(phi, 3, D));
-    mu_b <- tail(phi, D);
+    mu_b <- segment(phi, 3, D);
+    sigma_b <- exp(tail(phi, D));
     beta <- mu_b + etb .* sigma_b;
 }
 model {

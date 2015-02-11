@@ -1,19 +1,24 @@
 """A simulated experiment model used by the sckript fit.py
 
-Model name: m3
+Model name: m4
 Definition:
     group index j = 1 ... J
-    multidimensional explanatory variable x
+    input index d = 1 ... D
+    explanatory variable x = [x_1 ... x_D]
     response variable y
-    multidimensional coeff. beta_j
-    y ~ bernoulli_logit(alpha_j + beta_j' * x)
+    local parameter alpha = [alpha_1 ... alpha_J]
+    local parameter beta = [[beta_11 ... beta_1D] ... [beta_J1 ... beta_JD]]
+    shared parameter sigma_a
+    shared parameter sigma_b = [sigma_b_1 ... sigma_b_D]
+    shared parameter mu_a
+    shared parameter mu_b = [mu_b_1 ... mu_b_D]
+    y ~ bernoulli_logit(alpha_j + beta_j*' * x)
     alpha ~ N(mu_a, sigma_a)
-    beta ~ N(mu_b, sigma_b)
-        Cov(beta_a, beta_b) = 0, for all a != b
+    beta_*d ~ N(mu_b_d, sigma_b_d), for all d
     mu_a ~ N(0, sigma_maH)
-    mu_b ~ N(0, sigma_mbH)
-    sigma_a ~ log-N(0, sigma_saH)
-    sigma_b ~ log-N(0, sigma_sbH)
+    mu_b_d ~ N(0, sigma_mbH), for all d
+    sigma_a ~ log-N(0, sigma_aH)
+    sigma_b_d ~ log-N(0, sigma_bH), for all d
     phi = [mu_a, log(sigma_a), mu_b, log(sigma_b)]
 
 """

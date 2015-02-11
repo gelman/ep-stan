@@ -3,12 +3,16 @@
 Model name: m2
 Definition:
     group index j = 1 ... J
-    multidimensional explanatory variable x
+    input index d = 1 ... D
+    explanatory variable x = [x_1 ... x_D]
     response variable y
-    multidimensional coeff. beta
+    local parameter alpha = [alpha_1 ... alpha_J]
+    shared parameter beta = [beta_1 ... beta_D]
+    shared parameter sigma_a
+    shared parameter sigma_b
     y ~ bernoulli_logit(alpha_j + beta' * x)
     alpha ~ N(0, sigma_a)
-    beta ~ N(0, sigma_b)
+    beta_d ~ N(0, sigma_b), for all d
     sigma_a ~ log-N(0, sigma_aH)
     sigma_b ~ log-N(0, sigma_bH)
     phi = [log(sigma_a), log(sigma_b)]

@@ -96,10 +96,10 @@ TMP_FIX_32BIT = False
 def main(model_name, mtype, save_true):
     
     # Import the model simulator module (import at runtime)
-    simulator = getattr(__import__('models.'+model_name), model_name)
+    model = getattr(__import__('models.'+model_name), model_name)
     
     # Simulate_data
-    X, y, Nj, j_ind, true_vals = simulator.simulate_data(J, D, NPG, seed=SEED_DATA)
+    X, y, Nj, j_ind, true_vals = model.simulate_data(J, D, NPG, seed=SEED_DATA)
     
     # Save true values
     if save_true:
@@ -110,11 +110,11 @@ def main(model_name, mtype, save_true):
         print "True values saved into results"
     
     # Get the prior
-    S0, m0, Q0, r0 = simulator.get_prior(J, D)
+    S0, m0, Q0, r0 = model.get_prior(J, D)
     prior = {'Q':Q0, 'r':r0}
     
     # Get parameter information
-    pnames, pshapes, phiers = simulator.get_param_definitions(J, D)
+    pnames, pshapes, phiers = model.get_param_definitions(J, D)
     
     # ------------------------------------------------------
     #     Fit distributed model
@@ -137,7 +137,7 @@ def main(model_name, mtype, save_true):
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
         options['tmp_fix_32bit'] = TMP_FIX_32BIT
         
-        model = None
+        stan_model = None
         
         if K < 2:
             raise ValueError("K should be at least 2.")
@@ -146,9 +146,9 @@ def main(model_name, mtype, save_true):
             # ------ Many groups per site: combine groups ------
             Nk, Nj_k, j_ind_k = distribute_groups(J, K, Nj)
             # Create the Master instance
-            model = load_stan('models/'+model_name)
+            stan_model = load_stan('models/'+model_name)
             dep_master = Master(
-                model,
+                stan_model,
                 X,
                 y,
                 A_k={'J':Nj_k},
@@ -162,9 +162,9 @@ def main(model_name, mtype, save_true):
         elif K == J:
             # ------ One group per site ------
             # Create the Master instance
-            model_single_group = load_stan('models/'+model_name+'_sg')
+            stan_model_sg = load_stan('models/'+model_name+'_sg')
             dep_master = Master(
-                model_single_group,
+                stan_model_sg,
                 X,
                 y,
                 site_sizes=Nj,
@@ -177,9 +177,9 @@ def main(model_name, mtype, save_true):
             # ------ Multiple sites per group: split groups ------
             Nk, Nk_j, _ = distribute_groups(J, K, Nj)
             # Create the Master instance
-            model_single_group = load_stan('models/'+model_name+'_sg')
+            stan_model_sg = load_stan('models/'+model_name+'_sg')
             dep_master = Master(
-                model_single_group,
+                stan_model_sg,
                 X,
                 y,
                 site_sizes=Nk,
@@ -244,12 +244,12 @@ def main(model_name, mtype, save_true):
             Omega_phi=Q0.T    # Q0 transposed in order to get C-contiguous
         )
         # Load model if not loaded already
-        if model is None:
-            model = load_stan('models/'+model_name)
+        if stan_model is None:
+            stan_model = load_stan('models/'+model_name)
         
         # Sample and extract parameters
         with suppress_stdout():
-            fit = model.sampling(
+            fit = stan_model.sampling(
                 data=data,
                 seed=seed,
                 chains=CHAINS_FULL,
