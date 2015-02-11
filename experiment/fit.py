@@ -3,13 +3,16 @@ algorithm described in an article "Expectation propagation as a way of life"
 (arXiv:1412.4869).
 
 Execute with:
-    $ python fit.py model_name [type [save_true]]
-where:
-    model_name - name of the model
-    type       - which models are fit, available values are:
-                 `both`, `full`, `distributed` and `none` (default `both`)
-    save_true  - save the true values, available values are:
-                 `true`, `false`, `1` and `0` (default `true`)
+    $ python test.py [-h] [-m {full,distributed,both,none}] [-s] model_name
+
+positional arguments:
+  model_name            name of the model
+
+optional arguments:
+  -h, --help            show help message and exit
+  -m {both,full,distributed,none}, --methods {both,full,distributed,none}
+                        which methods are used
+  -s, --nsave           do not save true values
 
 The results of full model are saved into file `res_f_<model_name>.npz`,
 the results of distributed model are saved into file `res_d_<model_name>.npz`
@@ -31,7 +34,7 @@ https://github.com/gelman/ep-stan
 # All rights reserved.
 
 from __future__ import division
-import os
+import os, argparse
 import numpy as np
 
 # Add parent dir to sys.path if not present already. This is only done because
@@ -59,8 +62,8 @@ SEED_DATA = 0       # Seed for simulating the data
 SEED_MCMC = 0       # Seed for the inference algorithms
 
 # ====== Data size =============================================================
-J   = 50            # Number of hierarchical groups
-D   = 50            # Number of inputs
+J   = 10            # Number of hierarchical groups
+D   = 3            # Number of inputs
 K   = 8            # Number of sites
 NPG = [40,60]       # Number of observations per group (constant or [min, max])
 
@@ -86,14 +89,14 @@ PREC_ESTIM = 'olse'
 # ====== 32bit Python ? ========================================================
 # Temp fix for the RandomState seed problem with pystan in 32bit Python. Set
 # the following to True if using 32bit Python.
-TMP_FIX_32BIT = False
+TMP_FIX_32BIT = True
 
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # ------------------------------------------------------------------------------
 
 
-def main(model_name, mtype, save_true):
+def main(model_name, methods, nsave):
     
     # Import the model simulator module (import at runtime)
     model = getattr(__import__('models.'+model_name), model_name)
@@ -102,7 +105,7 @@ def main(model_name, mtype, save_true):
     X, y, Nj, j_ind, true_vals = model.simulate_data(J, D, NPG, seed=SEED_DATA)
     
     # Save true values
-    if save_true:
+    if not nsave:
         if not os.path.exists('results'):
             os.makedirs('results')
         np.savez('results/true_vals_{}.npz'.format(model_name),
@@ -119,7 +122,7 @@ def main(model_name, mtype, save_true):
     # ------------------------------------------------------
     #     Fit distributed model
     # ------------------------------------------------------
-    if mtype == 'both' or mtype == 'distributed':
+    if methods == 'both' or methods == 'distributed':
         
         print "Distributed model {} ...".format(model_name)
         
@@ -136,8 +139,6 @@ def main(model_name, mtype, save_true):
         }
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
         options['tmp_fix_32bit'] = TMP_FIX_32BIT
-        
-        stan_model = None
         
         if K < 2:
             raise ValueError("K should be at least 2.")
@@ -162,9 +163,8 @@ def main(model_name, mtype, save_true):
         elif K == J:
             # ------ One group per site ------
             # Create the Master instance
-            stan_model_sg = load_stan('models/'+model_name+'_sg')
             dep_master = Master(
-                stan_model_sg,
+                load_stan('models/'+model_name+'_sg'),
                 X,
                 y,
                 site_sizes=Nj,
@@ -177,9 +177,8 @@ def main(model_name, mtype, save_true):
             # ------ Multiple sites per group: split groups ------
             Nk, Nk_j, _ = distribute_groups(J, K, Nj)
             # Create the Master instance
-            stan_model_sg = load_stan('models/'+model_name+'_sg')
             dep_master = Master(
-                stan_model_sg,
+                load_stan('models/'+model_name+'_sg'),
                 X,
                 y,
                 site_sizes=Nk,
@@ -221,11 +220,14 @@ def main(model_name, mtype, save_true):
             **presults
         )
         print "Distributed model results saved."
+        
+        # Release master object
+        del dep_master
     
     # ------------------------------------------------------
     #     Fit full model
     # ------------------------------------------------------
-    if mtype == 'both' or mtype == 'full':
+    if methods == 'both' or methods == 'full':
         
         print "Full model {} ...".format(model_name)
         
@@ -244,7 +246,7 @@ def main(model_name, mtype, save_true):
             Omega_phi=Q0.T    # Q0 transposed in order to get C-contiguous
         )
         # Load model if not loaded already
-        if stan_model is None:
+        if not 'stan_model' in locals():
             stan_model = load_stan('models/'+model_name)
         
         # Sample and extract parameters
@@ -373,40 +375,41 @@ def _create_pmaps(phiers, Ns):
 
 if __name__ == '__main__':
     
+    # Process help string
+    descr_ind = __doc__.find('\n\n')
+    epilog_ind = __doc__.find('optional arguments:\n')
+    epilog_ind = __doc__.find('\n\n', epilog_ind)
+    if descr_ind == -1 or epilog_ind == -1:
+        description = None
+        epilog = __doc__
+        formatter_class = argparse.ArgumentDefaultsHelpFormatter
+    else:
+        description = __doc__[:descr_ind]
+        epilog = __doc__[epilog_ind+2:]
+        formatter_class = argparse.RawDescriptionHelpFormatter
+    
     # Parse arguments
-    if len(os.sys.argv) > 4:
-        raise TypeError("Wrong number of arguments")
-    
-    if len(os.sys.argv) > 3:
-        save_true = os.sys.argv[3].lower()
-        if (     save_true != 'true'
-             and save_true != 'false'
-             and save_true != '1'
-             and save_true != '0'
-           ):
-            raise ValueError("Invalid argument `mtype`")
-        save_true = save_true == 'true' or save_true == '1'
-    else:
-        save_true = True
-    
-    if len(os.sys.argv) > 2:
-        mtype = os.sys.argv[2].lower()
-        if (     mtype != 'both'
-             and mtype != 'full'
-             and mtype != 'distributed'
-             and mtype != 'none'
-           ):
-            raise ValueError("Invalid argument `mtype`")
-    else:
-        mtype = 'both'
-    
-    if len(os.sys.argv) > 1:
-        model_name = os.sys.argv[1]
-    else:
-        raise ValueError("Give the model name (e.g. `m1`) as argument")
+    parser = argparse.ArgumentParser(
+        description = description,
+        epilog = epilog,
+        formatter_class = formatter_class
+    )
+    parser.add_argument('model_name', help = "name of the model")
+    parser.add_argument(
+        '-m', '--methods',
+        default = 'both',
+        choices = ['both', 'full', 'distributed', 'none'],
+        help = "which methods are used"
+    )
+    parser.add_argument(
+        '-s', '--nsave',
+        action = 'store_true',
+        help = "do not save true values"
+    )
+    args = parser.parse_args()
     
     # Run
-    main(model_name, mtype, save_true)
+    main(args.model_name, args.methods, args.nsave)
 
 
 
