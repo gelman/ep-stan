@@ -14,10 +14,12 @@ Model m2:
 
 Execute with:
     $ python fit_<model_name>.py [mtype]
-where argument mtype can be either `full` or `distributed`. If type is omitted,
-both models are fit. The results are saved into files `res_f_<model_name>.npz`
-and `res_d_<model_name>.npz` into the folder results respectively. The true
-values are saved into the file `true_vals_<model_name>.npz`.
+where argument mtype can be either `full`, `distributed` or `both`, indicating 
+which models are fit. Providing argument `save_true` as 'false' or '0' prevents
+saving of the true values. If type is omitted, both models are fit. The results 
+are saved into files `res_f_<model_name>.npz` and `res_d_<model_name>.npz` into 
+the folder results respectively. The true values are saved into the file 
+`true_vals_<model_name>.npz`.
 
 After running this skript for both full and distributed, the script plot_res.py
 can be used to plot the results.
@@ -112,7 +114,7 @@ TMP_FIX_32BIT = False
 # ------------------------------------------------------------------------------
 
 
-def main(mtype='both'):
+def main(mtype='both', save_true=True):
     
     # Check mtype
     if mtype != 'both' and mtype != 'full' and mtype != 'distributed':
@@ -163,14 +165,15 @@ def main(mtype='both'):
     y = (rnd_data.rand(N) < y).astype(int)
     
     # Save true values
-    if not os.path.exists('results'):
-        os.makedirs('results')
-    np.savez('results/true_vals_{}.npz'.format(model_name),
-        seed_data = SEED_DATA,
-        phi       = phi_true,
-        beta      = beta,
-        alpha     = alpha_j
-    )
+    if save_true:
+        if not os.path.exists('results'):
+            os.makedirs('results')
+        np.savez('results/true_vals_{}.npz'.format(model_name),
+            seed_data = SEED_DATA,
+            phi       = phi_true,
+            beta      = beta,
+            alpha     = alpha_j
+        )
     
     # ------------------------------------------------------
     #     Prior
