@@ -502,10 +502,10 @@ class Master(object):
         If a string for `site_model` is provided, the model is compiled even
         if a precompiled model is found (see util.load_stan).
     
-    nchains : int, optional
+    chains : int, optional
         The number of chains in the site_model mcmc sampling. Default is 4.
     
-    nsamp : int, optional
+    iter : int, optional
         The number of samples in the site_model mcmc sampling. Default
         is 1000.
     
@@ -849,6 +849,12 @@ class Master(object):
             Returned only if `calc_moments` is True.
         
         """
+        
+        if niter < 1:
+            if verbose:
+                print "Nothing to do here as provided arg. `niter` is {}" \
+                      .format(niter)
+            return None
         
         # Localise some instance variables
         # Mean and cov of the posterior approximation

@@ -40,76 +40,104 @@ import numpy as np
 # Add parent dir to sys.path if not present already. This is only done because
 # of easy importing of the package dep. Adding the parent directory into the
 # PYTHONPATH works as well.
-parent_dir = os.path.abspath(os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                os.pardir))
+cur_path = os.path.dirname(os.path.abspath(__file__))
+parent_path = os.path.abspath(os.path.join(cur_path, os.pardir))
+res_path = os.path.join(cur_path, 'results')
 # Double check that the package is in the parent directory
-if os.path.exists(os.path.join(parent_dir, 'dep')):
-    if parent_dir not in os.sys.path:
-        os.sys.path.insert(0, parent_dir)
+if os.path.exists(os.path.join(parent_path, 'dep')):
+    if parent_path not in os.sys.path:
+        os.sys.path.insert(0, parent_path)
 
 from dep.serial import Master
 from dep.util import load_stan, distribute_groups, suppress_stdout
 
 
-# ------------------------------------------------------------------------------
-# >>>>>>>>>>>>> Configurations start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-# ------------------------------------------------------------------------------
+CONF_DEFAULT = dict(
+    J           = 40,
+    D           = 20,
+    K           = 25,
+    npg         = [40,60],
+    iter        = 6,
+    prec_estim  = 'olse',
+    method      = 'both',
+    save_true   = True,
+    save_res    = True,
+    seed_data   = 0,
+    seed_mcmc   = 0,
+    # MCMS sampler options for dEP method
+    mc_opt      = dict(
+        chains  = 4,
+        iter    = 500,
+        warmup  = 200,
+        thin    = 2,
+    ),
+    # MCMS sampler options for full method
+    mc_full_opt = dict(
+        chains  = 4,
+        iter    = 1000,
+        warmup  = 500,
+        thin    = 2,
+    ),
+)
 
-# ====== Seed ==================================================================
-# Use SEED = None for random seed
-SEED_DATA = 0       # Seed for simulating the data
-SEED_MCMC = 0       # Seed for the inference algorithms
-
-# ====== Data size =============================================================
-J   = 10            # Number of hierarchical groups
-D   = 3            # Number of inputs
-K   = 8            # Number of sites
-NPG = [40,60]       # Number of observations per group (constant or [min, max])
-
-# ====== Sampling parameters for the distributed model =========================
-CHAINS = 4
-ITER   = 500
-WARMUP = 200
-THIN   = 2
-
-# ====== Sampling parameters for the full model ================================
-CHAINS_FULL = 4
-ITER_FULL   = 1000
-WARMUP_FULL = 500
-THIN_FULL   = 2
-
-# ====== Number of EP iterations ===============================================
-EP_ITER = 6
-
-# ====== Tilted distribution precision estimate method =========================
-# Available options are 'sample' and 'olse', see class serial.Master.
-PREC_ESTIM = 'olse'
-
-# ====== 32bit Python ? ========================================================
-# Temp fix for the RandomState seed problem with pystan in 32bit Python. Set
-# the following to True if using 32bit Python.
-TMP_FIX_32BIT = True
-
-# ------------------------------------------------------------------------------
-# <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-# ------------------------------------------------------------------------------
+# Temp fix for the RandomState seed problem with pystan in 32bit Python.
+# Detect automatically if in 32bit mode
+TMP_FIX_32BIT = os.sys.maxsize <= 2**32
 
 
-def main(model_name, methods, nsave):
+class configurations(object):
+    """Configuration container for the function main."""
+    def __init__(self, **kwargs):
+        # Set given options
+        for k, v in kwargs.iteritems():
+            if k not in CONF_DEFAULT:
+                raise ValueError("Invalid option `{}`".format(k))
+            setattr(self, k, v)
+        # Set missing options to defaults
+        for k, v in CONF_DEFAULT.iteritems():
+            if k not in kwargs:
+                setattr(self, k, v)
+    def __str__(self):
+        opts = ["{} = {}".format(k, v) for k, v in self.__dict__.iteritems()]
+        return '\n'.join(opts)
+
+
+def main(model_name, conf, ret_master=False):
+    """Fit requested model with given configurations.
+    
+    Arg. `ret_master` can be used to prematurely exit and return the dep.Master
+    object, which is useful for debuging.
+    
+    """
+    
+    # Ensure that the configurations class is used
+    if not isinstance(conf, configurations):
+        raise ValueError("Invalid arg. `conf`, use class fit.configurations")
+    
+    # Localise few options
+    J = conf.J
+    D = conf.D
+    K = conf.K
     
     # Import the model simulator module (import at runtime)
     model = getattr(__import__('models.'+model_name), model_name)
     
     # Simulate_data
-    X, y, Nj, j_ind, true_vals = model.simulate_data(J, D, NPG, seed=SEED_DATA)
+    X, y, Nj, j_ind, true_vals = \
+        model.simulate_data(J, D, conf.npg, seed=conf.seed_data)
     
     # Save true values
-    if not nsave:
-        if not os.path.exists('results'):
-            os.makedirs('results')
-        np.savez('results/true_vals_{}.npz'.format(model_name),
-                 seed_data = SEED_DATA, **true_vals)
+    if conf.save_true:
+        if not os.path.exists(res_path):
+            os.makedirs(res_path)
+        np.savez(
+            os.path.join(res_path, 'true_vals_{}.npz'.format(model_name)),
+            J = J,
+            D = D,
+            npg = conf.npg,
+            seed = conf.seed_data,
+            **true_vals
+        )
         print "True values saved into results"
     
     # Get the prior
@@ -122,23 +150,19 @@ def main(model_name, methods, nsave):
     # ------------------------------------------------------
     #     Fit distributed model
     # ------------------------------------------------------
-    if methods == 'both' or methods == 'distributed':
+    if conf.method == 'both' or conf.method == 'distributed' or ret_master:
         
         print "Distributed model {} ...".format(model_name)
         
         # Options for the ep-algorithm see documentation of dep.serial.Master
-        options = {
-            'seed'       : SEED_MCMC,
-            'init_prev'  : True,
-            'prec_estim' : PREC_ESTIM,
-            'chains'     : CHAINS,
-            'iter'       : ITER,
-            'warmup'     : WARMUP,
-            'thin'       : THIN,
-            'prior'      : prior
-        }
+        dep_options = dict(
+            prior = prior,
+            seed = conf.seed_mcmc,
+            prec_estim = conf.prec_estim,
+            **conf.mc_opt
+        )
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
-        options['tmp_fix_32bit'] = TMP_FIX_32BIT
+        dep_options['tmp_fix_32bit'] = TMP_FIX_32BIT
         
         if K < 2:
             raise ValueError("K should be at least 2.")
@@ -152,13 +176,13 @@ def main(model_name, methods, nsave):
                 stan_model,
                 X,
                 y,
-                A_k={'J':Nj_k},
-                A_n={'j_ind':j_ind_k+1},
-                site_sizes=Nk,
-                **options
+                A_k = {'J':Nj_k},
+                A_n = {'j_ind':j_ind_k+1},
+                site_sizes = Nk,
+                **dep_options
             )
             # Construct the map: which site contribute to which parameter
-            pmaps = _create_pmaps(phiers, Nj_k)
+            pmaps = _create_pmaps(phiers, J, K, Nj_k)
         
         elif K == J:
             # ------ One group per site ------
@@ -168,10 +192,10 @@ def main(model_name, methods, nsave):
                 X,
                 y,
                 site_sizes=Nj,
-                **options
+                **dep_options
             )
             # Construct the map: which site contribute to which parameter
-            pmaps = _create_pmaps(phiers, None)
+            pmaps = _create_pmaps(phiers, J, K, None)
         
         elif K <= N:
             # ------ Multiple sites per group: split groups ------
@@ -182,17 +206,22 @@ def main(model_name, methods, nsave):
                 X,
                 y,
                 site_sizes=Nk,
-                **options
+                **dep_options
             )
             # Construct the map: which site contribute to which parameter
-            pmaps = _create_pmaps(phiers, Nk_j)
+            pmaps = _create_pmaps(phiers, J, K, Nk_j)
         
         else:
             raise ValueError("K cant be greater than number of samples")
         
+        if ret_master:
+            print "Returning dep.Master"
+            return dep_master
+        
         # Run the algorithm for `EP_ITER` iterations
-        print "Run distributed EP algorithm for {} iterations.".format(EP_ITER)
-        m_phi, var_phi = dep_master.run(EP_ITER)
+        print "Run distributed EP algorithm for {} iterations." \
+              .format(conf.iter)
+        m_phi, var_phi = dep_master.run(conf.iter)
         print "Form the final approximation " \
               "by mixing the samples from all the sites."
         S_phi_mix, m_phi_mix = dep_master.mix_phi()
@@ -208,18 +237,19 @@ def main(model_name, methods, nsave):
             presults['var_'+pname] = pvars[i]
         
         # Save results
-        if not os.path.exists('results'):
-            os.makedirs('results')
-        np.savez('results/res_d_{}.npz'.format(model_name),
-            seed_data   = SEED_DATA,
-            seed_mcmc   = SEED_MCMC,
-            m_phi       = m_phi,
-            var_phi     = var_phi,
-            m_phi_mix   = m_phi_mix,
-            var_phi_mix = var_phi_mix,
-            **presults
-        )
-        print "Distributed model results saved."
+        if conf.save_res:
+            if not os.path.exists(res_path):
+                os.makedirs(res_path)
+            np.savez(
+                os.path.join(res_path, 'res_d_{}.npz'.format(model_name)),
+                conf        = conf.__dict__,
+                m_phi       = m_phi,
+                var_phi     = var_phi,
+                m_phi_mix   = m_phi_mix,
+                var_phi_mix = var_phi_mix,
+                **presults
+            )
+            print "Distributed model results saved."
         
         # Release master object
         del dep_master
@@ -227,23 +257,23 @@ def main(model_name, methods, nsave):
     # ------------------------------------------------------
     #     Fit full model
     # ------------------------------------------------------
-    if methods == 'both' or methods == 'full':
+    if conf.method == 'both' or conf.method == 'full':
         
         print "Full model {} ...".format(model_name)
         
-        seed = np.random.RandomState(seed=SEED_MCMC)
+        seed = np.random.RandomState(seed=conf.seed_mcmc)
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
         seed = seed.randint(2**31-1) if TMP_FIX_32BIT else seed
         
         data = dict(
-            N=X.shape[0],
-            D=X.shape[1],
-            J=J,
-            X=X,
-            y=y,
-            j_ind=j_ind+1,
-            mu_phi=m0,
-            Omega_phi=Q0.T    # Q0 transposed in order to get C-contiguous
+            N = X.shape[0],
+            D = X.shape[1],
+            J = J,
+            X = X,
+            y = y,
+            j_ind = j_ind+1,
+            mu_phi = m0,
+            Omega_phi = Q0.T    # Q0 transposed in order to get C-contiguous
         )
         # Load model if not loaded already
         if not 'stan_model' in locals():
@@ -252,12 +282,9 @@ def main(model_name, methods, nsave):
         # Sample and extract parameters
         with suppress_stdout():
             fit = stan_model.sampling(
-                data=data,
-                seed=seed,
-                chains=CHAINS_FULL,
-                iter=ITER_FULL,
-                warmup=WARMUP_FULL,
-                thin=THIN_FULL
+                data = data,
+                seed = seed,
+                **conf.mc_full_opt
             )
         samp = fit.extract(pars='phi')['phi']
         m_phi_full = samp.mean(axis=0)
@@ -272,19 +299,20 @@ def main(model_name, methods, nsave):
             presults['var_'+pname+'_full'] = np.var(samp, axis=0, ddof=1)
         
         # Save results
-        if not os.path.exists('results'):
-            os.makedirs('results')
-        np.savez('results/res_f_{}.npz'.format(model_name),
-            seed_data      = SEED_DATA,
-            seed_mcmc      = SEED_MCMC,
-            m_phi_full     = m_phi_full,
-            var_phi_full   = var_phi_full,
-            **presults
-        )
-        print "Full model results saved."
+        if conf.save_res:
+            if not os.path.exists(res_path):
+                os.makedirs(res_path)
+            np.savez(
+                os.path.join(res_path, 'res_f_{}.npz'.format(model_name)),
+                conf         = conf.__dict__,
+                m_phi_full   = m_phi_full,
+                var_phi_full = var_phi_full,
+                **presults
+            )
+            print "Full model results saved."
     
 
-def _create_pmaps(phiers, Ns):
+def _create_pmaps(phiers, J, K, Ns):
     """Create the mappings for hierarhical parameters."""
     if K < 2:
         raise ValueError("K should be at least 2.")
@@ -373,6 +401,47 @@ def _create_pmaps(phiers, Ns):
     return pmaps
 
 
+# ==============================================================================
+# Command line argument parsing
+# ==============================================================================
+
+def _parse_bool(arg):
+    up = str(arg).upper()
+    if up == 'TRUE'[:len(up)] or up == '1':
+       return True
+    elif up == 'FALSE'[:len(up)] or up == '0':
+       return False
+    else:
+       raise ValueError("Invalid boolean option")
+
+def _parse_int(arg):
+    if arg.isalnum():
+        return int(arg)
+    else:
+       raise ValueError("Invalid integer option")
+
+CONF_HELP = dict(
+    J           = 'number of hierarchical groups',
+    D           = 'number of inputs',
+    K           = 'number of sites',
+    npg         = 'number of observations per group (constant or min max)',
+    iter        = 'number of distributed EP iterations',
+    prec_estim  = 'estimate method for tilted distribution precision matrix',
+    method      = 'which models are fit: distributed, full or both',
+    save_true   = 'save true values',
+    save_res    = 'save results',
+    seed_data   = 'seed for data simulation',
+    seed_mcmc   = 'seed for sampling',
+    mc_opt      = 'MCMC sampler opt for dEP (chains, iter, warmup, thin)',
+    mc_full_opt = 'MCMC sampler opt for full (chains, iter, warmup, thin)',
+)
+
+CONF_CUSTOMS = dict(
+    npg         = dict(nargs='+', type=_parse_int, metavar='X'),
+    mc_opt      = dict(nargs=4, type=_parse_int, metavar='X'),
+    mc_full_opt = dict(nargs=4, type=_parse_int, metavar='X')
+)
+
 if __name__ == '__main__':
     
     # Process help string
@@ -395,21 +464,71 @@ if __name__ == '__main__':
         formatter_class = formatter_class
     )
     parser.add_argument('model_name', help = "name of the model")
-    parser.add_argument(
-        '-m', '--methods',
-        default = 'both',
-        choices = ['both', 'full', 'distributed', 'none'],
-        help = "which methods are used"
-    )
-    parser.add_argument(
-        '-s', '--nsave',
-        action = 'store_true',
-        help = "do not save true values"
-    )
+    for opt, val in CONF_DEFAULT.iteritems():
+        if opt in CONF_CUSTOMS:
+            # Custom opt
+            parser.add_argument(
+                '--'+opt,
+                default = val,
+                help = CONF_HELP[opt],
+                **CONF_CUSTOMS[opt]
+            )
+        elif isinstance(val, bool):
+            # Boolean
+            parser.add_argument(
+                '--'+opt,
+                default = val,
+                help = CONF_HELP[opt],
+                type = _parse_bool
+            )
+        elif isinstance(val, int):
+            # Integer
+            parser.add_argument(
+                '--'+opt,
+                default = val,
+                help = CONF_HELP[opt],
+                type = _parse_int
+            )
+        elif isinstance(val, str):
+            # String
+            parser.add_argument(
+                '--'+opt,
+                default = val,
+                help = CONF_HELP[opt]
+            )
+        else:
+            raise RuntimeError('Invalid option definition in the code')
     args = parser.parse_args()
+    model_name = args.model_name
+    args = vars(args)
+    args.pop('model_name')
+    
+    # Process customs
+    if not isinstance(args['mc_opt'], dict):
+        args['mc_opt'] = dict(
+            chains = args['mc_opt'][0],
+            iter   = args['mc_opt'][1],
+            warmup = args['mc_opt'][2],
+            thin   = args['mc_opt'][3],
+        )
+    if not isinstance(args['mc_full_opt'], dict):
+        args['mc_full_opt'] = dict(
+            chains = args['mc_full_opt'][0],
+            iter   = args['mc_full_opt'][1],
+            warmup = args['mc_full_opt'][2],
+            thin   = args['mc_full_opt'][3],
+        )
+    if isinstance(args['npg'], list):
+        if len(args['npg']) == 1:
+            args['npg'] = args['npg'][0]
+        elif len(args['npg']) > 2:
+            raise ValueError("Invalid arg `npg`")
+    
+    # Create configurations object
+    conf = configurations(**args)
     
     # Run
-    main(args.model_name, args.methods, args.nsave)
+    main(model_name, conf)
 
 
 
