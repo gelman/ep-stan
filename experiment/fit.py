@@ -34,8 +34,8 @@ optional arguments:
                         MCMC sampler opt for full (chains iter warmup thin)
 
 N denotes a non-negative and P a positive integer argument. B denotes a boolean
-argument, which can be given as TRUE T 1 FALSE F 0 (case insensitive). S denotes
-a string argument.
+argument, which can be given as TRUE, T, 1 or FALSE, F, 0 (case insensitive).
+S denotes a string argument.
 
 The results of full model are saved into file `res_f_<model_name>.npz`,
 the results of distributed model are saved into file `res_d_<model_name>.npz`
@@ -63,14 +63,14 @@ import numpy as np
 # Add parent dir to sys.path if not present already. This is only done because
 # of easy importing of the package dep. Adding the parent directory into the
 # PYTHONPATH works as well.
-cur_path = os.path.dirname(os.path.abspath(__file__))
-parent_path = os.path.abspath(os.path.join(cur_path, os.pardir))
-res_path = os.path.join(cur_path, 'results')
-mod_path = os.path.join(cur_path, 'models')
+CUR_PATH = os.path.dirname(os.path.abspath(__file__))
+PARENT_PATH = os.path.abspath(os.path.join(CUR_PATH, os.pardir))
+RES_PATH = os.path.join(CUR_PATH, 'results')
+MOD_PATH = os.path.join(CUR_PATH, 'models')
 # Double check that the package is in the parent directory
-if os.path.exists(os.path.join(parent_path, 'dep')):
-    if parent_path not in os.sys.path:
-        os.sys.path.insert(0, parent_path)
+if os.path.exists(os.path.join(PARENT_PATH, 'dep')):
+    if PARENT_PATH not in os.sys.path:
+        os.sys.path.insert(0, PARENT_PATH)
 
 from dep.serial import Master
 from dep.util import load_stan, distribute_groups, suppress_stdout
@@ -105,7 +105,7 @@ CONF_DEFAULT = dict(
         iter    = 1000,
         warmup  = 500,
         thin    = 2,
-    ),
+    )
 )
 
 # Temp fix for the RandomState seed problem with pystan in 32bit Python.
@@ -161,14 +161,14 @@ def main(model_name, conf, ret_master=False):
     
     # Save true values
     if conf.save_true:
-        if not os.path.exists(res_path):
-            os.makedirs(res_path)
+        if not os.path.exists(RES_PATH):
+            os.makedirs(RES_PATH)
         if conf.id:
             filename = 'true_vals_{}_{}.npz'.format(model_name, conf.id)
         else:
             filename = 'true_vals_{}.npz'.format(model_name)
         np.savez(
-            os.path.join(res_path, filename),
+            os.path.join(RES_PATH, filename),
             J = J,
             D = D,
             npg = conf.npg,
@@ -208,7 +208,7 @@ def main(model_name, conf, ret_master=False):
             # ------ Many groups per site: combine groups ------
             Nk, Nj_k, j_ind_k = distribute_groups(J, K, Nj)
             # Create the Master instance
-            stan_model = load_stan(os.path.join(mod_path, model_name))
+            stan_model = load_stan(os.path.join(MOD_PATH, model_name))
             dep_master = Master(
                 stan_model,
                 X,
@@ -225,7 +225,7 @@ def main(model_name, conf, ret_master=False):
             # ------ One group per site ------
             # Create the Master instance
             dep_master = Master(
-                load_stan(os.path.join(mod_path, model_name+'_sg')),
+                load_stan(os.path.join(MOD_PATH, model_name+'_sg')),
                 X,
                 y,
                 site_sizes=Nj,
@@ -239,7 +239,7 @@ def main(model_name, conf, ret_master=False):
             Nk, Nk_j, _ = distribute_groups(J, K, Nj)
             # Create the Master instance
             dep_master = Master(
-                load_stan(os.path.join(mod_path, model_name+'_sg')),
+                load_stan(os.path.join(MOD_PATH, model_name+'_sg')),
                 X,
                 y,
                 site_sizes=Nk,
@@ -258,11 +258,11 @@ def main(model_name, conf, ret_master=False):
         # Run the algorithm for `EP_ITER` iterations
         print "Run distributed EP algorithm for {} iterations." \
               .format(conf.iter)
-        m_phi, var_phi = dep_master.run(conf.iter)
+        m_phi_i, var_phi_i = dep_master.run(conf.iter)
         print "Form the final approximation " \
               "by mixing the samples from all the sites."
-        S_phi_mix, m_phi_mix = dep_master.mix_phi()
-        var_phi_mix = np.diag(S_phi_mix)
+        S_phi, m_phi = dep_master.mix_phi()
+        var_phi = np.diag(S_phi)
         
         # Get mean and var of inferred variables
         pms, pvars = dep_master.mix_pred(pnames, pmaps, pshapes)
@@ -275,19 +275,19 @@ def main(model_name, conf, ret_master=False):
         
         # Save results
         if conf.save_res:
-            if not os.path.exists(res_path):
-                os.makedirs(res_path)
+            if not os.path.exists(RES_PATH):
+                os.makedirs(RES_PATH)
             if conf.id:
                 filename = 'res_d_{}_{}.npz'.format(model_name, conf.id)
             else:
                 filename = 'res_d_{}.npz'.format(model_name)
             np.savez(
-                os.path.join(res_path, filename),
-                conf        = conf.__dict__,
-                m_phi       = m_phi,
-                var_phi     = var_phi,
-                m_phi_mix   = m_phi_mix,
-                var_phi_mix = var_phi_mix,
+                os.path.join(RES_PATH, filename),
+                conf      = conf.__dict__,
+                m_phi_i   = m_phi_i,
+                var_phi_i = var_phi_i,
+                m_phi     = m_phi,
+                var_phi   = var_phi,
                 **presults
             )
             print "Distributed model results saved."
@@ -318,7 +318,7 @@ def main(model_name, conf, ret_master=False):
         )
         # Load model if not loaded already
         if not 'stan_model' in locals():
-            stan_model = load_stan(os.path.join(mod_path, model_name))
+            stan_model = load_stan(os.path.join(MOD_PATH, model_name))
         
         # Sample and extract parameters
         with suppress_stdout():
@@ -341,14 +341,14 @@ def main(model_name, conf, ret_master=False):
         
         # Save results
         if conf.save_res:
-            if not os.path.exists(res_path):
-                os.makedirs(res_path)
+            if not os.path.exists(RES_PATH):
+                os.makedirs(RES_PATH)
             if conf.id:
                 filename = 'res_f_{}_{}.npz'.format(model_name, conf.id)
             else:
                 filename = 'res_f_{}.npz'.format(model_name)
             np.savez(
-                os.path.join(res_path, filename),
+                os.path.join(RES_PATH, filename),
                 conf         = conf.__dict__,
                 m_phi_full   = m_phi_full,
                 var_phi_full = var_phi_full,
