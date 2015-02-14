@@ -3,16 +3,39 @@ algorithm described in an article "Expectation propagation as a way of life"
 (arXiv:1412.4869).
 
 Execute with:
-    $ python test.py [-h] [-m {full,distributed,both,none}] [-s] model_name
+$ python fit.py [-h] [--J P] [--D P] [--K P] [--npg P [P ...]] [--iter N]
+                [--prec_estim S] [--method {both,distributed,full,none}]
+                [--id S] [--save_true B] [--save_res B] [--seed_data N]
+                [--seed_mcmc N] [--mc_opt P P P P] [--mc_full_opt P P P P]
+                model_name
 
 positional arguments:
   model_name            name of the model
 
 optional arguments:
-  -h, --help            show help message and exit
-  -m {both,full,distributed,none}, --methods {both,full,distributed,none}
-                        which methods are used
-  -s, --nsave           do not save true values
+  -h, --help            show this help message and exit
+  --J P                 number of hierarchical groups
+  --D P                 number of inputs
+  --K P                 number of sites
+  --npg P [P ...]       number of observations per group (constant or min max)
+  --iter N              number of distributed EP iterations
+  --prec_estim S        estimate method for tilted distribution precision
+                        matrix, available options are sample and olse (see
+                        dep.Master)
+  --method {both,distributed,full,none}
+                        which models are fit
+  --id S                optional id appended to the end of the result files
+  --save_true B         save true values
+  --save_res B          save results
+  --seed_data N         seed for data simulation
+  --seed_mcmc N         seed for sampling
+  --mc_opt P P P P      MCMC sampler opt for dEP (chains iter warmup thin)
+  --mc_full_opt P P P P
+                        MCMC sampler opt for full (chains iter warmup thin)
+
+N denotes a non-negative and P a positive integer argument. B denotes a boolean
+argument, which can be given as TRUE T 1 FALSE F 0 (case insensitive). S denotes
+a string argument.
 
 The results of full model are saved into file `res_f_<model_name>.npz`,
 the results of distributed model are saved into file `res_d_<model_name>.npz`
@@ -43,6 +66,7 @@ import numpy as np
 cur_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.abspath(os.path.join(cur_path, os.pardir))
 res_path = os.path.join(cur_path, 'results')
+mod_path = os.path.join(cur_path, 'models')
 # Double check that the package is in the parent directory
 if os.path.exists(os.path.join(parent_path, 'dep')):
     if parent_path not in os.sys.path:
@@ -52,6 +76,9 @@ from dep.serial import Master
 from dep.util import load_stan, distribute_groups, suppress_stdout
 
 
+CONFS = ['J','D', 'K', 'npg', 'iter', 'prec_estim', 'method', 'id', 'save_true',
+         'save_res', 'seed_data', 'seed_mcmc', 'mc_opt', 'mc_full_opt']
+
 CONF_DEFAULT = dict(
     J           = 40,
     D           = 20,
@@ -60,6 +87,7 @@ CONF_DEFAULT = dict(
     iter        = 6,
     prec_estim  = 'olse',
     method      = 'both',
+    id          = None,
     save_true   = True,
     save_res    = True,
     seed_data   = 0,
@@ -98,7 +126,9 @@ class configurations(object):
             if k not in kwargs:
                 setattr(self, k, v)
     def __str__(self):
-        opts = ["{} = {}".format(k, v) for k, v in self.__dict__.iteritems()]
+        conf_dict = self.__dict__
+        opts = ['{!s} = {!r}'.format(opt, conf_dict[opt])
+                for opt in CONFS if opt in conf_dict]
         return '\n'.join(opts)
 
 
@@ -113,6 +143,9 @@ def main(model_name, conf, ret_master=False):
     # Ensure that the configurations class is used
     if not isinstance(conf, configurations):
         raise ValueError("Invalid arg. `conf`, use class fit.configurations")
+    
+    print "Configurations:"
+    print '    ' + str(conf).replace('\n', '\n    ')
     
     # Localise few options
     J = conf.J
@@ -130,8 +163,12 @@ def main(model_name, conf, ret_master=False):
     if conf.save_true:
         if not os.path.exists(res_path):
             os.makedirs(res_path)
+        if conf.id:
+            filename = 'true_vals_{}_{}.npz'.format(model_name, conf.id)
+        else:
+            filename = 'true_vals_{}.npz'.format(model_name)
         np.savez(
-            os.path.join(res_path, 'true_vals_{}.npz'.format(model_name)),
+            os.path.join(res_path, filename),
             J = J,
             D = D,
             npg = conf.npg,
@@ -171,7 +208,7 @@ def main(model_name, conf, ret_master=False):
             # ------ Many groups per site: combine groups ------
             Nk, Nj_k, j_ind_k = distribute_groups(J, K, Nj)
             # Create the Master instance
-            stan_model = load_stan('models/'+model_name)
+            stan_model = load_stan(os.path.join(mod_path, model_name))
             dep_master = Master(
                 stan_model,
                 X,
@@ -188,7 +225,7 @@ def main(model_name, conf, ret_master=False):
             # ------ One group per site ------
             # Create the Master instance
             dep_master = Master(
-                load_stan('models/'+model_name+'_sg'),
+                load_stan(os.path.join(mod_path, model_name+'_sg')),
                 X,
                 y,
                 site_sizes=Nj,
@@ -202,7 +239,7 @@ def main(model_name, conf, ret_master=False):
             Nk, Nk_j, _ = distribute_groups(J, K, Nj)
             # Create the Master instance
             dep_master = Master(
-                load_stan('models/'+model_name+'_sg'),
+                load_stan(os.path.join(mod_path, model_name+'_sg')),
                 X,
                 y,
                 site_sizes=Nk,
@@ -240,8 +277,12 @@ def main(model_name, conf, ret_master=False):
         if conf.save_res:
             if not os.path.exists(res_path):
                 os.makedirs(res_path)
+            if conf.id:
+                filename = 'res_d_{}_{}.npz'.format(model_name, conf.id)
+            else:
+                filename = 'res_d_{}.npz'.format(model_name)
             np.savez(
-                os.path.join(res_path, 'res_d_{}.npz'.format(model_name)),
+                os.path.join(res_path, filename),
                 conf        = conf.__dict__,
                 m_phi       = m_phi,
                 var_phi     = var_phi,
@@ -277,7 +318,7 @@ def main(model_name, conf, ret_master=False):
         )
         # Load model if not loaded already
         if not 'stan_model' in locals():
-            stan_model = load_stan('models/'+model_name)
+            stan_model = load_stan(os.path.join(mod_path, model_name))
         
         # Sample and extract parameters
         with suppress_stdout():
@@ -302,8 +343,12 @@ def main(model_name, conf, ret_master=False):
         if conf.save_res:
             if not os.path.exists(res_path):
                 os.makedirs(res_path)
+            if conf.id:
+                filename = 'res_f_{}_{}.npz'.format(model_name, conf.id)
+            else:
+                filename = 'res_f_{}.npz'.format(model_name)
             np.savez(
-                os.path.join(res_path, 'res_f_{}.npz'.format(model_name)),
+                os.path.join(res_path, filename),
                 conf         = conf.__dict__,
                 m_phi_full   = m_phi_full,
                 var_phi_full = var_phi_full,
@@ -414,7 +459,13 @@ def _parse_bool(arg):
     else:
        raise ValueError("Invalid boolean option")
 
-def _parse_int(arg):
+def _parse_positive_int(arg):
+    if arg.isalnum() and int(arg) > 0:
+        return int(arg)
+    else:
+       raise ValueError("Invalid integer option")
+
+def _parse_nonnegative_int(arg):
     if arg.isalnum():
         return int(arg)
     else:
@@ -426,20 +477,39 @@ CONF_HELP = dict(
     K           = 'number of sites',
     npg         = 'number of observations per group (constant or min max)',
     iter        = 'number of distributed EP iterations',
-    prec_estim  = 'estimate method for tilted distribution precision matrix',
-    method      = 'which models are fit: distributed, full or both',
+    prec_estim  = ('estimate method for tilted distribution precision matrix, '
+                   'available options are sample and olse (see dep.Master)'),
+    method      = 'which models are fit',
+    id          = 'optional id appended to the end of the result files',
     save_true   = 'save true values',
     save_res    = 'save results',
     seed_data   = 'seed for data simulation',
     seed_mcmc   = 'seed for sampling',
-    mc_opt      = 'MCMC sampler opt for dEP (chains, iter, warmup, thin)',
-    mc_full_opt = 'MCMC sampler opt for full (chains, iter, warmup, thin)',
+    mc_opt      = 'MCMC sampler opt for dEP (chains iter warmup thin)',
+    mc_full_opt = 'MCMC sampler opt for full (chains iter warmup thin)',
 )
 
 CONF_CUSTOMS = dict(
-    npg         = dict(nargs='+', type=_parse_int, metavar='X'),
-    mc_opt      = dict(nargs=4, type=_parse_int, metavar='X'),
-    mc_full_opt = dict(nargs=4, type=_parse_int, metavar='X')
+    npg         = dict(nargs='+', type=_parse_positive_int, metavar='P'),
+    mc_opt      = dict(nargs=4, type=_parse_positive_int, metavar='X'),
+    mc_full_opt = dict(nargs=4, type=_parse_positive_int, metavar='X')
+)
+
+CONF_CUSTOMS = dict(
+    J           = dict(type=_parse_positive_int, metavar='P'),
+    D           = dict(type=_parse_positive_int, metavar='P'),
+    K           = dict(type=_parse_positive_int, metavar='P'),
+    npg         = dict(nargs='+', type=_parse_positive_int, metavar='P'),
+    iter        = dict(type=_parse_nonnegative_int, metavar='N'),
+    prec_estim  = dict(metavar='S'),
+    method      = dict(choices=['both', 'distributed', 'full', 'none']),
+    id          = dict(metavar='S'),
+    save_true   = dict(type=_parse_bool, metavar='B'),
+    save_res    = dict(type=_parse_bool, metavar='B'),
+    seed_data   = dict(type=_parse_nonnegative_int, metavar='N'),
+    seed_mcmc   = dict(type=_parse_nonnegative_int, metavar='N'),
+    mc_opt      = dict(nargs=4, type=_parse_positive_int, metavar='P'),
+    mc_full_opt = dict(nargs=4, type=_parse_positive_int, metavar='P'),
 )
 
 if __name__ == '__main__':
@@ -464,40 +534,14 @@ if __name__ == '__main__':
         formatter_class = formatter_class
     )
     parser.add_argument('model_name', help = "name of the model")
-    for opt, val in CONF_DEFAULT.iteritems():
-        if opt in CONF_CUSTOMS:
-            # Custom opt
-            parser.add_argument(
-                '--'+opt,
-                default = val,
-                help = CONF_HELP[opt],
-                **CONF_CUSTOMS[opt]
-            )
-        elif isinstance(val, bool):
-            # Boolean
-            parser.add_argument(
-                '--'+opt,
-                default = val,
-                help = CONF_HELP[opt],
-                type = _parse_bool
-            )
-        elif isinstance(val, int):
-            # Integer
-            parser.add_argument(
-                '--'+opt,
-                default = val,
-                help = CONF_HELP[opt],
-                type = _parse_int
-            )
-        elif isinstance(val, str):
-            # String
-            parser.add_argument(
-                '--'+opt,
-                default = val,
-                help = CONF_HELP[opt]
-            )
-        else:
-            raise RuntimeError('Invalid option definition in the code')
+    
+    for opt in CONFS:
+        parser.add_argument(
+            '--'+opt,
+            default = CONF_DEFAULT[opt],
+            help = CONF_HELP[opt],
+            **CONF_CUSTOMS[opt]
+        )
     args = parser.parse_args()
     model_name = args.model_name
     args = vars(args)
@@ -522,7 +566,7 @@ if __name__ == '__main__':
         if len(args['npg']) == 1:
             args['npg'] = args['npg'][0]
         elif len(args['npg']) > 2:
-            raise ValueError("Invalid arg `npg`")
+            raise ValueError("Invalid arg `npg`, provide one or two elements")
     
     # Create configurations object
     conf = configurations(**args)
