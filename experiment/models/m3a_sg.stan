@@ -26,7 +26,7 @@ transformed parameters {
     real<lower=0> sigma_a;
     vector[D] beta;
     vector<lower=0>[D] sigma_b;
-    sigma <- exp(phi[1])
+    sigma <- exp(phi[1]);
     sigma_a <- exp(phi[2]);
     alpha <- eta * sigma_a;
     sigma_b <- exp(tail(phi, D));

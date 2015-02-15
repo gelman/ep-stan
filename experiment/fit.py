@@ -491,12 +491,6 @@ CONF_HELP = dict(
 )
 
 CONF_CUSTOMS = dict(
-    npg         = dict(nargs='+', type=_parse_positive_int, metavar='P'),
-    mc_opt      = dict(nargs=4, type=_parse_positive_int, metavar='X'),
-    mc_full_opt = dict(nargs=4, type=_parse_positive_int, metavar='X')
-)
-
-CONF_CUSTOMS = dict(
     J           = dict(type=_parse_positive_int, metavar='P'),
     D           = dict(type=_parse_positive_int, metavar='P'),
     K           = dict(type=_parse_positive_int, metavar='P'),

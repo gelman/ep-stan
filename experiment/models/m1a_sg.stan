@@ -24,7 +24,7 @@ transformed parameters {
     real alpha;
     vector[D] beta;
     real<lower=0> sigma_a;
-    sigma <- exp(phi[1])
+    sigma <- exp(phi[1]);
     sigma_a <- exp(phi[2]);
     alpha <- eta * sigma_a;
     beta <- tail(phi, D);
