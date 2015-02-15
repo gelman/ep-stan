@@ -47,6 +47,11 @@ V0_A = 1.5**2
 M0_B = 0
 V0_B = 1.5**2
 
+# ====== Simulation input distribution =========================================
+# Explanatory variable is sample from N(MU_X,SIGMA_X)
+MU_X = 0
+SIGMA_X = 1.5
+
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # ------------------------------------------------------------------------------
@@ -129,7 +134,7 @@ class model(object):
         phi_true = np.append(np.log(sigma_a), np.log(sigma_b))
         
         # Simulate data
-        X = rnd_data.randn(N,D)
+        X = MU_X + rnd_data.randn(N,D)*SIGMA_X
         y = np.empty(N)
         for n in xrange(N):
             y[n] = alpha_j[j_ind[n]] + X[n].dot(beta_j[j_ind[n]])
