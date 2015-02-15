@@ -1,6 +1,6 @@
 """A simulated experiment model used by the sckript fit.py
 
-Model name: m1
+Model name: m2b
 Definition:
     group index j = 1 ... J
     input index d = 1 ... D
@@ -8,12 +8,13 @@ Definition:
     response variable y
     local parameter alpha = [alpha_1 ... alpha_J]
     shared parameter beta = [beta_1 ... beta_D]
-    shared parameter sigma_a
+    shared parameters sigma_a, sigma_b
     y ~ bernoulli_logit(alpha_j + beta' * x)
     alpha ~ N(0, sigma_a)
     beta_d ~ N(0, sigma_b), for all d
     sigma_a ~ log-N(0, sigma_aH)
-    phi = [log(sigma_a), beta]
+    sigma_b ~ log-N(0, sigma_bH)
+    phi = [log(sigma_a), log(sigma_b)]
 
 """
 
@@ -33,17 +34,17 @@ import numpy as np
 
 # ====== Model parameters ======================================================
 # If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
-SIGMA_A = 2
+SIGMA_A = 1
 SIGMA_AH = None
-# If BETA is None, it is sampled from N(0,SIGMA_B)
-BETA = None
+# If SIGMA_B is None, it is sampled from log-N(0,SIGMA_BH)
 SIGMA_B = 1
+SIGMA_BH = None
 
 # ====== Prior =================================================================
 # Prior for log(sigma_a)
 M0_A = 0
 V0_A = 1.5**2
-# Prior for beta
+# Prior for log(sigma_b)
 M0_B = 0
 V0_B = 1.5**2
 
@@ -77,7 +78,7 @@ class model(object):
         self.J = J
         self.D = D
         self.npg = npg
-        self.dphi = D+1
+        self.dphi = 2
     
     def simulate_data(self, seed=None):
         """Simulate data from the model.
@@ -128,12 +129,13 @@ class model(object):
             sigma_a = np.exp(rnd_data.randn()*SIGMA_AH)
         else:
             sigma_a = SIGMA_A
-        if BETA is None:
-            beta = rnd_data.randn(D)*SIGMA_B
+        if SIGMA_B is None:
+            sigma_b = np.exp(rnd_data.randn()*SIGMA_BH)
         else:
-            beta = BETA
+            sigma_b = SIGMA_B
         alpha_j = rnd_data.randn(J)*sigma_a
-        phi_true = np.append(np.log(sigma_a), beta)
+        beta = rnd_data.randn(D)*sigma_b
+        phi_true = np.append(np.log(sigma_a), np.log(sigma_b))
         
         # Simulate data
         X = MU_X + rnd_data.randn(N,D)*SIGMA_X
@@ -151,11 +153,11 @@ class model(object):
         D = self.D
         # Moment parameters of the prior (transposed in order to get
         # F-contiguous)
-        S0 = np.diag(np.append(V0_A, np.ones(D)*V0_B)).T
-        m0 = np.append(M0_A, np.ones(D)*M0_B)
+        S0 = np.diag(np.append(V0_A, V0_B)).T
+        m0 = np.append(M0_A, M0_B)
         # Natural parameters of the prior
-        Q0 = np.diag(np.append(1./V0_A, np.ones(D)/V0_B)).T
-        r0 = np.append(M0_A/V0_A, np.ones(D)*(M0_B/V0_B))
+        Q0 = np.diag(np.append(1./V0_A, 1./V0_B)).T
+        r0 = np.append(M0_A/V0_A, M0_B/V0_B)
         return S0, m0, Q0, r0
     
     def get_param_definitions(self):

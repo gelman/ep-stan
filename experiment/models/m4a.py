@@ -1,21 +1,27 @@
 """A simulated experiment model used by the sckript fit.py
 
-Model name: m2
+Model name: m4a
 Definition:
     group index j = 1 ... J
     input index d = 1 ... D
     explanatory variable x = [x_1 ... x_D]
     response variable y
     local parameter alpha = [alpha_1 ... alpha_J]
-    shared parameter beta = [beta_1 ... beta_D]
+    local parameter beta = [[beta_11 ... beta_1D] ... [beta_J1 ... beta_JD]]
     shared parameter sigma_a
-    shared parameter sigma_b
-    y ~ bernoulli_logit(alpha_j + beta' * x)
-    alpha ~ N(0, sigma_a)
-    beta_d ~ N(0, sigma_b), for all d
+    shared parameter sigma_b = [sigma_b_1 ... sigma_b_D]
+    shared parameter mu_a
+    shared parameter mu_b = [mu_b_1 ... mu_b_D]
+    shared parameter sigma
+    y ~ N(alpha_j + beta_j*' * x, sigma)
+    alpha ~ N(mu_a, sigma_a)
+    beta_*d ~ N(mu_b_d, sigma_b_d), for all d
+    mu_a ~ N(0, sigma_maH)
+    mu_b_d ~ N(0, sigma_mbH), for all d
+    sigma ~ log-N(0, sigma_H)
     sigma_a ~ log-N(0, sigma_aH)
-    sigma_b ~ log-N(0, sigma_bH)
-    phi = [log(sigma_a), log(sigma_b)]
+    sigma_b_d ~ log-N(0, sigma_bH), for all d
+    phi = [log(sigma), mu_a, log(sigma_a), mu_b, log(sigma_b)]
 
 """
 
@@ -34,20 +40,34 @@ import numpy as np
 # ------------------------------------------------------------------------------
 
 # ====== Model parameters ======================================================
-# If SIGMA_A is None, it is sampled from log-N(0,SIGMA_AH)
-SIGMA_A = 2
-SIGMA_AH = None
-# If SIGMA_B is None, it is sampled from log-N(0,SIGMA_BH)
-SIGMA_B = 1
-SIGMA_BH = None
+# If SIGMA is None, it is sampled from log-N(0,SIGMA_H)
+SIGMA = 1
+SIGMA_H = None
+# If MU_A is None, it is sampled from N(0,SIGMA_MA)
+MU_A = 0.1
+SIGMA_MA = None
+# If SIGMA_A is None, it is sampled from log-N(0,SIGMA_SA)
+SIGMA_A = 1
+SIGMA_SA = None
+SIGMA_MB = 0
+SIGMA_SB = 1
 
 # ====== Prior =================================================================
+# Prior for log(sigma)
+M0_S = 0
+V0_S = 1.5**2
+# Prior for mu_a
+M0_MA = 0
+V0_MA = 1.5**2
 # Prior for log(sigma_a)
-M0_A = 0
-V0_A = 1.5**2
+M0_SA = 0
+V0_SA = 1.5**2
+# Prior for mu_b
+M0_MB = 0
+V0_MB = 1.5**2
 # Prior for log(sigma_b)
-M0_B = 0
-V0_B = 1.5**2
+M0_SB = 0
+V0_SB = 1.5**2
 
 # ====== Simulation input distribution =========================================
 # Explanatory variable is sample from N(MU_X,SIGMA_X)
@@ -79,8 +99,8 @@ class model(object):
         self.J = J
         self.D = D
         self.npg = npg
-        self.dphi = 2
-    
+        self.dphi = 2*D+3
+
     def simulate_data(self, seed=None):
         """Simulate data from the model.
         
@@ -126,25 +146,38 @@ class model(object):
             j_ind[j_lim[j]:j_lim[j+1]] = j
         
         # Assign parameters
+        if SIGMA is None:
+            sigma = np.exp(rnd_data.randn()*SIGMA_H)
+        else:
+            sigma = SIGMA
         if SIGMA_A is None:
-            sigma_a = np.exp(rnd_data.randn()*SIGMA_AH)
+            sigma_a = np.exp(rnd_data.randn()*SIGMA_SA)
         else:
             sigma_a = SIGMA_A
-        if SIGMA_B is None:
-            sigma_b = np.exp(rnd_data.randn()*SIGMA_BH)
+        if MU_A is None:
+            mu_a = rnd_data.randn()*SIGMA_MA
         else:
-            sigma_b = SIGMA_B
-        alpha_j = rnd_data.randn(J)*sigma_a
-        beta = rnd_data.randn(D)*sigma_b
-        phi_true = np.append(np.log(sigma_a), np.log(sigma_b))
+            mu_a = MU_A
+        sigma_b = np.exp(rnd_data.randn(D)*SIGMA_SB)
+        mu_b = rnd_data.randn(D)*SIGMA_MB
+        alpha_j = mu_a + rnd_data.randn(J)*sigma_a
+        beta_j = mu_b + rnd_data.randn(J,D)*sigma_b
+        phi_true = np.empty(self.dphi)
+        phi_true[0] = np.log(sigma)
+        phi_true[1] = mu_a
+        phi_true[2] = np.log(sigma_a)
+        phi_true[3:3+D] = mu_b
+        phi_true[3+D:] = np.log(sigma_b)
         
         # Simulate data
         X = MU_X + rnd_data.randn(N,D)*SIGMA_X
-        y = alpha_j[j_ind] + X.dot(beta)
-        y = 1/(1+np.exp(-y))
-        y = (rnd_data.rand(N) < y).astype(int)
+        y = np.empty(N)
+        for n in xrange(N):
+            y[n] = alpha_j[j_ind[n]] + X[n].dot(beta_j[j_ind[n]])
+        y = y + rnd_data.randn(N)*sigma
         
-        return X, y, Nj, j_ind, {'phi':phi_true, 'alpha':alpha_j, 'beta':beta}
+        return X, y, Nj, j_ind, {'phi':phi_true, 'alpha':alpha_j, 'beta':beta_j,
+                                 'sigma':sigma}
     
     def get_prior(self):
         """Get prior for the model.
@@ -154,11 +187,22 @@ class model(object):
         D = self.D
         # Moment parameters of the prior (transposed in order to get
         # F-contiguous)
-        S0 = np.diag(np.append(V0_A, V0_B)).T
-        m0 = np.append(M0_A, M0_B)
+        S0 = np.empty(self.dphi)
+        S0[0] = V0_S
+        S0[1] = V0_MA
+        S0[2] = V0_SA
+        S0[3:3+D] = V0_MB
+        S0[3+D:] = V0_SB
+        S0 = np.diag(S0).T
+        m0 = np.empty(self.dphi)
+        m0[0] = M0_S
+        m0[1] = M0_MA
+        m0[2] = M0_SA
+        m0[3:3+D] = M0_MB
+        m0[3+D:] = M0_SB
         # Natural parameters of the prior
-        Q0 = np.diag(np.append(1./V0_A, 1./V0_B)).T
-        r0 = np.append(M0_A/V0_A, M0_B/V0_B)
+        Q0 = np.diag(1/np.diag(S0)).T
+        r0 = m0/np.diag(S0)
         return S0, m0, Q0, r0
     
     def get_param_definitions(self):
@@ -177,9 +221,9 @@ class model(object):
             if it does not have one.
         
         """
-        names = ('alpha', 'beta')
-        shapes = ((self.J,), (self.D,))
-        hiers = (0, None)
+        names = ('alpha', 'beta', 'sigma')
+        shapes = ((self.J,), (self.J,self.D), ())
+        hiers = (0, 0, None)
         return names, shapes, hiers
 
 

@@ -5,35 +5,33 @@
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
-# Model 1.2 with single group
+# Model 1a with single group
 
 data {
     int<lower=1> N;
     int<lower=1> D;
     matrix[N,D] X;
-    int<lower=0,upper=1> y[N];
-    vector[2] mu_phi;
-    matrix[2,2] Omega_phi;
+    real y[N];
+    vector[D+2] mu_phi;
+    matrix[D+2,D+2] Omega_phi;
 }
 parameters {
-    vector[2] phi;
+    vector[D+2] phi;
     real eta;
-    vector[D] etb;
 }
 transformed parameters {
+    real<lower=0> sigma;
     real alpha;
     vector[D] beta;
     real<lower=0> sigma_a;
-    real<lower=0> sigma_b;
-    sigma_a <- exp(phi[1]);
-    sigma_b <- exp(phi[2]);
+    sigma <- exp(phi[1])
+    sigma_a <- exp(phi[2]);
     alpha <- eta * sigma_a;
-    beta <- etb * sigma_b;
+    beta <- tail(phi, D);
 }
 model {
     phi ~ multi_normal_prec(mu_phi, Omega_phi);
     eta ~ normal(0, 1);
-    etb ~ normal(0, 1);
-    y ~ bernoulli_logit(alpha + X * beta);
+    y ~ normal(alpha + X * beta, sigma);
 }
 
