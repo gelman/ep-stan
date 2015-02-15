@@ -116,10 +116,8 @@ def plot_results(model_name, model_id=None):
     for pi in xrange(1,len(pnames)):
         if true_vals[pi].ndim != 1:
             true_vals[pi] = true_vals[pi].ravel()
-            res_d[pi][0] = res_d[pi][0].ravel()
-            res_d[pi][1] = res_d[pi][1].ravel()
-            res_f[pi][0] = res_f[pi][0].ravel()
-            res_f[pi][1] = res_f[pi][1].ravel()
+            res_d[pi] = (res_d[pi][0].ravel(), res_d[pi][1].ravel())
+            res_f[pi] = (res_f[pi][0].ravel(), res_f[pi][1].ravel())
     
     # Plot mean and variance as a function of the iteration
     fig, axs = plt.subplots(2, 1, sharex=True)
