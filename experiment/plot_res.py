@@ -80,11 +80,6 @@ def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None,
 def plot_results(model_name, model_id=None):
     """Plot some results."""
     
-    # Import the model simulator module (import at runtime)
-    model = getattr(__import__('models.'+model_name), model_name)
-    pnames = ['phi']
-    pnames.extend(model.PARAMS)
-    
     # Handle optional model id
     if model_id:
         file_ending = model_name + '_' + model_id
@@ -94,6 +89,8 @@ def plot_results(model_name, model_id=None):
     # Load true values
     true_vals_file = np.load(
         os.path.join(RES_PATH, 'true_vals_{}.npz'.format(file_ending)))
+    pnames = ['phi']
+    pnames.extend(true_vals_file['pnames'])
     true_vals = [true_vals_file[par] for par in pnames]
     true_vals_file.close()
     

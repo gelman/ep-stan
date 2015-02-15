@@ -153,11 +153,18 @@ def main(model_name, conf, ret_master=False):
     K = conf.K
     
     # Import the model simulator module (import at runtime)
-    model = getattr(__import__('models.'+model_name), model_name)
+    model_module = getattr(__import__('models.'+model_name), model_name)
+    model = model_module.model(J, D, conf.npg)
     
     # Simulate_data
-    X, y, Nj, j_ind, true_vals = \
-        model.simulate_data(J, D, conf.npg, seed=conf.seed_data)
+    X, y, Nj, j_ind, true_vals = model.simulate_data(seed=conf.seed_data)
+    
+    # Get the prior
+    S0, m0, Q0, r0 = model.get_prior()
+    prior = {'Q':Q0, 'r':r0}
+    
+    # Get parameter information
+    pnames, pshapes, phiers = model.get_param_definitions()
     
     # Save true values
     if conf.save_true:
@@ -173,16 +180,10 @@ def main(model_name, conf, ret_master=False):
             D = D,
             npg = conf.npg,
             seed = conf.seed_data,
+            pnames = pnames,
             **true_vals
         )
         print "True values saved into results"
-    
-    # Get the prior
-    S0, m0, Q0, r0 = model.get_prior(J, D)
-    prior = {'Q':Q0, 'r':r0}
-    
-    # Get parameter information
-    pnames, pshapes, phiers = model.get_param_definitions(J, D)
     
     # ------------------------------------------------------
     #     Fit distributed model

@@ -52,11 +52,8 @@ V0_B = 1.5**2
 # ------------------------------------------------------------------------------
 
 
-# Inferred parameters
-PARAMS = ('alpha', 'beta')
-
-def simulate_data(J, D, NPG, seed=None):
-    """Simulate data from the model.
+class model(object):
+    """Model definition.
     
     Parameters
     ----------
@@ -66,104 +63,115 @@ def simulate_data(J, D, NPG, seed=None):
     D : int
         Number of inputs
     
-    NPG : {int, seq of ints}
+    npg : {int, seq of ints}
         Number of observations per group (constant or [min, max])
     
-    seed : int
-        Seed for the presudo random generator
-    
-    Returns
-    -------
-    X : ndarray
-        Explanatory variable
-    
-    y : ndarray
-        Response variable data
-    
-    Nj : ndarray
-        Number of observations in each group
-    
-    j_ind : ndarray
-        The group index of each observation
-    
-    true_values : dict
-        True values of `phi` and other inferred variables
-    
     """
     
-    # Set seed
-    rnd_data = np.random.RandomState(seed=seed)
+    def __init__(self, J, D, npg):
+        self.J = J
+        self.D = D
+        self.npg = npg
+        self.dphi = D+1
     
-    # Parameters
-    # Number of observations for each group
-    if hasattr(NPG, '__getitem__') and len(NPG) == 2:
-        Nj = rnd_data.randint(NPG[0],NPG[1]+1, size=J)
-    else:
-        Nj = NPG*np.ones(J, dtype=np.int64)
-    # Total number of observations
-    N = np.sum(Nj)
-    # Observation index limits for J groups
-    j_lim = np.concatenate(([0], np.cumsum(Nj)))
-    # Group indices for each sample
-    j_ind = np.empty(N, dtype=np.int64)
-    for j in xrange(J):
-        j_ind[j_lim[j]:j_lim[j+1]] = j
+    def simulate_data(self, seed=None):
+        """Simulate data from the model.
+        
+        Returns
+        -------
+        X : ndarray
+            Explanatory variable
+        
+        y : ndarray
+            Response variable data
+        
+        Nj : ndarray
+            Number of observations in each group
+        
+        j_ind : ndarray
+            The group index of each observation
+        
+        true_values : dict
+            True values of `phi` and other inferred variables
+        
+        """
+        # Localise params
+        J = self.J
+        D = self.D
+        npg = self.npg
+        
+        # Set seed
+        rnd_data = np.random.RandomState(seed=seed)
+        
+        # Parameters
+        # Number of observations for each group
+        if hasattr(npg, '__getitem__') and len(npg) == 2:
+            Nj = rnd_data.randint(npg[0],npg[1]+1, size=J)
+        else:
+            Nj = npg*np.ones(J, dtype=np.int64)
+        # Total number of observations
+        N = np.sum(Nj)
+        # Observation index limits for J groups
+        j_lim = np.concatenate(([0], np.cumsum(Nj)))
+        # Group indices for each sample
+        j_ind = np.empty(N, dtype=np.int64)
+        for j in xrange(J):
+            j_ind[j_lim[j]:j_lim[j+1]] = j
+        
+        # Assign parameters
+        if SIGMA_A is None:
+            sigma_a = np.exp(rnd_data.randn()*SIGMA_AH)
+        else:
+            sigma_a = SIGMA_A
+        if BETA is None:
+            beta = rnd_data.randn(D)*SIGMA_B
+        else:
+            beta = BETA
+        alpha_j = rnd_data.randn(J)*sigma_a
+        phi_true = np.append(np.log(sigma_a), beta)
+        
+        # Simulate data
+        X = rnd_data.randn(N,D)
+        y = alpha_j[j_ind] + X.dot(beta)
+        y = 1/(1+np.exp(-y))
+        y = (rnd_data.rand(N) < y).astype(int)
+        
+        return X, y, Nj, j_ind, {'phi':phi_true, 'alpha':alpha_j, 'beta':beta}
     
-    # Assign parameters
-    if SIGMA_A is None:
-        sigma_a = np.exp(rnd_data.randn()*SIGMA_AH)
-    else:
-        sigma_a = SIGMA_A
-    if BETA is None:
-        beta = rnd_data.randn(D)*SIGMA_B
-    else:
-        beta = BETA
-    alpha_j = rnd_data.randn(J)*sigma_a
-    phi_true = np.append(np.log(sigma_a), beta)
-    dphi = D+1  # Number of shared parameters
+    def get_prior(self):
+        """Get prior for the model.
+        
+        Returns: S, m, Q, r
+        """
+        D = self.D
+        # Moment parameters of the prior (transposed in order to get
+        # F-contiguous)
+        S0 = np.diag(np.append(V0_A, np.ones(D)*V0_B)).T
+        m0 = np.append(M0_A, np.ones(D)*M0_B)
+        # Natural parameters of the prior
+        Q0 = np.diag(np.append(1./V0_A, np.ones(D)/V0_B)).T
+        r0 = np.append(M0_A/V0_A, np.ones(D)*(M0_B/V0_B))
+        return S0, m0, Q0, r0
     
-    # Simulate data
-    X = rnd_data.randn(N,D)
-    y = alpha_j[j_ind] + X.dot(beta)
-    y = 1/(1+np.exp(-y))
-    y = (rnd_data.rand(N) < y).astype(int)
-    
-    return X, y, Nj, j_ind, {'phi':phi_true, 'alpha':alpha_j, 'beta':beta}
-
-
-def get_prior(J, D):
-    """Get prior for the model.
-    
-    Returns: S, m, Q, r
-    """
-    # Moment parameters of the prior (transposed in order to get F-contiguous)
-    S0 = np.diag(np.append(V0_A, np.ones(D)*V0_B)).T
-    m0 = np.append(M0_A, np.ones(D)*M0_B)
-    # Natural parameters of the prior
-    Q0 = np.diag(np.append(1./V0_A, np.ones(D)/V0_B)).T
-    r0 = np.append(M0_A/V0_A, np.ones(D)*(M0_B/V0_B))
-    return S0, m0, Q0, r0
-
-
-def get_param_definitions(J, D):
-    """Return the definition of the inferred parameters.
-    
-    Returns
-    -------
-    names : seq of str
-        Names of the parameters
-    
-    shapes : seq of tuples
-        Shapes of the parameters
-    
-    hiers : seq of int 
-        The indexes of the hierarchical dimension of the parameter or None if it
-        does not have one.
-    
-    """    
-    names = ('alpha', 'beta')
-    shapes = ((J,), (D,))
-    hiers = (0, None)
-    return names, shapes, hiers
+    def get_param_definitions(self):
+        """Return the definition of the inferred parameters.
+        
+        Returns
+        -------
+        names : seq of str
+            Names of the parameters
+        
+        shapes : seq of tuples
+            Shapes of the parameters
+        
+        hiers : seq of int 
+            The indexes of the hierarchical dimension of the parameter or None
+            if it does not have one.
+        
+        """
+        names = ('alpha', 'beta')
+        shapes = ((self.J,), (self.D,))
+        hiers = (0, None)
+        return names, shapes, hiers
 
 
