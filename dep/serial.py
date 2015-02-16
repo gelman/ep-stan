@@ -15,6 +15,7 @@ https://github.com/gelman/ep-stan
 # All rights reserved.
 
 from __future__ import division
+import sys
 import numpy as np
 from scipy import linalg
 
@@ -580,9 +581,11 @@ class Master(object):
     """
     
     # Return codes for method run
-    INVALID_PRIOR = -1
-    DF_TRESHOLD_REACHED_GLOBAL = -2
-    DF_TRESHOLD_REACHED_CAVITY = -3
+    INFO_OK = 0
+    INFO_INVALID_PRIOR = 1
+    INFO_DF_TRESHOLD_REACHED_GLOBAL = 2
+    INFO_DF_TRESHOLD_REACHED_CAVITY = 3
+    INFO_ALL_SITES_FAIL = 4
     
     # List of constructor default keyword arguments
     DEFAULT_KWARGS = {
@@ -595,11 +598,11 @@ class Master(object):
         'dphi'             : None,
         'prior'            : None,
         'df0'              : None,
-        'df0_exp_start'    : 0.6,
-        'df0_exp_end'      : 0.1,
-        'df0_exp_speed'    : 0.8,
-        'df_decay'         : 0.9,
-        'df_treshold'      : 1e-8,
+        'df0_exp_start'    : 0.8,
+        'df0_exp_end'      : 0.2,
+        'df0_exp_speed'    : 0.2,
+        'df_decay'         : 0.8,
+        'df_treshold'      : 1e-7,
         'overwrite_model'  : False
     }
     
@@ -760,8 +763,7 @@ class Master(object):
             df0_speed = kwargs['df0_exp_speed']
             df0_start = kwargs['df0_exp_start']
             df0_end = kwargs['df0_exp_end']
-            self.df0 = lambda i: \
-                    np.exp(-df0_speed*(i-2)) * (df0_start - df0_end) + df0_end
+            self.df0 = lambda i: np.exp(-df0_speed*(i-2)) * (df0_start - df0_end) + df0_end
         elif isinstance(kwargs['df0'], (float, int)):
             # Use constant initial damping factor
             if kwargs['df0'] <= 0 or kwargs['df0'] > 1:
@@ -848,13 +850,19 @@ class Master(object):
             Mean and variance of the posterior approximation at every iteration.
             Returned only if `calc_moments` is True.
         
+        info : int
+            Return code. Zero if all ok. See variables Master.INFO_*.
+        
         """
         
         if niter < 1:
             if verbose:
                 print "Nothing to do here as provided arg. `niter` is {}" \
                       .format(niter)
-            return None
+            if calc_moments:
+                return None, None, self.INFO_OK
+            else:
+                return self.INFO_OK
         
         # Localise some instance variables
         # Mean and cov of the posterior approximation
@@ -891,7 +899,9 @@ class Master(object):
                 # At the first round (rond zero) there is nothing to damp yet
                 df = 1
             if verbose:
-                print 'Iter {}, starting df {:.3g}.'.format(self.iter, df)
+                print "Iter {}, starting df {:.3g}".format(self.iter, df)
+                fail_printline_pos = False
+                fail_printline_cov = False
             
             while True:
                 # Try to update the global posterior approximation
@@ -912,20 +922,32 @@ class Master(object):
                     # Not positive definite -> reduce damping factor
                     df *= self.df_decay
                     if verbose:
-                        print 'Neg def posterior cov,', \
-                              'reducing df to {:.3}'.format(df)
+                        fail_printline_pos = True
+                        sys.stdout.write(
+                            "\rNon pos. def. posterior cov, " +
+                            "reducing df to {:.3}".format(df) +
+                            " "*5 + "\b"*5
+                        )
+                        sys.stdout.flush()
                     if self.iter == 1:
                         if verbose:
-                            print 'Invalid prior.'
-                        return self.INVALID_PRIOR
+                            print "\nInvalid prior."
+                        if calc_moments:
+                            return m_phi_s, var_phi_s, self.INFO_INVALID_PRIOR
+                        else:
+                            return self.INFO_INVALID_PRIOR
                     if df < self.df_treshold:
                         if verbose:
-                            print 'Damping factor reached minimum.'
-                        return self.DF_TRESHOLD_REACHED_GLOBAL
+                            print "\nDamping factor reached minimum."
+                        if calc_moments:
+                            return m_phi_s, var_phi_s, \
+                                self.INFO_DF_TRESHOLD_REACHED_GLOBAL
+                        else:
+                            return self.INFO_DF_TRESHOLD_REACHED_GLOBAL
                     continue
                 
                 # Cavity distributions (parallelisable)
-                # -------------------------------
+                # -------------------------------------
                 # Check positive definitness for each cavity distribution
                 for k in xrange(self.K):
                     posdefs[k] = \
@@ -954,14 +976,28 @@ class Master(object):
                     # reduce the damping factor
                     df *= self.df_decay
                     if verbose:
-                        print 'Neg.def. cavity', \
-                              '(first encountered in site {}),' \
-                              .format(np.nonzero(~posdefs)[0][0]), \
-                              'reducing df to {:.3}.'.format(df)
+                        if fail_printline_pos:
+                            fail_printline_pos = False
+                            print
+                        fail_printline_cov = True
+                        sys.stdout.write(
+                            "\rNon pos. def. cavity, " +
+                            "(first encountered in site {}), "
+                            .format(np.nonzero(~posdefs)[0][0]) +
+                            "reducing df to {:.3}".format(df) +
+                            " "*5 + "\b"*5
+                        )
+                        sys.stdout.flush()
                     if df < self.df_treshold:
                         if verbose:
-                            print 'Damping factor reached minimum.'
-                        return self.DF_TRESHOLD_REACHED_CAVITY
+                            print "\nDamping factor reached minimum."
+                        if calc_moments:
+                            return m_phi_s, var_phi_s, \
+                                self.INFO_DF_TRESHOLD_REACHED_CAVITY
+                        else:
+                            return self.INFO_DF_TRESHOLD_REACHED_CAVITY
+            if verbose and (fail_printline_pos or fail_printline_cov):
+                print
             
             if calc_moments:
                 # Invert Q (chol was already calculated)
@@ -972,21 +1008,44 @@ class Master(object):
                 # Store the approximation moments
                 np.copyto(m_phi_s[cur_iter], m)
                 np.copyto(var_phi_s[cur_iter], np.diag(S))
+                if verbose:
+                    print "Mean and std of phi[0]: {:.3}, {:.3}" \
+                          .format(m_phi_s[cur_iter,0], 
+                                  np.sqrt(var_phi_s[cur_iter,0]))
             
             # Tilted distributions (parallelisable)
-            # -------------------------------
+            # -------------------------------------
+            if verbose:
+                    print "Process tilted distributions"
             for k in xrange(self.K):
+                if verbose:
+                    sys.stdout.write("\r    site {}".format(k+1)+' '*10+'\b'*9)
+                    # Force flush here as it is not done automatically
+                    sys.stdout.flush()
+                # Process the site
                 posdefs[k] = self.workers[k].tilted(dQi[:,:,k], dri[:,k])
-            if verbose and not np.all(posdefs):
-                print 'Neg.def. tilted in site(s) {}.' \
-                      .format(np.nonzero(~posdefs)[0])
+                if verbose and not posdefs[k]:
+                    sys.stdout.write("fail\n")
+            if verbose:
+                if np.all(posdefs):
+                    print "\rAll sites ok"
+                elif np.any(posdefs):
+                    print "\rSome sites failed and are not updated"
+                else:
+                    print "\rEvery site failed"
+            if not np.any(posdefs):
+                if calc_moments:
+                    return m_phi_s, var_phi_s, self.INFO_ALL_SITES_FAIL
+                else:
+                    return self.INFO_ALL_SITES_FAIL
             
             if verbose and calc_moments:
-                print 'Iter {} done, std of phi[0]: {}' \
-                      .format(self.iter, np.sqrt(var_phi_s[cur_iter,0]))
+                print "Iter {} done".format(self.iter)
             
         if calc_moments:
-            return m_phi_s, var_phi_s
+            return m_phi_s, var_phi_s, self.INFO_OK
+        else:
+            return self.INFO_OK
     
     
     def mix_phi(self, out_S=None, out_m=None):

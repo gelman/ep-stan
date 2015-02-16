@@ -235,7 +235,7 @@ def main(model_name, conf, ret_master=False):
             # Construct the map: which site contribute to which parameter
             pmaps = _create_pmaps(phiers, J, K, None)
         
-        elif K <= N:
+        elif K <= np.sum(Nj):
             # ------ Multiple sites per group: split groups ------
             Nk, Nk_j, _ = distribute_groups(J, K, Nj)
             # Create the Master instance
@@ -259,7 +259,10 @@ def main(model_name, conf, ret_master=False):
         # Run the algorithm for `EP_ITER` iterations
         print "Run distributed EP algorithm for {} iterations." \
               .format(conf.iter)
-        m_phi_i, var_phi_i = dep_master.run(conf.iter)
+        m_phi_i, var_phi_i, info = dep_master.run(conf.iter)
+        if info:
+            raise RuntimeError('Dep algorithm failed with error code: {}'
+                               .format(info))
         print "Form the final approximation " \
               "by mixing the samples from all the sites."
         S_phi, m_phi = dep_master.mix_phi()
