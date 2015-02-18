@@ -72,7 +72,7 @@ if os.path.exists(os.path.join(PARENT_PATH, 'dep')):
     if PARENT_PATH not in os.sys.path:
         os.sys.path.insert(0, PARENT_PATH)
 
-from dep.serial import Master
+from dep.method import Master
 from dep.util import load_stan, distribute_groups, suppress_stdout
 
 
@@ -192,7 +192,7 @@ def main(model_name, conf, ret_master=False):
         
         print "Distributed model {} ...".format(model_name)
         
-        # Options for the ep-algorithm see documentation of dep.serial.Master
+        # Options for the ep-algorithm see documentation of dep.method.Master
         dep_options = dict(
             prior = prior,
             seed = conf.seed_mcmc,

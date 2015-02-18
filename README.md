@@ -16,7 +16,7 @@ Compile the Cython utilities with `python setup.py build_ext --inplace`.
 ### Usage
 The folder experiment contains simple hierarchical logistic regression examples.
 See `python fit.py -h` or the respective module docstring for help. For more
-information, see e.g. the class documentation of dep.serial.Master.
+information, see e.g. the class documentation of dep.method.Master.
 
 ### License
 [Released under the 3-clause BSD license.](http://opensource.org/licenses/BSD-3-Clause)

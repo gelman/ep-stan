@@ -32,7 +32,7 @@ if os.path.exists(os.path.join(parent_dir, 'dep')):
     if parent_dir not in os.sys.path:
         os.sys.path.insert(0, parent_dir)
 
-# from dep.serial import Master
+# from dep.method import Master
 from dep.util import load_stan
 
 

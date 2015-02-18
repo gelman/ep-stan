@@ -1,7 +1,8 @@
 """An implementation of a distributed EP algorithm described in an article
 "Expectation propagation as a way of life" (arXiv:1412.4869).
 
-Currently the implementation works serially with shared memory between workers.
+This implementation works with parallel EP but the calculations are done
+serially with shared memory between workers.
 
 The most recent version of the code can be found on GitHub:
 https://github.com/gelman/ep-stan
