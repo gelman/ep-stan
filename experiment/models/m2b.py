@@ -26,6 +26,7 @@ Definition:
 
 from __future__ import division
 import numpy as np
+from common import data
 
 
 # ------------------------------------------------------------------------------
@@ -51,7 +52,7 @@ V0_B = 1.5**2
 # ====== Simulation input distribution =========================================
 # Explanatory variable is sample from N(MU_X,SIGMA_X)
 MU_X = 0
-SIGMA_X = 1.5
+SIGMA_X = 1
 
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -83,22 +84,7 @@ class model(object):
     def simulate_data(self, seed=None):
         """Simulate data from the model.
         
-        Returns
-        -------
-        X : ndarray
-            Explanatory variable
-        
-        y : ndarray
-            Response variable data
-        
-        Nj : ndarray
-            Number of observations in each group
-        
-        j_ind : ndarray
-            The group index of each observation
-        
-        true_values : dict
-            True values of `phi` and other inferred variables
+        Returns models.common.data instance
         
         """
         # Localise params
@@ -141,14 +127,19 @@ class model(object):
         X = MU_X + rnd_data.randn(N,D)*SIGMA_X
         y = alpha_j[j_ind] + X.dot(beta)
         y = 1/(1+np.exp(-y))
+        y_true = (0.5 < y).astype(int)
         y = (rnd_data.rand(N) < y).astype(int)
         
-        return X, y, Nj, j_ind, {'phi':phi_true, 'alpha':alpha_j, 'beta':beta}
+        return data(
+            X, y, y_true, Nj, j_lim, j_ind,
+            {'phi':phi_true, 'alpha':alpha_j, 'beta':beta}
+        )
     
     def get_prior(self):
         """Get prior for the model.
         
         Returns: S, m, Q, r
+        
         """
         D = self.D
         # Moment parameters of the prior (transposed in order to get

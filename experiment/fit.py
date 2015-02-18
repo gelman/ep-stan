@@ -130,6 +130,8 @@ class configurations(object):
         opts = ['{!s} = {!r}'.format(opt, conf_dict[opt])
                 for opt in CONFS if opt in conf_dict]
         return '\n'.join(opts)
+    def __repr__(self):
+        return self.__str__()
 
 
 def main(model_name, conf, ret_master=False):
@@ -157,7 +159,10 @@ def main(model_name, conf, ret_master=False):
     model = model_module.model(J, D, conf.npg)
     
     # Simulate_data
-    X, y, Nj, j_ind, true_vals = model.simulate_data(seed=conf.seed_data)
+    data = model.simulate_data(seed=conf.seed_data)
+    
+    # Calculate the uncertainty
+    uncertainty_global, uncertainty_group = data.calc_uncertainty()
     
     # Get the prior
     S0, m0, Q0, r0 = model.get_prior()
@@ -181,7 +186,9 @@ def main(model_name, conf, ret_master=False):
             npg = conf.npg,
             seed = conf.seed_data,
             pnames = pnames,
-            **true_vals
+            uncertainty_global = uncertainty_global,
+            uncertainty_group = uncertainty_group,
+            **data.true_values
         )
         print "True values saved into results"
     
@@ -207,13 +214,13 @@ def main(model_name, conf, ret_master=False):
         
         elif K < J:
             # ------ Many groups per site: combine groups ------
-            Nk, Nj_k, j_ind_k = distribute_groups(J, K, Nj)
+            Nk, Nj_k, j_ind_k = distribute_groups(J, K, data.Nj)
             # Create the Master instance
             stan_model = load_stan(os.path.join(MOD_PATH, model_name))
             dep_master = Master(
                 stan_model,
-                X,
-                y,
+                data.X,
+                data.y,
                 A_k = {'J':Nj_k},
                 A_n = {'j_ind':j_ind_k+1},
                 site_sizes = Nk,
@@ -227,22 +234,22 @@ def main(model_name, conf, ret_master=False):
             # Create the Master instance
             dep_master = Master(
                 load_stan(os.path.join(MOD_PATH, model_name+'_sg')),
-                X,
-                y,
-                site_sizes=Nj,
+                data.X,
+                data.y,
+                site_sizes=data.Nj,
                 **dep_options
             )
             # Construct the map: which site contribute to which parameter
             pmaps = _create_pmaps(phiers, J, K, None)
         
-        elif K <= np.sum(Nj):
+        elif K <= data.N:
             # ------ Multiple sites per group: split groups ------
-            Nk, Nk_j, _ = distribute_groups(J, K, Nj)
+            Nk, Nk_j, _ = distribute_groups(J, K, data.Nj)
             # Create the Master instance
             dep_master = Master(
                 load_stan(os.path.join(MOD_PATH, model_name+'_sg')),
-                X,
-                y,
+                data.X,
+                data.y,
                 site_sizes=Nk,
                 **dep_options
             )
@@ -311,12 +318,12 @@ def main(model_name, conf, ret_master=False):
         seed = seed.randint(2**31-1) if TMP_FIX_32BIT else seed
         
         data = dict(
-            N = X.shape[0],
-            D = X.shape[1],
+            N = data.X.shape[0],
+            D = data.X.shape[1],
             J = J,
-            X = X,
-            y = y,
-            j_ind = j_ind+1,
+            X = data.X,
+            y = data.y,
+            j_ind = data.j_ind+1,
             mu_phi = m0,
             Omega_phi = Q0.T    # Q0 transposed in order to get C-contiguous
         )
