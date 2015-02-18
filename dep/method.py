@@ -599,11 +599,11 @@ class Master(object):
         'dphi'             : None,
         'prior'            : None,
         'df0'              : None,
-        'df0_exp_start'    : 0.8,
+        'df0_exp_start'    : 1.0,
         'df0_exp_end'      : 0.2,
-        'df0_exp_speed'    : 0.2,
+        'df0_exp_speed'    : 0.1,
         'df_decay'         : 0.8,
-        'df_treshold'      : 1e-7,
+        'df_treshold'      : 1e-8,
         'overwrite_model'  : False
     }
     
