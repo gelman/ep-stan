@@ -67,7 +67,7 @@ class data(object):
         j_lim = self.j_lim
         Nj = self.Nj
         if issubclass(y.dtype.type, np.integer):
-            # Categorial
+            # Categorial: percentage of wrong classes
             uncertainty_global = np.count_nonzero(y_true != y)/self.N
             uncertainty_group = np.empty(self.J)
             for j in xrange(self.J):
@@ -77,10 +77,21 @@ class data(object):
                     ) / Nj[j]
                 )
         else:
-            # Continuous
-            # TODO: not implemented
-            uncertainty_global = None
-            uncertainty_group = None
+            # Continuous: r squared
+            sst = np.sum(np.square(self.y-np.mean(self.y)))
+            sse = np.sum(np.square(self.y-self.true_values))
+            uncertainty_global = 1 - sse/sst
+            uncertainty_group = np.empty(self.J)
+            for j in xrange(self.J):
+                sst = np.sum(np.square(
+                    self.y[j_lim[j]:j_lim[j+1]]
+                    -np.mean(self.y[j_lim[j]:j_lim[j+1]])
+                ))
+                sse = np.sum(np.square(
+                    self.y[j_lim[j]:j_lim[j+1]]
+                    -self.true_values[j_lim[j]:j_lim[j+1]]
+                ))
+                uncertainty_group[j] = 1 - sse/sst
         return uncertainty_global, uncertainty_group
 
 
