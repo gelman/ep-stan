@@ -55,6 +55,10 @@ V0_A = 1.5**2
 M0_B = 0
 V0_B = 1.5**2
 
+# ====== Regulation ============================================================
+# Min for abs(sum(beta))
+B_ABS_MIN_SUM = 1e-4
+
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # ------------------------------------------------------------------------------
@@ -124,6 +128,16 @@ class model(object):
             beta = rnd_data.randn(D)*SIGMA_B
         else:
             beta = BETA
+        
+        # Regulate beta
+        beta_sum = np.sum(beta)
+        while np.abs(beta_sum) < B_ABS_MIN_SUM:
+            # Replace one random element in beta
+            index = rnd_data.randint(D)
+            beta_sum -= beta[index]
+            beta[index] = rnd_data.randn()*SIGMA_B
+            beta_sum += beta[index]
+        
         alpha_j = rnd_data.randn(J)*sigma_a
         phi_true = np.empty(self.dphi)
         phi_true[0] = np.log(sigma)
