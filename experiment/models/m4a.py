@@ -33,7 +33,7 @@ Definition:
 
 from __future__ import division
 import numpy as np
-from common import data
+from common import data, calc_input_param_lin_reg
 
 
 # ------------------------------------------------------------------------------
@@ -69,11 +69,6 @@ V0_MB = 1.5**2
 # Prior for log(sigma_b)
 M0_SB = 0
 V0_SB = 1.5**2
-
-# ====== Simulation input distribution =========================================
-# Explanatory variable is sample from N(MU_X,SIGMA_X)
-MU_X = 0
-SIGMA_X = 1
 
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -155,15 +150,21 @@ class model(object):
         phi_true[3:3+D] = mu_b
         phi_true[3+D:] = np.log(sigma_b)
         
+        # Determine suitable sigma_x
+        sigma_x_j = calc_input_param_lin_reg(beta_j, sigma)
+        
         # Simulate data
-        X = MU_X + rnd_data.randn(N,D)*SIGMA_X
+        # Different sigma_x for every group
+        X = np.empty((N,D))
+        for j in xrange(J):
+            X[j_lim[j]:j_lim[j+1],:] = rnd_data.randn(Nj[j],D)*sigma_x_j[j]
         y_true = np.empty(N)
         for n in xrange(N):
             y_true[n] = alpha_j[j_ind[n]] + X[n].dot(beta_j[j_ind[n]])
         y = y_true + rnd_data.randn(N)*sigma
         
         return data(
-            X, y, y_true, Nj, j_lim, j_ind,
+            X, y, {'sigma_x':sigma_x_j}, y_true, Nj, j_lim, j_ind,
             {'phi':phi_true, 'alpha':alpha_j, 'beta':beta_j, 'sigma':sigma}
         )
     

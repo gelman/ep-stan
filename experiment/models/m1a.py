@@ -26,7 +26,7 @@ Definition:
 
 from __future__ import division
 import numpy as np
-from common import data
+from common import data, calc_input_param_lin_reg
 
 
 # ------------------------------------------------------------------------------
@@ -54,11 +54,6 @@ V0_A = 1.5**2
 # Prior for beta
 M0_B = 0
 V0_B = 1.5**2
-
-# ====== Simulation input distribution =========================================
-# Explanatory variable is sample from N(MU_X,SIGMA_X)
-MU_X = 0
-SIGMA_X = 1
 
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -135,13 +130,16 @@ class model(object):
         phi_true[1] = np.log(sigma_a)
         phi_true[2:] = beta
         
+        # Determine suitable sigma_x
+        sigma_x = calc_input_param_lin_reg(beta, sigma)
+        
         # Simulate data
-        X = MU_X + rnd_data.randn(N,D)*SIGMA_X
+        X = rnd_data.randn(N,D)*sigma_x
         y_true = alpha_j[j_ind] + X.dot(beta)
         y = y_true + rnd_data.randn(N)*sigma
         
         return data(
-            X, y, y_true, Nj, j_lim, j_ind,
+            X, y, {'sigma_x':sigma_x}, y_true, Nj, j_lim, j_ind,
             {'phi':phi_true, 'alpha':alpha_j, 'beta':beta, 'sigma':sigma}
         )
     

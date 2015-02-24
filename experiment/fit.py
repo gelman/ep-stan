@@ -188,6 +188,7 @@ def main(model_name, conf, ret_master=False):
             pnames = pnames,
             uncertainty_global = uncertainty_global,
             uncertainty_group = uncertainty_group,
+            X_param = data.X_param,
             **data.true_values
         )
         print "True values saved into results"

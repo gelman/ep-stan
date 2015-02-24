@@ -25,7 +25,7 @@ Definition:
 
 from __future__ import division
 import numpy as np
-from common import data
+from common import data, calc_input_param_classification
 
 
 # ------------------------------------------------------------------------------
@@ -47,11 +47,6 @@ V0_A = 1.5**2
 # Prior for beta
 M0_B = 0
 V0_B = 1.5**2
-
-# ====== Simulation input distribution =========================================
-# Explanatory variable is sample from N(MU_X,SIGMA_X)
-MU_X = 0
-SIGMA_X = 1
 
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -121,16 +116,23 @@ class model(object):
         alpha_j = rnd_data.randn(J)*sigma_a
         phi_true = np.append(np.log(sigma_a), beta)
         
+        # Determine suitable mu_x and sigma_x
+        mu_x_j, sigma_x_j = calc_input_param_classification(alpha_j, beta)
+        
         # Simulate data
-        X = MU_X + rnd_data.randn(N,D)*SIGMA_X
+        # Different mu_x and sigma_x for every group
+        X = np.empty((N,D))
+        for j in xrange(J):
+            X[j_lim[j]:j_lim[j+1],:] = \
+                mu_x_j[j] + rnd_data.randn(Nj[j],D)*sigma_x_j[j]
         y = alpha_j[j_ind] + X.dot(beta)
         y = 1/(1+np.exp(-y))
         y_true = (0.5 < y).astype(int)
         y = (rnd_data.rand(N) < y).astype(int)
         
         return data(
-            X, y, y_true, Nj, j_lim, j_ind,
-            {'phi':phi_true, 'alpha':alpha_j, 'beta':beta}
+            X, y, {'mu_x':mu_x_j, 'sigma_x':sigma_x_j}, y_true, Nj, j_lim, 
+            j_ind, {'phi':phi_true, 'alpha':alpha_j, 'beta':beta}
         )
     
     def get_prior(self):
