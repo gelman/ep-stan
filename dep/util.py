@@ -210,9 +210,9 @@ def _cv_estim(f, h, Eh, opt, cov_k=None, var_k=None, ddof_f=0, ddof_h=0,
         a = cov_fh / var_h
     # Regulate a
     if opt['regulate_a']:
-        a *= regulate_a
+        a *= opt['regulate_a']
     if opt['max_a']:
-        np.clip(a, -max_a, max_a, out=a)
+        np.clip(a, -opt['max_a'], opt['max_a'], out=a)
     # Calc f_hat
     if ddof_h == 0:
         hm = np.mean(hc, axis=0)
