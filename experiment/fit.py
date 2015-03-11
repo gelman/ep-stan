@@ -33,6 +33,9 @@ optional arguments:
   --mc_full_opt P P P P
                         MCMC sampler opt for full (chains iter warmup thin)
 
+Available models are in the folder models in the files `<model_name>.py`,
+`<model_name>.stan` and `<model_name>_sg.stan`
+
 N denotes a non-negative and P a positive integer argument. B denotes a boolean
 argument, which can be given as TRUE, T, 1 or FALSE, F, 0 (case insensitive).
 S denotes a string argument.
@@ -490,7 +493,8 @@ CONF_HELP = dict(
     npg         = 'number of observations per group (constant or min max)',
     iter        = 'number of distributed EP iterations',
     prec_estim  = ('estimate method for tilted distribution precision matrix, '
-                   'available options are sample and olse (see dep.Master)'),
+                   'currently available options are sample and olse '
+                   '(see dep.method.Master)'),
     method      = 'which models are fit',
     id          = 'optional id appended to the end of the result files',
     save_true   = 'save true values',
@@ -500,6 +504,15 @@ CONF_HELP = dict(
     mc_opt      = 'MCMC sampler opt for dEP (chains iter warmup thin)',
     mc_full_opt = 'MCMC sampler opt for full (chains iter warmup thin)',
 )
+for conf in CONFS:
+    if conf.startswith('mc_'):
+        CONF_HELP[conf] = (
+            CONF_HELP[conf] +
+            ', default ({} {} {} {})'.format(*CONF_DEFAULT[conf].values())
+        )
+    else:
+        CONF_HELP[conf] = \
+            CONF_HELP[conf] + ', default {}'.format(CONF_DEFAULT[conf])
 
 CONF_CUSTOMS = dict(
     J           = dict(type=_parse_positive_int, metavar='P'),
