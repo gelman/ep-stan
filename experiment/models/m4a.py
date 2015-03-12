@@ -50,7 +50,7 @@ SIGMA_MA = None
 # If SIGMA_A is None, it is sampled from log-N(0,SIGMA_SA)
 SIGMA_A = 1
 SIGMA_SA = None
-SIGMA_MB = 0
+SIGMA_MB = 1
 SIGMA_SB = 1
 
 # ====== Prior =================================================================
