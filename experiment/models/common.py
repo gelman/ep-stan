@@ -30,6 +30,54 @@ LOGITP0 = logit(P_0)
 DELTA_MAX = np.sqrt(2)*SIGMA_F0*ERFINVGAMMA0 - LOGITP0
 
 
+def rand_corr_vine(d, alpha=2, beta=2, pmin=-0.8, pmax=0.8, seed=None):
+    """Create random correlation matrix using modified vine method.
+    
+    Each partial corelation is distributed according to Beta(alpha, beta) 
+    shifted and scaled to [pmin, pmax]. This method could be further optimised. 
+    Does not necessarily return pos-def matrix if high correlations are 
+    imposed.
+    
+    Reference:
+    Lewandowski, Kurowicka, and Joe, 2009, "Generating random 
+    correlation matrices based on vines and extended onion method"
+    
+    """
+    if isinstance(seed, np.random.RandomState):
+        rand_state = seed
+    else:
+        rand_state = np.random.RandomState(seed)
+    # Sample partial correlations into upper triangular
+    P = np.empty((d,d))
+    uinds = np.triu_indices(d, 1)
+    betas = rand_state.beta(alpha, beta, size=len(uinds[0]))
+    betas *= pmax - pmin
+    betas += pmin
+    P[uinds] = betas
+    # Store the square of the upper triangular in the lower triangular
+    np.square(betas, out=betas)
+    P.T[uinds] = betas
+    # Release memory
+    del(betas, uinds)
+    # Output array
+    C = np.eye(d)
+    # Convert partial correlations to raw correlations
+    for i in xrange(d-1):
+        for j in xrange(i+1,d):
+            cur = P[i,j]
+            for k in xrange(i-1,-1,-1):
+                cur *= np.sqrt((1 - P[i,k])*(1 - P[j,k]))
+                cur += P[k,i]*P[k,j]
+            C[i,j] = cur
+            C[j,i] = cur
+    # Release memory
+    del(P)
+    # Permute the order of variables
+    perm = rand_state.permutation(d)
+    C = C[np.ix_(perm,perm)]
+    return C
+
+
 def calc_input_param_lin_reg(beta, sigma, Sigma_x=None):
     """Calculate suitable sigma_x for linear regression models.
     

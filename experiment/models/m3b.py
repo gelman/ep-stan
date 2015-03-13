@@ -28,7 +28,7 @@ Definition:
 from __future__ import division
 import numpy as np
 from scipy.linalg import cholesky
-from common import data, calc_input_param_classification
+from common import data, calc_input_param_classification, rand_corr_vine
 
 
 # ------------------------------------------------------------------------------
@@ -90,9 +90,8 @@ class model(object):
         Sigma_x : {None, 'rand', ndarray}
             The covariance structure of the explanatory variable. This is 
             scaled to regulate the uncertainty. If not provided or None, 
-            identity matrix is used. Providing string 'rand' creates a random 
-            covariance matrix with unit diagonal and each nondiagonal element 
-            sampled from unif(-0.5,0.5).
+            identity matrix is used. Providing string 'rand' uses method
+            common.rand_corr_vine to randomise one.
         
         """
         # Localise params
@@ -105,11 +104,7 @@ class model(object):
         
         # Randomise input covariance structure if needed
         if Sigma_x == 'rand':
-            Sigma_x = np.zeros((D,D))
-            uinds = np.triu_indices(D,1)
-            Sigma_x[uinds] = rnd_data.rand(len(uinds[0])) - 0.5
-            Sigma_x += Sigma_x.T
-            np.fill_diagonal(Sigma_x, 1.0)
+            Sigma_x = rand_corr_vine(D, seed=rnd_data)
         
         # Parameters
         # Number of observations for each group
