@@ -30,7 +30,7 @@ LOGITP0 = logit(P_0)
 DELTA_MAX = np.sqrt(2)*SIGMA_F0*ERFINVGAMMA0 - LOGITP0
 
 
-def calc_input_param_lin_reg(beta, sigma):
+def calc_input_param_lin_reg(beta, sigma, Sigma_x=None):
     """Calculate suitable sigma_x for linear regression models.
     
     Parameters
@@ -42,6 +42,11 @@ def calc_input_param_lin_reg(beta, sigma):
     sigma : float
         The noise standard deviation.
     
+    Sigma_x : ndarray
+        The covariance structure of the input variable:
+            Cov(x) = sigma_x * Sigma_x.
+        If not provided or None, Sigma_x is considered as an identity matrix.
+    
     Returns
     -------
     sigma_x : float or ndarray
@@ -50,6 +55,9 @@ def calc_input_param_lin_reg(beta, sigma):
     
     """
     beta = np.asarray(beta)
+    if Sigma_x is not None and ( beta.ndim == 0 or beta.shape[-1] <= 1 ):
+        raise ValueError("Input dimension has to be greater than 1 "
+                         "if Sigma is provided")
     if beta.ndim == 0 or beta.shape[-1] == 1:
         # One dimensional input
         if beta.ndim == 2:
@@ -60,7 +68,12 @@ def calc_input_param_lin_reg(beta, sigma):
         np.divide(np.sqrt(R_SQUARED/(1-R_SQUARED))*sigma, out, out=out)
     else:
         # Multidimensional input
-        out = np.asarray(np.sum(np.square(beta), axis=-1))
+        if Sigma_x is None:
+            out = np.asarray(np.sum(np.square(beta), axis=-1))
+        else:
+            out = beta.dot(Sigma_x)
+            out *= beta
+            out = np.asarray(np.sum(out, axis=-1))
         out *= 1 - R_SQUARED
         np.divide(R_SQUARED, out, out=out)
         np.sqrt(out, out=out)
@@ -68,7 +81,7 @@ def calc_input_param_lin_reg(beta, sigma):
     return out[()]
 
 
-def calc_input_param_classification(alpha, beta):
+def calc_input_param_classification(alpha, beta, Sigma_x=None):
     """Calculate suitable mu_x and sigma_x for classification models.
     
     Parameters
@@ -80,6 +93,11 @@ def calc_input_param_classification(alpha, beta):
     beta : float or ndarray
         The explanatory variable coefficient of size (J,D), (D,) or (), where J 
         is the number of groups and D is the number of input dimensions.
+    
+    Sigma_x : ndarray
+        The covariance structure of the input variable:
+            Cov(x) = sigma_x * Sigma_x.
+        If not provided or None, Sigma_x is considered as an identity matrix.
     
     Returns
     -------
@@ -103,6 +121,9 @@ def calc_input_param_classification(alpha, beta):
             scalar_output = True
         else:
             scalar_output = False
+    if Sigma_x is not None and ( beta.ndim == 0 or beta.shape[-1] <= 1 ):
+        raise ValueError("Input dimension has to be greater than 1 "
+                         "if Sigma is provided")
     
     # Process
     if J == 1:
@@ -113,10 +134,15 @@ def calc_input_param_classification(alpha, beta):
             # No mean adjustment needed
             mu_x = 0
             if beta.ndim == 1:
-                ssbeta = np.sqrt(2*np.sum(np.square(beta)))
+                if Sigma_x is None:
+                    ssbeta = np.sqrt(2*np.sum(np.square(beta)))
+                else:
+                    ssbeta = beta.dot(Sigma_x)
+                    ssbeta *= beta
+                    ssbeta = np.sqrt(2*np.sum(ssbeta))
             else:
                 # Only one input dimension
-                ssbeta = np.sqrt(2)*beta
+                ssbeta = np.sqrt(2)*np.abs(beta)
             sigma_x = (LOGITP0 + np.abs(alpha))/(ERFINVGAMMA0*ssbeta)
         else:
             # Mean adjustment needed
@@ -125,10 +151,15 @@ def calc_input_param_classification(alpha, beta):
             else:
                 mu_x = (-DELTA_MAX -alpha)/np.sum(beta)
             if beta.ndim == 1:
-                ssbeta = np.sqrt(np.sum(np.square(beta)))
+                if Sigma_x is None:
+                    ssbeta = np.sqrt(np.sum(np.square(beta)))
+                else:
+                    ssbeta = beta.dot(Sigma_x)
+                    ssbeta *= beta
+                    ssbeta = np.sqrt(np.sum(ssbeta))
             else:
                 # Only one input dimension
-                ssbeta = beta
+                ssbeta = np.abs(beta)
             sigma_x = SIGMA_F0/ssbeta
         if not scalar_output:
             mu_x = np.asarray([mu_x])
@@ -148,12 +179,17 @@ def calc_input_param_classification(alpha, beta):
                 # No mean adjustment needed
                 mu_x = np.zeros(J)
                 if beta.shape[1] != 1:
-                    sigma_x = np.sum(np.square(beta), axis=-1)
+                    if Sigma_x is None:
+                        sigma_x = np.sum(np.square(beta), axis=-1)
+                    else:
+                        sigma_x = beta.dot(Sigma_x)
+                        sigma_x *= beta
+                        sigma_x = np.sum(sigma_x, axis=-1)
                     sigma_x *= 2
                     np.sqrt(sigma_x, out=sigma_x)
                 else:
                     # Only one input dimension
-                    sigma_x = np.sqrt(2)*beta[:,0]
+                    sigma_x = np.sqrt(2)*np.abs(beta[:,0])
                 sigma_x *= ERFINVGAMMA0
                 np.divide(LOGITP0 + np.abs(alpha), sigma_x, out=sigma_x)
             else:
@@ -164,20 +200,30 @@ def calc_input_param_classification(alpha, beta):
                 else:
                     np.divide(-DELTA_MAX -alpha, mu_x, out=mu_x)
                 if beta.shape[1] != 1:
-                    sigma_x = np.sum(np.square(beta), axis=-1)
+                    if Sigma_x is None:
+                        sigma_x = np.sum(np.square(beta), axis=-1)
+                    else:
+                        sigma_x = beta.dot(Sigma_x)
+                        sigma_x *= beta
+                        sigma_x = np.sum(sigma_x, axis=-1)
                     np.sqrt(sigma_x, out=sigma_x)
                 else:
                     # Only one input dimension
-                    sigma_x = beta[:,0].copy()
+                    sigma_x = np.abs(beta[:,0]).copy()
                 np.divide(SIGMA_F0, sigma_x, out=sigma_x)
         
         elif beta.ndim == 1:
             # Common beta: alpha.ndim == 1
             sbeta = np.sum(beta)
             if beta.shape[0] != 1:
-                ssbeta = np.sqrt(np.sum(np.square(beta)))
+                if Sigma_x is None:
+                    ssbeta = np.sqrt(np.sum(np.square(beta)))
+                else:
+                    ssbeta = beta.dot(Sigma_x)
+                    ssbeta *= beta
+                    ssbeta = np.sqrt(np.sum(ssbeta))
             else:
-                ssbeta = beta
+                ssbeta = np.abs(beta)
             divisor = np.sqrt(2) * ERFINVGAMMA0 * ssbeta
             mu_x = np.zeros(J)
             sigma_x = np.empty(J)
@@ -197,9 +243,14 @@ def calc_input_param_classification(alpha, beta):
             # Multiple alpha and beta: alpha.ndim == 1 and beta.ndim == 2
             sbeta = np.sum(beta, axis=-1)
             if beta.shape[1] != 1:
-                ssbeta = np.sqrt(np.sum(np.square(beta), axis=-1))
+                if Sigma_x is None:
+                    ssbeta = np.sqrt(np.sum(np.square(beta), axis=-1))
+                else:
+                    ssbeta = beta.dot(Sigma_x)
+                    ssbeta *= beta
+                    ssbeta = np.sqrt(np.sum(ssbeta, axis=-1))
             else:
-                ssbeta = beta[:,0]
+                ssbeta = np.abs(beta[:,0])
             divisor = np.sqrt(2) * ERFINVGAMMA0 * ssbeta
             mu_x = np.zeros(J)
             sigma_x = np.empty(J)

@@ -25,6 +25,7 @@ Definition:
 
 from __future__ import division
 import numpy as np
+from scipy.linalg import cholesky
 from common import data, calc_input_param_classification
 
 
@@ -79,10 +80,19 @@ class model(object):
         self.npg = npg
         self.dphi = D+1
     
-    def simulate_data(self, seed=None):
+    def simulate_data(self, Sigma_x=None, seed=None):
         """Simulate data from the model.
         
         Returns models.common.data instance
+        
+        Parameters
+        ----------
+        Sigma_x : {None, 'rand', ndarray}
+            The covariance structure of the explanatory variable. This is 
+            scaled to regulate the uncertainty. If not provided or None, 
+            identity matrix is used. Providing string 'rand' creates a random 
+            covariance matrix with unit diagonal and each nondiagonal element 
+            sampled from unif(-0.5,0.5).
         
         """
         # Localise params
@@ -92,6 +102,14 @@ class model(object):
         
         # Set seed
         rnd_data = np.random.RandomState(seed=seed)
+        
+        # Randomise input covariance structure if needed
+        if Sigma_x == 'rand':
+            Sigma_x = np.zeros((D,D))
+            uinds = np.triu_indices(D,1)
+            Sigma_x[uinds] = rnd_data.rand(len(uinds[0])) - 0.5
+            Sigma_x += Sigma_x.T
+            np.fill_diagonal(Sigma_x, 1.0)
         
         # Parameters
         # Number of observations for each group
@@ -131,22 +149,31 @@ class model(object):
         phi_true = np.append(np.log(sigma_a), beta)
         
         # Determine suitable mu_x and sigma_x
-        mu_x_j, sigma_x_j = calc_input_param_classification(alpha_j, beta)
+        mu_x_j, sigma_x_j = calc_input_param_classification(
+            alpha_j, beta, Sigma_x
+        )
         
         # Simulate data
         # Different mu_x and sigma_x for every group
         X = np.empty((N,D))
-        for j in xrange(J):
-            X[j_lim[j]:j_lim[j+1],:] = \
-                mu_x_j[j] + rnd_data.randn(Nj[j],D)*sigma_x_j[j]
+        if Sigma_x is None:
+            for j in xrange(J):
+                X[j_lim[j]:j_lim[j+1],:] = \
+                    mu_x_j[j] + rnd_data.randn(Nj[j],D)*sigma_x_j[j]
+        else:
+            cho_x = cholesky(Sigma_x)
+            for j in xrange(J):
+                X[j_lim[j]:j_lim[j+1],:] = \
+                    mu_x_j[j] + rnd_data.randn(Nj[j],D).dot(sigma_x_j[j]*cho_x)
         y = alpha_j[j_ind] + X.dot(beta)
         y = 1/(1+np.exp(-y))
         y_true = (0.5 < y).astype(int)
         y = (rnd_data.rand(N) < y).astype(int)
         
         return data(
-            X, y, {'mu_x':mu_x_j, 'sigma_x':sigma_x_j}, y_true, Nj, j_lim, 
-            j_ind, {'phi':phi_true, 'alpha':alpha_j, 'beta':beta}
+            X, y, {'mu_x':mu_x_j, 'sigma_x':sigma_x_j, 'Sigma_x':Sigma_x}, 
+            y_true, Nj, j_lim, j_ind, {'phi':phi_true, 'alpha':alpha_j, 
+            'beta':beta}
         )
     
     def get_prior(self):

@@ -33,17 +33,22 @@ optional arguments:
   --mc_full_opt P P P P
                         MCMC sampler opt for full (chains iter warmup thin)
 
-Available models are in the folder models in the files `<model_name>.py`,
-`<model_name>.stan` and `<model_name>_sg.stan`
+Available models are defined in the folder models in the files 
+`<model_name>.py`, `<model_name>.stan` and `<model_name>_sg.stan`
 
-N denotes a non-negative and P a positive integer argument. B denotes a boolean
-argument, which can be given as TRUE, T, 1 or FALSE, F, 0 (case insensitive).
-S denotes a string argument.
+Argument types
+- N denotes a non-negative and P a positive integer argument.
+- B denotes a boolean argument, which can be given as
+  TRUE, T, 1 or FALSE, F, 0 (case insensitive).
+- S denotes a string argument.
 
-The results of full model are saved into file `res_f_<model_name>.npz`,
-the results of distributed model are saved into file `res_d_<model_name>.npz`
-and the true values are saved into the file `true_vals_<model_name>.npz`
-into the folder results. Available models are in the folder models.
+The results of full model are saved into file
+    `res_f_<model_name>.npz`,
+the results of distributed model are saved into file
+    `res_d_<model_name>.npz`
+and the true values are saved into the file
+    `true_vals_<model_name>.npz`
+into the folder results.
 
 After running this skript for both full and distributed, the script plot_res.py
 can be used to plot the results.
@@ -79,8 +84,9 @@ from dep.method import Master
 from dep.util import load_stan, distribute_groups, suppress_stdout
 
 
-CONFS = ['J','D', 'K', 'npg', 'iter', 'prec_estim', 'method', 'id', 'save_true',
-         'save_res', 'seed_data', 'seed_mcmc', 'mc_opt', 'mc_full_opt']
+CONFS = ['J','D', 'K', 'npg', 'iter', 'cor_input', 'prec_estim', 'method', 'id',
+         'save_true', 'save_res', 'seed_data', 'seed_mcmc', 'mc_opt',
+         'mc_full_opt']
 
 CONF_DEFAULT = dict(
     J           = 40,
@@ -88,6 +94,7 @@ CONF_DEFAULT = dict(
     K           = 25,
     npg         = [40,60],
     iter        = 6,
+    cor_input   = False,
     prec_estim  = 'olse',
     method      = 'both',
     id          = None,
@@ -162,7 +169,10 @@ def main(model_name, conf, ret_master=False):
     model = model_module.model(J, D, conf.npg)
     
     # Simulate_data
-    data = model.simulate_data(seed=conf.seed_data)
+    if conf.cor_input:
+        data = model.simulate_data(Sigma_x='rand', seed=conf.seed_data)
+    else:
+        data = model.simulate_data(seed=conf.seed_data)
     
     # Calculate the uncertainty
     uncertainty_global, uncertainty_group = data.calc_uncertainty()
@@ -492,6 +502,7 @@ CONF_HELP = dict(
     K           = 'number of sites',
     npg         = 'number of observations per group (constant or min max)',
     iter        = 'number of distributed EP iterations',
+    cor_input   = 'correlated input variable',
     prec_estim  = ('estimate method for tilted distribution precision matrix, '
                    'currently available options are sample and olse '
                    '(see dep.method.Master)'),
@@ -520,6 +531,7 @@ CONF_CUSTOMS = dict(
     K           = dict(type=_parse_positive_int, metavar='P'),
     npg         = dict(nargs='+', type=_parse_positive_int, metavar='P'),
     iter        = dict(type=_parse_nonnegative_int, metavar='N'),
+    cor_input   = dict(type=_parse_bool, metavar='B'),
     prec_estim  = dict(metavar='S'),
     method      = dict(choices=['both', 'distributed', 'full', 'none']),
     id          = dict(metavar='S'),

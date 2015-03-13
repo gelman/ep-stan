@@ -27,6 +27,7 @@ Definition:
 
 from __future__ import division
 import numpy as np
+from scipy.linalg import cholesky
 from common import data, calc_input_param_lin_reg
 
 
@@ -87,10 +88,19 @@ class model(object):
         self.npg = npg
         self.dphi = 3
     
-    def simulate_data(self, seed=None):
+    def simulate_data(self, Sigma_x=None, seed=None):
         """Simulate data from the model.
         
         Returns models.common.data instance
+        
+        Parameters
+        ----------
+        Sigma_x : {None, 'rand', ndarray}
+            The covariance structure of the explanatory variable. This is 
+            scaled to regulate the uncertainty. If not provided or None, 
+            identity matrix is used. Providing string 'rand' creates a random 
+            covariance matrix with unit diagonal and each nondiagonal element 
+            sampled from unif(-0.5,0.5).
         
         """
         # Localise params
@@ -100,6 +110,14 @@ class model(object):
         
         # Set seed
         rnd_data = np.random.RandomState(seed=seed)
+        
+        # Randomise input covariance structure if needed
+        if Sigma_x == 'rand':
+            Sigma_x = np.zeros((D,D))
+            uinds = np.triu_indices(D,1)
+            Sigma_x[uinds] = rnd_data.rand(len(uinds[0])) - 0.5
+            Sigma_x += Sigma_x.T
+            np.fill_diagonal(Sigma_x, 1.0)
         
         # Parameters
         # Number of observations for each group
@@ -147,16 +165,21 @@ class model(object):
         phi_true[2] = np.log(sigma_b)
         
         # Determine suitable sigma_x
-        sigma_x = calc_input_param_lin_reg(beta, sigma)
+        sigma_x = calc_input_param_lin_reg(beta, sigma, Sigma_x)
         
         # Simulate data
-        X = rnd_data.randn(N,D)*sigma_x
+        if Sigma_x is None:
+            X = rnd_data.randn(N,D)*sigma_x
+        else:
+            cho_x = cholesky(Sigma_x)
+            X = rnd_data.randn(N,D).dot(sigma_x*cho_x)
         y_true = alpha_j[j_ind] + X.dot(beta)
         y = y_true + rnd_data.randn(N)*sigma
         
         return data(
-            X, y, {'sigma_x':sigma_x}, y_true, Nj, j_lim, j_ind,
-            {'phi':phi_true, 'alpha':alpha_j, 'beta':beta, 'sigma':sigma}
+            X, y, {'sigma_x':sigma_x, 'Sigma_x':Sigma_x}, y_true, Nj, j_lim, 
+            j_ind, {'phi':phi_true, 'alpha':alpha_j, 'beta':beta, 
+            'sigma':sigma}
         )
     
     def get_prior(self):
