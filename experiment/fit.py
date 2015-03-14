@@ -521,8 +521,10 @@ CONF_HELP = dict(
 for conf in CONFS:
     if conf.startswith('mc_'):
         CONF_HELP[conf] = (
-            CONF_HELP[conf] +
-            ', default ({} {} {} {})'.format(*CONF_DEFAULT[conf].values())
+            CONF_HELP[conf] + ', default ({} {} {} {})'.format(*[
+                CONF_DEFAULT[conf][k]
+                for k in ['chains', 'iter', 'warmup', 'thin']
+            ])
         )
     else:
         CONF_HELP[conf] = \
