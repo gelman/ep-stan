@@ -123,10 +123,13 @@ class model(object):
         
         # Set seed
         rnd_data = np.random.RandomState(seed=seed)
+        # Draw random seed for input covariance for consistency in randomness
+        # even if not needed
+        seed_input_cov = rnd_data.randint(2**32-1)
         
         # Randomise input covariance structure if needed
         if Sigma_x == 'rand':
-            Sigma_x = rand_corr_vine(D, seed=rnd_data)
+            Sigma_x = rand_corr_vine(D, seed=seed_input_cov)
         
         # Parameters
         # Number of observations for each group
