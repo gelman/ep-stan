@@ -17,12 +17,35 @@ https://github.com/gelman/ep-stan
 from __future__ import division
 import os
 import numpy as np
+from scipy.linalg import cho_factor, cho_solve
 import matplotlib.pyplot as plt
 
 
 # Get the results directory
 CUR_PATH = os.path.dirname(os.path.abspath(__file__))
 RES_PATH = os.path.join(CUR_PATH, 'results')
+
+
+def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
+    """Calculate KL-divergence from multivariate N(m0,S0) to N(m1,S1).
+    
+    Optional argument sum_log_diag_cho_S0 is precomputed sum(log(diag(cho(S0))).
+    
+    """
+    choS1 = cho_factor(S1)
+    if log_diag_cho_S0 is None:
+        sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S0)[0])))
+    dm = m1-m0
+    KL_div = (
+        0.5*(
+            np.trace(cho_solve(choS1, S0))
+            + dm.dot(cho_solve(choS1, dm))
+            - len(m0)
+        )
+        - sum_log_diag_cho_S0 + np.sum(np.log(np.diag(choS1[0])))
+    )
+    return KL_div
+
 
 def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None,
                  ax=None):
@@ -98,15 +121,24 @@ def plot_results(model_name, model_id=None):
     res_d_file = np.load(
         os.path.join(RES_PATH, 'res_d_{}.npz'.format(file_ending)))
     m_phi_i = res_d_file['m_phi_i']
-    var_phi_i = res_d_file['var_phi_i']
+    cov_phi_i = res_d_file['cov_phi_i']
     res_d = [(res_d_file['m_'+par], res_d_file['var_'+par]) for par in pnames]
     res_d_file.close()
     
     # Load full result file
     res_f_file = np.load(
         os.path.join(RES_PATH, 'res_f_{}.npz'.format(file_ending)))
-    res_f = [(res_f_file['m_'+par+'_full'], res_f_file['var_'+par+'_full'])
-             for par in pnames]
+    m_phi_full = res_f_file['m_phi_full']
+    cov_phi_full = res_f_file['cov_phi_full']
+    res_f = [
+        (   res_f_file['m_'+par+'_full'],
+            (   res_f_file['var_'+par+'_full']
+                if par != 'phi' else
+                np.diag(res_f_file['cov_'+par+'_full'])
+            )
+        )
+        for par in pnames
+    ]
     res_f_file.close()
     
     niter = m_phi_i.shape[0]
@@ -119,6 +151,16 @@ def plot_results(model_name, model_id=None):
             res_d[pi] = (res_d[pi][0].ravel(), res_d[pi][1].ravel())
             res_f[pi] = (res_f[pi][0].ravel(), res_f[pi][1].ravel())
     
+    # Plot approx KL-divergence
+    sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(cov_phi_full)[0])))
+    KL_divs = np.empty(niter)
+    for i in xrange(niter):
+        KL_divs[i] = kl_mvn(m_phi_full, cov_phi_full, m_phi_i[i], cov_phi_i[i],
+                            sum_log_diag_cho_S0)
+    plt.plot(np.arange(niter+1), KL_divs)
+    plt.ylabel('Approximated KL divergence')
+    plt.xlabel('Iteration')
+    
     # Plot mean and variance as a function of the iteration
     fig, axs = plt.subplots(2, 1, sharex=True)
     fig.subplots_adjust(hspace=0.1)
@@ -126,7 +168,7 @@ def plot_results(model_name, model_id=None):
                 np.vstack((m_phi_i, res_d[0][0])))
     axs[0].set_ylabel('Mean of $\phi$')
     axs[1].plot(np.arange(niter+1),
-                np.sqrt(np.vstack((var_phi_i, res_d[0][1]))))
+                np.sqrt(np.vstack((np.diag(cov_phi_i), res_d[0][1]))))
     axs[1].set_ylabel('Std of $\phi$')
     axs[1].set_xlabel('Iteration')
     

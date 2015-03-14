@@ -888,7 +888,7 @@ class Master(object):
         if calc_moments:
             # Allocate memory for results
             m_phi_s = np.zeros((niter, self.dphi))
-            var_phi_s = np.zeros((niter, self.dphi))
+            cov_phi_s = np.zeros((niter, self.dphi, self.dphi))
         
         # Iterate niter rounds
         for cur_iter in xrange(niter):
@@ -934,14 +934,14 @@ class Master(object):
                         if verbose:
                             print "\nInvalid prior."
                         if calc_moments:
-                            return m_phi_s, var_phi_s, self.INFO_INVALID_PRIOR
+                            return m_phi_s, cov_phi_s, self.INFO_INVALID_PRIOR
                         else:
                             return self.INFO_INVALID_PRIOR
                     if df < self.df_treshold:
                         if verbose:
                             print "\nDamping factor reached minimum."
                         if calc_moments:
-                            return m_phi_s, var_phi_s, \
+                            return m_phi_s, cov_phi_s, \
                                 self.INFO_DF_TRESHOLD_REACHED_GLOBAL
                         else:
                             return self.INFO_DF_TRESHOLD_REACHED_GLOBAL
@@ -993,7 +993,7 @@ class Master(object):
                         if verbose:
                             print "\nDamping factor reached minimum."
                         if calc_moments:
-                            return m_phi_s, var_phi_s, \
+                            return m_phi_s, cov_phi_s, \
                                 self.INFO_DF_TRESHOLD_REACHED_CAVITY
                         else:
                             return self.INFO_DF_TRESHOLD_REACHED_CAVITY
@@ -1008,11 +1008,11 @@ class Master(object):
                                      cho_form=True)
                 # Store the approximation moments
                 np.copyto(m_phi_s[cur_iter], m)
-                np.copyto(var_phi_s[cur_iter], np.diag(S))
+                np.copyto(cov_phi_s[cur_iter], S.T)
                 if verbose:
                     print "Mean and std of phi[0]: {:.3}, {:.3}" \
                           .format(m_phi_s[cur_iter,0], 
-                                  np.sqrt(var_phi_s[cur_iter,0]))
+                                  np.sqrt(cov_phi_s[cur_iter,0,0]))
             
             # Tilted distributions (parallelisable)
             # -------------------------------------
@@ -1036,7 +1036,7 @@ class Master(object):
                     print "\rEvery site failed"
             if not np.any(posdefs):
                 if calc_moments:
-                    return m_phi_s, var_phi_s, self.INFO_ALL_SITES_FAIL
+                    return m_phi_s, cov_phi_s, self.INFO_ALL_SITES_FAIL
                 else:
                     return self.INFO_ALL_SITES_FAIL
             
@@ -1044,7 +1044,7 @@ class Master(object):
                 print "Iter {} done".format(self.iter)
             
         if calc_moments:
-            return m_phi_s, var_phi_s, self.INFO_OK
+            return m_phi_s, cov_phi_s, self.INFO_OK
         else:
             return self.INFO_OK
     

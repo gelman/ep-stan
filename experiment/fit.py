@@ -280,7 +280,7 @@ def main(model_name, conf, ret_master=False):
         # Run the algorithm for `EP_ITER` iterations
         print "Run distributed EP algorithm for {} iterations." \
               .format(conf.iter)
-        m_phi_i, var_phi_i, info = dep_master.run(conf.iter)
+        m_phi_i, cov_phi_i, info = dep_master.run(conf.iter)
         if info:
             raise RuntimeError('Dep algorithm failed with error code: {}'
                                .format(info))
@@ -310,7 +310,7 @@ def main(model_name, conf, ret_master=False):
                 os.path.join(RES_PATH, filename),
                 conf      = conf.__dict__,
                 m_phi_i   = m_phi_i,
-                var_phi_i = var_phi_i,
+                cov_phi_i = cov_phi_i,
                 m_phi     = m_phi,
                 var_phi   = var_phi,
                 **presults
@@ -353,8 +353,11 @@ def main(model_name, conf, ret_master=False):
                 **conf.mc_full_opt
             )
         samp = fit.extract(pars='phi')['phi']
+        nsamp = samp.shape[0]
         m_phi_full = samp.mean(axis=0)
-        var_phi_full = samp.var(axis=0, ddof=1)
+        samp -= m_phi_full
+        cov_phi_full = samp.T.dot(samp)
+        cov_phi_full /= nsamp -1
         
         # Get mean and var of inferred variables
         presults = {}
@@ -376,7 +379,7 @@ def main(model_name, conf, ret_master=False):
                 os.path.join(RES_PATH, filename),
                 conf         = conf.__dict__,
                 m_phi_full   = m_phi_full,
-                var_phi_full = var_phi_full,
+                cov_phi_full = cov_phi_full,
                 **presults
             )
             print "Full model results saved."
