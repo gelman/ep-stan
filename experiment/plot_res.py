@@ -33,7 +33,7 @@ def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
     
     """
     choS1 = cho_factor(S1)
-    if log_diag_cho_S0 is None:
+    if sum_log_diag_cho_S0 is None:
         sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S0)[0])))
     dm = m1-m0
     KL_div = (
@@ -157,7 +157,7 @@ def plot_results(model_name, model_id=None):
     for i in xrange(niter):
         KL_divs[i] = kl_mvn(m_phi_full, cov_phi_full, m_phi_i[i], cov_phi_i[i],
                             sum_log_diag_cho_S0)
-    plt.plot(np.arange(niter+1), KL_divs)
+    plt.plot(np.arange(niter), KL_divs)
     plt.ylabel('Approximated KL divergence')
     plt.xlabel('Iteration')
     
@@ -167,8 +167,13 @@ def plot_results(model_name, model_id=None):
     axs[0].plot(np.arange(niter+1),
                 np.vstack((m_phi_i, res_d[0][0])))
     axs[0].set_ylabel('Mean of $\phi$')
-    axs[1].plot(np.arange(niter+1),
-                np.sqrt(np.vstack((np.diag(cov_phi_i), res_d[0][1]))))
+    axs[1].plot(
+        np.arange(niter+1),
+        np.sqrt(np.vstack((
+            np.diagonal(cov_phi_i, axis1=1, axis2=2),
+            res_d[0][1]
+        )))
+    )
     axs[1].set_ylabel('Std of $\phi$')
     axs[1].set_xlabel('Iteration')
     

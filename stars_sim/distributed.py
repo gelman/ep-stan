@@ -253,7 +253,7 @@ def main(filename='res.npz'):
     # Run the algorithm for `EP_ITER` iterations
     print "Run distributed EP algorithm for {} iterations.".format(EP_ITER)
     m_phi, cov_phi, info = dep_master.run(EP_ITER)
-    var_phi = np.diag(cov_phi)
+    var_phi = np.diagonal(cov_phi, axis1=1, axis2=2)
     if info:
         raise RuntimeError('Dep algorithm failed with error code: {}'
                                .format(info))
