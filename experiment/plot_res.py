@@ -1,7 +1,14 @@
 """Plot the results of the experiment from a result files.
 
 Execute with:
-    $ python plot_res.py <model_name> [<model_id>]
+    $ python plot_res.py <model_name> [<model_id>, [<dist_id>]]
+
+The optional <dist_id> can be used to select the distributed results from file 
+    res_d_<model_name>_<model_id>_<dist_id>.npz
+while the true values and the full values are still obtained from
+    ..._<model_name>_<model_id>.npz
+If <dist_id> is omitted, the same file ending is used also for distributed 
+results. If also <model_id> is omitted, no file ending are used.
 
 The most recent version of the code can be found on GitHub:
 https://github.com/gelman/ep-stan
@@ -100,14 +107,18 @@ def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None,
     return ax
 
 
-def plot_results(model_name, model_id=None):
+def plot_results(model_name, model_id=None, dist_id=None):
     """Plot some results."""
     
-    # Handle optional model id
+    # Handle optional model id and dist id
     if model_id:
         file_ending = model_name + '_' + model_id
     else:
         file_ending = model_name
+    if dist_id:
+        file_ending_dist = file_ending + '_' + dist_id
+    else:
+        file_ending_dist = file_ending
     
     # Load true values
     true_vals_file = np.load(
@@ -119,7 +130,7 @@ def plot_results(model_name, model_id=None):
     
     # Load distributed result file
     res_d_file = np.load(
-        os.path.join(RES_PATH, 'res_d_{}.npz'.format(file_ending)))
+        os.path.join(RES_PATH, 'res_d_{}.npz'.format(file_ending_dist)))
     m_phi_i = res_d_file['m_phi_i']
     cov_phi_i = res_d_file['cov_phi_i']
     res_d = [(res_d_file['m_'+par], res_d_file['var_'+par]) for par in pnames]
@@ -210,10 +221,8 @@ def plot_results(model_name, model_id=None):
 
 
 if __name__ == '__main__':
-    if len(os.sys.argv) == 2:
-        plot_results(os.sys.argv[1])
-    elif len(os.sys.argv) == 3:
-        plot_results(os.sys.argv[1], os.sys.argv[2])
+    if len(os.sys.argv) > 1 and len(os.sys.argv) < 5:
+        plot_results(*os.sys.argv[1:])
     else:
         raise TypeError("Provide the model name as command line argument")
 
