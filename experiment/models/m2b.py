@@ -104,7 +104,7 @@ class model(object):
         rnd_data = np.random.RandomState(seed=seed)
         # Draw random seed for input covariance for consistency in randomness
         # even if not needed
-        seed_input_cov = rnd_data.randint(2**32-1)
+        seed_input_cov = rnd_data.randint(2**31-1)
         
         # Randomise input covariance structure if needed
         if Sigma_x == 'rand':
