@@ -16,11 +16,11 @@ Definition:
     y ~ N(alpha_j + beta_j*' * x, sigma)
     alpha ~ Laplace(mu_a, sigma_a)
     beta_*d ~ Laplace(mu_b_d, sigma_b_d), for all d
-    mu_a ~ N(0, sigma_maH)
-    mu_b_d ~ N(0, sigma_mbH), for all d
+    mu_a ~ Laplace(0, sigma_maH)
+    mu_b_d ~ Laplace(0, sigma_mbH), for all d
     sigma ~ log-N(0, sigma_H)
-    sigma_a ~ log-N(0, sigma_aH)
-    sigma_b_d ~ log-N(0, sigma_bH), for all d
+    sigma_a ~ half-Cauchy(0, sigma_aH)
+    sigma_b_d ~ half-Cauchy(0, sigma_bH), for all d
     phi = [log(sigma), mu_a, log(sigma_a), mu_b, log(sigma_b)]
 
 """
@@ -45,10 +45,10 @@ from common import data, calc_input_param_lin_reg, rand_corr_vine
 # If SIGMA is None, it is sampled from log-N(0,SIGMA_H)
 SIGMA = 1
 SIGMA_H = None
-# If MU_A is None, it is sampled from N(0,SIGMA_MA)
+# If MU_A is None, it is sampled from Laplace(0,SIGMA_MA)
 MU_A = 0.1
 SIGMA_MA = None
-# If SIGMA_A is None, it is sampled from log-N(0,SIGMA_SA)
+# If SIGMA_A is None, it is sampled from half-Cauchy(0,SIGMA_SA)
 SIGMA_A = 1
 SIGMA_SA = None
 SIGMA_MB = 0
@@ -152,15 +152,15 @@ class model(object):
         else:
             sigma = SIGMA
         if SIGMA_A is None:
-            sigma_a = np.exp(rnd_data.randn()*SIGMA_SA)
+            sigma_a = np.abs(rnd_data.standard_cauchy()*SIGMA_SA)
         else:
             sigma_a = SIGMA_A
         if MU_A is None:
-            mu_a = rnd_data.randn()*SIGMA_MA
+            mu_a = rnd_data.laplace()*SIGMA_MA
         else:
             mu_a = MU_A
-        sigma_b = np.exp(rnd_data.randn(D)*SIGMA_SB)
-        mu_b = rnd_data.randn(D)*SIGMA_MB
+        sigma_b = np.abs(rnd_data.standard_cauchy(D)*SIGMA_SB)
+        mu_b = rnd_data.laplace(size=D)*SIGMA_MB
         alpha_j = mu_a + rnd_data.laplace(size=J)*sigma_a
         beta_j = mu_b + rnd_data.laplace(size=(J,D))*sigma_b
         
