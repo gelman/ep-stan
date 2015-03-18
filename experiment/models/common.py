@@ -18,11 +18,11 @@ R_SQUARED = 0.5
 # ====== Classification uncertainity parameters ================================
 # ------ Provided values -------------------------
 # Classification percentage threshold
-P_0 = 0.1
+P_0 = 0.2
 # Tail probability threshold
-GAMMA_0 = 0.025
+GAMMA_0 = 0.01
 # Min linear predictor term standard deviation
-SIGMA_F0 = 0.5
+SIGMA_F0 = 0.25
 # ------ Precalculated values --------------------
 ERFINVGAMMA0 = erfinv(2*GAMMA_0-1)
 LOGITP0 = logit(P_0)
