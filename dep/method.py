@@ -19,6 +19,7 @@ from __future__ import division
 import sys
 import numpy as np
 from scipy import linalg
+from sklearn.covariance import GraphLassoCV
 
 from util import (
     invert_normal_params,
@@ -74,7 +75,7 @@ class Worker(object):
     }
     
     # Available values for option `prec_estim`
-    PREC_ESTIM_OPTIONS = ('sample', 'olse')
+    PREC_ESTIM_OPTIONS = ('sample', 'olse', 'glassocv')
     
     RESERVED_STAN_PARAMETER_NAMES = ['X', 'y', 'N', 'D', 'mu_phi', 'Omega_phi']
     
@@ -162,6 +163,10 @@ class Worker(object):
             raise ValueError("Invalid value for option `prec_estim`")
         if self.prec_estim != 'sample':
             self.prec_estim_skip = options['prec_estim_skip']
+        else:
+            self.prec_estim_skip = 0
+        if self.prec_estim == 'glassocv':
+            self.glassocv = GraphLassoCV()
         
         # Smoothing
         self.smooth = options['smooth']
@@ -301,6 +306,8 @@ class Worker(object):
                 unbias_k = (self.nsamp-self.dphi-2)
                 dQi *= unbias_k
                 dri *= unbias_k
+                if self.prec_estim_skip > 0:
+                    self.prec_estim_skip -= 1
             
             # Optimal linear shrinkage estimate
             elif self.prec_estim == 'olse':
@@ -308,6 +315,15 @@ class Worker(object):
                 np.divide(St, self.nsamp, out=dQi)
                 # Estimate
                 olse(dQi, self.nsamp, P=self.Q, out='in_place')
+                np.dot(dQi, mt, out=dri)
+            
+            # Graphical lasso with cross validation
+            elif self.prec_estim == 'glassocv':
+                # Fit
+                self.glassocv.fit(samp)
+                print ', glasso alpha: {:.2}'.format(self.glassocv.alpha_)
+                np.copyto(dQi, self.glassocv.precision_.T)
+                # Calculate corresponding r
                 np.dot(dQi, mt, out=dri)
             
             else:
@@ -529,12 +545,14 @@ class Master(object):
         the sampling on the first iteration, and strings 'random' and '0' are
         the only acceptable values for this argument.
     
-    prec_estim : {'sample', 'olse'}
+    prec_estim : {'sample', 'olse', 'glassocv'}
         Method for estimating the precision matrix from the tilted distribution
         samples. The available methods are:
             'sample'    : basic sample estimate
             'olse'      : optimal linear shrinkage estimate (see util.olse)
-        The default method is 'sample'.
+            'glassocv'  : graphical lasso estimate with cross validation
+        N.B. Currently 'glassocv' does not work with smoothing. The default 
+        method is 'sample'.
     
     prec_estim_skip : int
         Non-negative integer indicating on how many iterations from the begining

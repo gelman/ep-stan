@@ -8,6 +8,7 @@ Python code supplement for "Expectation propagation as a way of life"
 - scipy (0.14.0)
 - cython (0.21.1)
 - pystan (2.5.0.0)
+- sklearn (0.14.1)
 - matplotlib (1.4.0) (only for plotting the results)
 
 ### Setup

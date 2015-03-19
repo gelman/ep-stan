@@ -20,8 +20,8 @@ optional arguments:
   --npg P [P ...]       number of observations per group (constant or min max)
   --iter N              number of distributed EP iterations
   --prec_estim S        estimate method for tilted distribution precision
-                        matrix, available options are sample and olse (see
-                        dep.Master)
+                        matrix, available options are sample, olse and glassocv
+                        (see dep.Master)
   --method {both,distributed,full,none}
                         which models are fit
   --id S                optional id appended to the end of the result files
