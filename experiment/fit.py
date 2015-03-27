@@ -282,6 +282,22 @@ def main(model_name, conf, ret_master=False):
               .format(conf.iter)
         m_phi_i, cov_phi_i, info = dep_master.run(conf.iter)
         if info:
+            # Save results until failure
+            if conf.save_res:
+                if not os.path.exists(RES_PATH):
+                    os.makedirs(RES_PATH)
+                if conf.id:
+                    filename = 'res_d_{}_{}.npz'.format(model_name, conf.id)
+                else:
+                    filename = 'res_d_{}.npz'.format(model_name)
+                np.savez(
+                    os.path.join(RES_PATH, filename),
+                    conf      = conf.__dict__,
+                    m_phi_i   = m_phi_i,
+                    cov_phi_i = cov_phi_i,
+                    last_iter = dep_master.iter
+                )
+                print "Uncomplete distributed model results saved."
             raise RuntimeError('Dep algorithm failed with error code: {}'
                                .format(info))
         print "Form the final approximation " \
@@ -358,6 +374,15 @@ def main(model_name, conf, ret_master=False):
         samp -= m_phi_full
         cov_phi_full = samp.T.dot(samp)
         cov_phi_full /= nsamp -1
+        
+        # Mean stepsize
+        steps = [np.mean(p['stepsize__'])
+                 for p in fit.get_sampler_params()]
+        print '    mean stepsize: {:.4}'.format(np.mean(steps))
+        # Max Rhat (from all but last row in the last column)
+        print '    max Rhat: {:.4}'.format(
+            np.max(fit.summary()['summary'][:-1,-1])
+        )
         
         # Get mean and var of inferred variables
         presults = {}

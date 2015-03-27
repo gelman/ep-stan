@@ -62,6 +62,7 @@ class Worker(object):
         'prec_estim_skip' : 0,
         'smooth'          : None,
         'smooth_ignore'   : 1,
+        'verbose'         : True,
         'tmp_fix_32bit'   : False # FIXME: Temp fix for RandomState problem
     }
     
@@ -185,6 +186,9 @@ class Worker(object):
             self.prev_mt = [np.empty(dphi)
                             for _ in range(len(self.smooth))]
         
+        # Verbose option
+        self.verbose = options['verbose']
+        
         # FIXME: Temp fix for RandomState problem in 32-bit Python
         if options['tmp_fix_32bit']:
             self.fix32bit = True
@@ -271,6 +275,16 @@ class Worker(object):
                 **self.stan_params
             )
         
+        if self.verbose:
+            # Mean stepsize
+            steps = [np.mean(p['stepsize__'])
+                     for p in self.fit.get_sampler_params()]
+            print '\n    mean stepsize: {:.4}'.format(np.mean(steps))
+            # Max Rhat (from all but last row in the last column)
+            print '    max Rhat: {:.4}'.format(
+                np.max(self.fit.summary()['summary'][:-1,-1])
+            )
+        
         if self.init_prev:
             # Store the last sample of each chain
             if isinstance(self.stan_params['init'], basestring):
@@ -321,7 +335,8 @@ class Worker(object):
             elif self.prec_estim == 'glassocv':
                 # Fit
                 self.glassocv.fit(samp)
-                print ', glasso alpha: {:.2}'.format(self.glassocv.alpha_)
+                if self.verbose:
+                    print '    glasso alpha: {:.4}'.format(self.glassocv.alpha_)
                 np.copyto(dQi, self.glassocv.precision_.T)
                 # Calculate corresponding r
                 np.dot(dQi, mt, out=dri)
