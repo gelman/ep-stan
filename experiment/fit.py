@@ -302,8 +302,7 @@ def main(model_name, conf, ret_master=False):
                                .format(info))
         print "Form the final approximation " \
               "by mixing the samples from all the sites."
-        S_phi, m_phi = dep_master.mix_phi()
-        var_phi = np.diag(S_phi)
+        cov_phi, m_phi = dep_master.mix_phi()
         
         # Get mean and var of inferred variables
         pms, pvars = dep_master.mix_pred(pnames, pmaps, pshapes)
@@ -328,7 +327,7 @@ def main(model_name, conf, ret_master=False):
                 m_phi_i   = m_phi_i,
                 cov_phi_i = cov_phi_i,
                 m_phi     = m_phi,
-                var_phi   = var_phi,
+                cov_phi   = cov_phi,
                 **presults
             )
             print "Distributed model results saved."

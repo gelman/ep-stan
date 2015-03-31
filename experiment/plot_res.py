@@ -133,7 +133,15 @@ def plot_results(model_name, model_id=None, dist_id=None):
         os.path.join(RES_PATH, 'res_d_{}.npz'.format(file_ending_dist)))
     m_phi_i = res_d_file['m_phi_i']
     cov_phi_i = res_d_file['cov_phi_i']
-    res_d = [(res_d_file['m_'+par], res_d_file['var_'+par]) for par in pnames]
+    res_d = [
+        (   res_d_file['m_'+par],
+            (   res_d_file['var_'+par]
+                if par != 'phi' else
+                np.diag(res_d_file['cov_'+par])
+            )
+        )
+        for par in pnames
+    ]
     res_d_file.close()
     
     # Load full result file
