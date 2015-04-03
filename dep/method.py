@@ -602,11 +602,11 @@ class Master(object):
     df_decay : float, optional
         The decay multiplier for the damping factor used if the resulting
         posterior covariance or cavity distributions are not positive definite.
-        Default value is 0.9.
+        Default value is 0.8.
     
     df_treshold : float, optional
         The treshold value for the damping factor. If the damping factor decays
-        below this value, the algorithm is stopped. Default is 1e-8.
+        below this value, the algorithm is stopped. Default is 1e-6.
     
     Notes
     -----
@@ -633,10 +633,10 @@ class Master(object):
         'prior'            : None,
         'df0'              : None,
         'df0_exp_start'    : 1.0,
-        'df0_exp_end'      : 0.2,
-        'df0_exp_speed'    : 0.1,
+        'df0_exp_end'      : 0.0,
+        'df0_exp_speed'    : 0.18,
         'df_decay'         : 0.8,
-        'df_treshold'      : 1e-8,
+        'df_treshold'      : 1e-6,
         'overwrite_model'  : False
     }
     
