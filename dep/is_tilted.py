@@ -24,7 +24,6 @@ import numpy as np
 from scipy import linalg
 
 from util import invert_normal_params
-from cython_util import copy_triu_to_tril, is_cov_sum
 
 
 class Worker(object):
@@ -207,8 +206,7 @@ class Worker(object):
         
         # Sample covariance
         samp -= mt
-        is_cov_sum(samp, w, St.T)
-        copy_triu_to_tril(St.T)
+        np.einsum('ki,kj,k->ij',samp, samp, w, out=St.T)
         St /= w_sum
         
         try:

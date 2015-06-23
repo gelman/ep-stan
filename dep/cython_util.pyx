@@ -14,54 +14,6 @@ ctypedef np.float64_t DTYPE_t
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def is_cov_sum(np.ndarray[DTYPE_t, ndim=2] samp, np.ndarray[DTYPE_t, ndim=1] w,
-               np.ndarray[DTYPE_t, ndim=2] out):
-    """Summation related to the sample covariance in importance sampling.
-    
-    Calculates np.einsum('ki,kj,k->ij',samp, samp, w) only for the upper
-    triangular. The lower triangular of the array out is not modified.
-    
-    Parameters
-    ----------
-    samp : ndarray
-        The two dimensional input array of shape (nsamp, ndim). Possibly faster 
-        with C-contiguous array.
-    
-    w : ndarray
-        The importance weight array of length nsamp.
-    
-    out : ndarray
-        The output array of shape (ndim, ndim). Preferably C-contiguous.
-    
-    Returns
-    -------
-    out : ndarray
-        The output array with the result in the upper triangular.
-    
-    """
-    cdef Py_ssize_t n = samp.shape[0]
-    cdef Py_ssize_t d = samp.shape[1]
-    if w.shape[0] != n:
-        raise ValueError("Arrays `samp` and `w` shapes mismatch")
-    if out.shape[0] != d or out.shape[1] != d:
-        raise ValueError("Output array shape mismatch")
-    
-    cdef Py_ssize_t i, j, k
-    cdef DTYPE_t curkiw
-    # Initialise output array upper trangular
-    for i in range(d):
-        for j in range(i,d):
-            out[i,j] = 0
-    # Calculate
-    for k in range(n):
-        for i in range(d):
-            curkiw = samp[k,i] * w[k]
-            for j in range(i,d):
-                out[i,j] += curkiw * samp[k,j]
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def fro_norm_squared(np.ndarray[DTYPE_t, ndim=2] A):
     """Squared Frobenius norm of matrix.
     
