@@ -14,7 +14,7 @@ Python code supplement for "Expectation propagation as a way of life"
 N.B. The program does not work correctly in some scipy builds because of an 
 issue in the in-place operation of dpotri Lapack-routine with C- or F-order 
 matrices. In some builds, the in-place operation works for F-order matrices but 
-not for C-order matrices, where as in some builds, it works the opposite way. 
+not for C-order matrices, whereas in some builds, it works the opposite way. 
 The former behaviour is assumed in this program. 
 
 ### Setup
