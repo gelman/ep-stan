@@ -27,7 +27,9 @@ Definition:
 from __future__ import division
 import numpy as np
 from scipy.linalg import cholesky
+from scipy.stats import norm
 from common import data, calc_input_param_lin_reg, rand_corr_vine
+from dep.util import distribute_groups
 
 
 # ------------------------------------------------------------------------------
@@ -63,6 +65,9 @@ B_ABS_MIN_SUM = 1e-4
 # ------------------------------------------------------------------------------
 # <<<<<<<<<<<<< Configurations end <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # ------------------------------------------------------------------------------
+
+
+
 
 
 class model(object):
@@ -221,5 +226,79 @@ class model(object):
         shapes = ((self.J,), (self.D,), ())
         hiers = (0, None, None)
         return names, shapes, hiers
+    
+    
+    def get_liks(self, K, data):
+        
+        if K < 2:
+            raise ValueError("K should be at least 2.")
+        
+        elif K < self.J:
+            # ------ Many groups per site: combine groups ------
+            Nk, Nj_k, j_ind_k = distribute_groups(self.J, K, data.Nj)
+            k_lim = np.hstack([0, np.cumsum(Nj_k)])
+            liks = []
+            for k in xrange(K):
+                start = data.j_lim[k_lim[k]]
+                end = data.j_lim[k_lim[k+1]]
+                liks.append(
+                    _lik(
+                        data.X[start:end],
+                        data.y[start:end],
+                        Nj_k[k],
+                        data.j_lim[k_lim[k]:k_lim[k+1]+1] - start
+                    )
+                )
+        
+        elif K == self.J:
+            # ------ One group per site ------
+            liks = []
+            for k in xrange(K):
+                start = data.j_lim[k]
+                end = data.j_lim[k+1]
+                liks.append(
+                    _lik(
+                        data.X[start:end],
+                        data.y[start:end],
+                        1,
+                        [0, end-start]
+                    )
+                )
+        
+        elif K <= data.N:
+            raise ValueError("Splitting groups is not implemented")
+        else:
+            raise ValueError("K cant be greater than number of samples")
+        
+        return liks
+
+
+
+class _lik(object):
+    
+    def __init__(self, X, y, Nj, j_lim):
+        self.X = X
+        self.y = y
+        self.Nj = Nj
+        self.j_lim = j_lim
+    
+    def __call__(self, phi, rng=None, out=None):
+        # Handle arguments
+        nsamp = phi.shape[0]
+        if rng is None:
+            rng = np.random.RandomState()
+        if out is None:
+            out = np.empty(nsamp)
+        # Calculate
+        alpha = rng.randn(self.Nj, nsamp).T
+        np.exp(phi[:,1], out=out)
+        alpha *= out[:,None]
+        bx = np.dot(self.X, phi[:,2:].T).T
+        for j in xrange(self.Nj):
+            bx[:,self.j_lim[j]:self.j_lim[j+1]] += alpha[:,j][:,None]
+        np.exp(phi[:,0], out=out)
+        logpdfs = norm.logpdf(self.y, loc=bx, scale=out[:,None])
+        np.sum(logpdfs, axis=1, out=out)
+        np.exp(out, out=out)
 
 

@@ -35,12 +35,12 @@ class Worker(object):
         The index of this site
     
     lik : function
-        The site's likelihood function that takes nsamp samples of the shared
-        parameters phi (ndarray of sizse nsamp x dphi) as input and outputs the
-        corresponding likelihood. The local parameters has to be sampled for
-        each sample of phi within this function. The function must also accept
-        np.random.RandomState sampler as named argument `rng` and output array
-        as named argument `out`.
+        The site's likelihood function (or callable in general) that takes 
+        nsamp samples of the shared parameters phi (ndarray of sizse nsamp x 
+        dphi) as input and outputs the corresponding likelihood. The local 
+        parameters has to be sampled for each sample of phi within this 
+        function. The function must also accept np.random.RandomState sampler 
+        as named argument `rng` and output array as named argument `out`.
     
     dphi : int
         The length of the parameter vector phi.
@@ -103,7 +103,7 @@ class Worker(object):
                 self.temp_M = temp_M.T
             else:
                 raise ValueError('Provided temporary matrix is not contiguous')
-            if self.temp.M.shape != (dphi,dphi):
+            if self.temp_M.shape != (dphi,dphi):
                 raise ValueError('Provided temporary matrix shape mismatch')
         if temp_v is None:
             self.temp_v = np.empty(nsamp)
@@ -112,7 +112,7 @@ class Worker(object):
                 self.temp_v = temp_v
             else:
                 raise ValueError('Provided temporary vector is not contiguous')
-            if self.temp.v.shape != (nsamp,):
+            if self.temp_v.shape != (nsamp,):
                 raise ValueError('Provided temporary vector shape mismatch')
         
         # Random seed
@@ -242,7 +242,7 @@ class Master(object):
     Parameters
     ----------
     liks : list of functions
-        The site's likelihood functions that takes nsamp samples of the shared
+        The sites' likelihood functions that takes nsamp samples of the shared
         parameters phi (ndarray of sizse nsamp x dphi) as input and outputs the
         corresponding likelihood. The local parameters has to be sampled for
         each sample of phi within this function. The function must also accept
