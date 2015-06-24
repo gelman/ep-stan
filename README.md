@@ -11,6 +11,12 @@ Python code supplement for "Expectation propagation as a way of life"
 - sklearn (0.14.1)
 - matplotlib (1.4.0) (only for plotting the results)
 
+N.B. The program does not work correctly in some scipy builds because of an 
+issue in the in-place operation of dpotri Lapack-routine with C- or F-order 
+matrices. In some builds, the in-place operation works for F-order matrices but 
+not for C-order matrices, where as in some builds, it works the opposite way. 
+The former behaviour is assumed in this program. 
+
 ### Setup
 Compile the Cython utilities with `python setup.py build_ext --inplace`.
 
