@@ -70,6 +70,9 @@ from __future__ import division
 import os, argparse
 import numpy as np
 
+# Raise error instead of warnings in floating point arithmetic issues
+np.seterr(all='raise')
+
 # Add parent dir to sys.path if not present already. This is only done because
 # of easy importing of the package dep. Adding the parent directory into the
 # PYTHONPATH works as well.
@@ -83,7 +86,7 @@ if os.path.exists(os.path.join(PARENT_PATH, 'dep')):
         os.sys.path.insert(0, PARENT_PATH)
 
 from dep.is_tilted import Master
-from dep.util import load_stan, distribute_groups, suppress_stdout
+from dep.util import load_stan, suppress_stdout
 
 
 CONFS = ['J','D', 'K', 'npg', 'iter', 'cor_input', 'method', 'id',

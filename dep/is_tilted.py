@@ -52,7 +52,7 @@ class Worker(object):
     rng : {None, int, np.random.RandomState}, optional
         The seed for the sampling
     
-    temp_v, temp_M : ndarray, optional
+    temp_v : ndarray, optional
         Temporary arrays for internal calculations of shapes (nsamp,) and
         (dphi,dphi) respectively. If not provided, new arrays are allocated.
     
@@ -64,8 +64,7 @@ class Worker(object):
     
     """
     
-    def __init__(self, index, lik, dphi, nsamp=1000, rng=None, temp_v=None,
-                 temp_M=None):
+    def __init__(self, index, lik, dphi, nsamp=1000, rng=None, temp_v=None):
         
         # Store some instance variables
         self.index = index
@@ -92,19 +91,10 @@ class Worker(object):
         self.Q = None
         self.r = None
         
-        # Temporary arrays for calculations
-        if temp_M is None:
-            self.temp_M = np.empty((dphi,dphi), order='F')
-        else:
-            # Check if F-contiguous
-            if temp_M.flags.farray:
-                self.temp_M = temp_M
-            elif temp_M.T.flags.farray:
-                self.temp_M = temp_M.T
-            else:
-                raise ValueError('Provided temporary matrix is not contiguous')
-            if self.temp_M.shape != (dphi,dphi):
-                raise ValueError('Provided temporary matrix shape mismatch')
+        # Array for cholesky of the cavity distribution
+        self.cav_cho = np.empty((dphi,dphi), order='F')
+        
+        # Temporary array for calculations
         if temp_v is None:
             self.temp_v = np.empty(nsamp)
         else:
@@ -148,8 +138,8 @@ class Worker(object):
         
         # Check if positive definite and solve the mean
         try:
-            np.copyto(self.temp_M, self.Mat)
-            cho = linalg.cho_factor(self.temp_M, overwrite_a=True)
+            np.copyto(self.cav_cho, self.Mat)
+            cho = linalg.cho_factor(self.cav_cho, overwrite_a=True)
             linalg.cho_solve(cho, self.vec, overwrite_b=True)
         except linalg.LinAlgError:
             # Not positive definite
@@ -187,18 +177,21 @@ class Worker(object):
         """
         
         if self.phase != 1:
-            raise RuntimeError('Cavity has to be calculated before tilted.')
+            raise RuntimeError('Cavity has to be calculated before tilted.')        
+        
+        # Sample phi from cavity distribution
+        samp = self.rng.standard_normal(size=(self.nsamp,self.dphi))
+        linalg.solve_triangular(self.cav_cho, samp.T, overwrite_b=True)
+        samp += self.vec
+        
+        # Get importance weights
+        w = self.temp_v
+        self.lik(samp, rng=self.rng, out=w)
+        w_sum = w.sum()
         
         # Assign arrays
         St = self.Mat
         mt = self.vec
-        w = self.temp_v
-        
-        # Sample phi (F-contiguous)
-        samp = self.rng.standard_normal(size=(self.dphi,self.nsamp)).T
-        # Get importance weights
-        self.lik(samp, rng=self.rng, out=w)
-        w_sum = w.sum()
         
         # Sample mean
         np.einsum('ij,i->j', samp, w, out=mt)
@@ -361,13 +354,12 @@ class Master(object):
             # Use provided initial damping factor function
             self.df0 = df0
         
-        # Allocate common temp arrays for the workers
+        # Allocate common temp array for the workers
         w_temp_v = np.empty(nsamp)
-        w_temp_M = np.empty((dphi,dphi), order='F')
         
         # Initialise the workers
         self.workers = [
-            Worker(k, liks[k], dphi, nsamp, self.rng, w_temp_v, w_temp_M)
+            Worker(k, liks[k], dphi, nsamp, self.rng, w_temp_v)
             for k in range(self.K)
         ]
         

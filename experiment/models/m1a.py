@@ -300,5 +300,6 @@ class _lik(object):
         logpdfs = norm.logpdf(self.y, loc=bx, scale=out[:,None])
         np.sum(logpdfs, axis=1, out=out)
         np.exp(out, out=out)
+        return out
 
 
