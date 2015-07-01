@@ -299,6 +299,7 @@ class _lik(object):
         np.exp(phi[:,0], out=out)
         logpdfs = norm.logpdf(self.y, loc=bx, scale=out[:,None])
         np.sum(logpdfs, axis=1, out=out)
+        out -= out.max()
         np.exp(out, out=out)
         return out
 
