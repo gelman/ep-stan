@@ -202,6 +202,9 @@ class Worker(object):
         np.einsum('ki,kj,k->ij',samp, samp, w, out=St.T)
         St /= w_sum
         
+        # TODO: Covariance could be calculated in logarithms even further. This
+        # should be done in cython.
+        
         try:
             # Convert moment params to natural params
             invert_normal_params(St, mt, out_A=dQi, out_b=dri)
