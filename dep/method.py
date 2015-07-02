@@ -24,9 +24,10 @@ from sklearn.covariance import GraphLassoCV
 from util import (
     invert_normal_params,
     olse,
-    get_last_sample,
+    get_last_fit_sample,
     suppress_stdout,
-    load_stan
+    load_stan,
+    copy_fit_samples
 )
 
 
@@ -121,9 +122,6 @@ class Worker(object):
         self.Q = None
         self.r = None
         
-        # The last fit object
-        self.fit = None
-        
         # Temporary arrays for calculations
         self.temp_M = np.empty((dphi,dphi), order='F')
         self.temp_v = np.empty(dphi)
@@ -146,6 +144,11 @@ class Worker(object):
         self.stan_model = stan_model
         self.dphi = dphi
         self.iteration = 0
+        
+        # The last fit object
+        self.fit = None
+        # The names of the shared parameters in this
+        self.fit_pnames = list(u'phi[{}]'.format(i) for i in range(self.dphi))
         
         # Initialisation
         self.init_prev = options['init_prev']
@@ -289,12 +292,13 @@ class Worker(object):
             # Store the last sample of each chain
             if isinstance(self.stan_params['init'], basestring):
                 # No samples stored before ... initialise list of dicts
-                self.stan_params['init'] = get_last_sample(self.fit)
+                self.stan_params['init'] = get_last_fit_sample(self.fit)
             else:
-                get_last_sample(self.fit, out=self.stan_params['init'])
+                get_last_fit_sample(self.fit, out=self.stan_params['init'])
         
-        # TODO: Make a non-copying extract
-        samp = self.fit.extract(pars='phi')['phi']
+        # Extract samples
+        # TODO: preallocate space for samples
+        samp = copy_fit_samples(self.fit, self.fit_pnames)
         self.nsamp = samp.shape[0]
         
         # Assign arrays

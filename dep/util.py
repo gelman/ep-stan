@@ -396,12 +396,57 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         return S_hat, m_hat, True
 
 
-def get_last_sample(fit, out=None):
+def copy_fit_samples(fit, pnames, out=None):
+    """Copy the samples from PyStan fit object into F-order array.
+    
+    Parameters
+    ----------
+    fit : StanFit4<model_name>
+        Instance containing the fitted results.
+    pnames : list of string
+        List containing the names of the parameters in desired order.
+    out : ndarray, optional
+        The output array.
+    
+	Returns
+	-------
+	ndarray
+        Array of shape (n_samp, len(pnames)) containing the samples from all
+        the chains with burn-in removed.
+    
+    """
+    
+    # The following works at least for pystan version 2.5.0.0
+    ndim = len(pnames)
+    nchains = fit.sim['chains']
+    warmup = fit.sim['warmup2'][0]
+    niter = len(fit.sim['samples'][0]['chains'][pnames[0]])
+    nsamp_per_chain = niter - warmup
+    nsamp = nchains * nsamp_per_chain
+    if out is None:
+        # Initialise output array
+        out = np.empty((nsamp,ndim), order='F')
+    else:
+        if len(out) != nsamp or (ndim > 1 and out.shape[1] != ndim):
+            raise ValueError('Invalid output array')
+    # Extract the sample for each parameter and chain
+    for pi in range(len(pnames)):
+        i1 = 0
+        for c in range(nchains):
+            i2 = i1 + nsamp_per_chain
+            dst = out[i1:i2,pi]
+            src = fit.sim['samples'][c]['chains'][pnames[pi]][warmup:]
+            np.copyto(dst, src)
+            i1 = i2
+    return out
+
+
+def get_last_fit_sample(fit, out=None):
     """Extract the last sample from a PyStan fit object.
     
     Parameters
     ----------
-    fit :  StanFit4<model_name>
+    fit : StanFit4<model_name>
         Instance containing the fitted results.
     out : list of dict, optional
         The list into which the output is placed. By default a new list is
@@ -417,7 +462,7 @@ def get_last_sample(fit, out=None):
     """
     
     # The following works at least for pystan version 2.5.0.0
-    if not out:
+    if out is None:
         # Initialise list of dicts
         out = [{fit.model_pars[i] : np.empty(fit.par_dims[i], order='F')
                 for i in range(len(fit.model_pars))} 
