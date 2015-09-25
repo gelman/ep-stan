@@ -95,7 +95,7 @@ CONF_DEFAULT = dict(
     npg         = [40,60],
     iter        = 6,
     cor_input   = False,
-    prec_estim  = 'olse',
+    prec_estim  = 'sample',
     method      = 'both',
     id          = None,
     save_true   = True,
@@ -105,16 +105,16 @@ CONF_DEFAULT = dict(
     # MCMS sampler options for dEP method
     mc_opt      = dict(
         chains  = 4,
-        iter    = 500,
+        iter    = 400,
         warmup  = 200,
-        thin    = 2,
+        thin    = 1,
     ),
     # MCMS sampler options for full method
     mc_full_opt = dict(
         chains  = 4,
         iter    = 1000,
         warmup  = 500,
-        thin    = 2,
+        thin    = 1,
     )
 )
 
