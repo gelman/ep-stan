@@ -61,8 +61,6 @@ class Worker(object):
         'init_prev'       : True,
         'prec_estim'      : 'sample',
         'prec_estim_skip' : 0,
-        'smooth'          : None,
-        'smooth_ignore'   : 1,
         'verbose'         : True,
         'tmp_fix_32bit'   : False # FIXME: Temp fix for RandomState problem
     }
@@ -170,24 +168,7 @@ class Worker(object):
         else:
             self.prec_estim_skip = 0
         if self.prec_estim == 'glassocv':
-            self.glassocv = GraphLassoCV()
-        
-        # Smoothing
-        self.smooth = options['smooth']
-        if not self.smooth is None and len(self.smooth) == 0:
-            self.smooth = None
-        if not self.smooth is None:
-            # Memorise previous tilted distributions
-            self.smooth = np.asarray(self.smooth)
-            # Skip some first iterations
-            if options['smooth_ignore'] < 0:
-                raise ValueError("Arg. `smooth_ignore` has to be non-negative")
-            self.prev_stored = -options['smooth_ignore']
-            # Arrays from the previous iterations
-            self.prev_St = [np.empty((dphi,dphi), order='F')
-                            for _ in range(len(self.smooth))]
-            self.prev_mt = [np.empty(dphi)
-                            for _ in range(len(self.smooth))]
+            self.glassocv = GraphLassoCV(assume_centered=True)
         
         # Verbose option
         self.verbose = options['verbose']
@@ -301,27 +282,20 @@ class Worker(object):
         samp = copy_fit_samples(self.fit, self.fit_pnames)
         self.nsamp = samp.shape[0]
         
-        # Assign arrays
-        St = self.Mat
-        mt = self.vec
-        
-        # Sample mean and covariance
-        np.mean(samp, axis=0, out=mt)
-        samp -= mt
-        np.dot(samp.T, samp, out=St.T)
-        
-        if not self.smooth is None:
-            # Smoothen the distribution (use dri and dQi as temp arrays)
-            St, mt = self._apply_smooth(dri, dQi)
-        
         # Estimate precision matrix
         try:
             # Basic sample estimate
             if self.prec_estim == 'sample' or self.prec_estim_skip > 0:
+                # Mean
+                mt = np.mean(samp, axis=0, out=self.vec)
+                # Center samples
+                samp -= mt
+                # Sample covariance
+                np.dot(samp.T, samp, out=self.Mat.T)
                 # Convert moment params to natural params
                 invert_normal_params(St, mt, out_A=dQi, out_b=dri)
                 # Unbiased natural parameter estimates
-                unbias_k = (self.nsamp-self.dphi-2)
+                unbias_k = (self.nsamp - self.dphi - 2)
                 dQi *= unbias_k
                 dri *= unbias_k
                 if self.prec_estim_skip > 0:
@@ -329,14 +303,24 @@ class Worker(object):
             
             # Optimal linear shrinkage estimate
             elif self.prec_estim == 'olse':
-                # Normalise St into dQi
-                np.divide(St, self.nsamp, out=dQi)
+                # Mean
+                mt = np.mean(samp, axis=0, out=self.vec)
+                # Center samples
+                samp -= mt
+                # Sample covariance
+                np.dot(samp.T, samp, out=self.Mat.T)
+                # Normalise self.Mat into dQi
+                np.divide(self.Mat, self.nsamp, out=dQi)
                 # Estimate
                 olse(dQi, self.nsamp, P=self.Q, out='in_place')
                 np.dot(dQi, mt, out=dri)
             
             # Graphical lasso with cross validation
             elif self.prec_estim == 'glassocv':
+                # Mean
+                mt = np.mean(samp, axis=0, out=self.vec)
+                # Center samples
+                samp -= mt
                 # Fit
                 self.glassocv.fit(samp)
                 if self.verbose:
@@ -358,9 +342,6 @@ class Worker(object):
             self.phase = 0
             dQi.fill(0)
             dri.fill(0)
-            if not self.smooth is None:
-                # Reset tilted memory
-                self.prev_stored = 0
             if self.init_prev:
                 # Reset initialisation method
                 self.init = self.init_orig
@@ -371,91 +352,6 @@ class Worker(object):
         
         self.iteration += 1
         return pos_def
-    
-    
-    def _apply_smooth(self, temp_v, temp_M):
-        """Memorise and combine previous St and mt.
-        
-        After this:
-            self.Mat contains the smoothed unnormalised covariance estimate
-            self.vec contains the mean
-            self.nsamp contains the contributing sample size.
-        N.B. This method rotates aray holders in the instance. New arrays
-        self.Mat and self.vec are returned.
-        
-        """
-        
-        St = self.Mat
-        mt = self.vec
-        
-        if self.prev_stored < 0:
-            # Skip some first iterations ... no smoothing yet
-            self.prev_stored += 1
-            return St, mt
-        
-        elif self.prev_stored == 0:
-            # Store the first St and mt ... no smoothing yet
-            self.prev_stored += 1
-            np.copyto(self.prev_mt[0], mt)
-            np.copyto(self.prev_St[0], St)
-            return St, mt
-            
-        else:
-            # Smooth
-            pmt = self.prev_mt
-            pSt = self.prev_St
-            ps = self.prev_stored                
-            mt_new = self.temp_v
-            St_new = self.temp_M
-            # Calc combined mean
-            np.multiply(pmt[ps-1], self.smooth[ps-1], out=mt_new)
-            for i in range(ps-2,-1,-1):
-                np.multiply(pmt[i], self.smooth[i], out=temp_v)
-                mt_new += temp_v
-            mt_new += mt
-            mt_new /= 1 + self.smooth[:ps].sum()
-            # Calc combined covariance matrix
-            np.subtract(pmt[ps-1], mt_new, out=temp_v)
-            np.multiply(temp_v[:,np.newaxis], temp_v, out=St_new)
-            St_new *= self.smooth[ps-1]
-            for i in range(ps-2,-1,-1):
-                np.subtract(pmt[i], mt_new, out=temp_v)
-                np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
-                temp_M *= self.smooth[i]
-                St_new += temp_M
-            np.subtract(mt, mt_new, out=temp_v)
-            np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
-            St_new += temp_M
-            # N.B. This assumes that the same number of samples has been drawn
-            # in each iteration
-            St_new *= self.nsamp
-            for i in range(ps-1,-1,-1):
-                np.multiply(pSt[i], self.smooth[i], out=temp_M)
-                St_new += temp_M
-            St_new += St
-            # Set contributing sample size
-            self.nsamp = (1 + self.smooth[:ps].sum())*self.nsamp
-            
-            # Rotate array pointers
-            temp_M2 = pSt[-1]
-            temp_v2 = pmt[-1]
-            for i in range(len(self.smooth)-1,0,-1):
-                pSt[i] = pSt[i-1]
-                pmt[i] = pmt[i-1]
-            pSt[0] = St
-            pmt[0] = mt
-            # Redirect other pointers in the object
-            self.temp_M = temp_M2
-            self.temp_v = temp_v2
-            self.Mat = St_new
-            self.vec = mt_new
-            self.data['mu_phi'] = self.vec
-            self.data['Omega_phi'] = self.Mat.T                
-            
-            if self.prev_stored < len(self.smooth):
-                self.prev_stored += 1
-            
-            return St_new, mt_new
 
 
 class Master(object):
@@ -570,25 +466,11 @@ class Master(object):
             'sample'    : basic sample estimate
             'olse'      : optimal linear shrinkage estimate (see util.olse)
             'glassocv'  : graphical lasso estimate with cross validation
-        N.B. Currently 'glassocv' does not work with smoothing. The default 
-        method is 'sample'.
     
     prec_estim_skip : int
         Non-negative integer indicating on how many iterations from the begining
         the tilted distribution precision matrix is estimated using the default
         sample estimate instead of anything else.
-    
-    smooth : {None, array_like}, optional
-        A portion of samples from previous iterations to be taken into account
-        in current round. A list of arbitrary length consisting of positive
-        weights so that smooth[0] is a weight for the previous tilted
-        distribution, smooth[1] is a weight for the distribution two iterations
-        ago, etc. Empty list or None indicates that no smoothing is done
-        (default behaviour).
-    
-    smooth_ignore : int, optional
-        If smoothing is applied, this non-negative integer indicates how many
-        iterations are performed before the smoothing is started. Default is 1.
     
     df0 : float or function, optional
         The initial damping factor for each iteration. Must be a number in the
@@ -1144,8 +1026,6 @@ class Master(object):
         Mixes the last obtained MCMC samples from the tilted distributions to
         obtain an approximation to the posterior of required parameters.
         
-        N.B. Smoothing is not used here.
-        
         TODO: It would be nice to be able to weight the contributions of the 
         sites e.g. according to the number of samples. For example if there is 
         two sites, a and b, which both have 200 samples of alpha. Samples in a 
@@ -1315,15 +1195,5 @@ class Master(object):
             return mean[0], var[0]
         else:
             return mean, var
-    
-    
-    def reset_smoothing(self):
-        """Reset the smoothing and forget the previous stored moments."""
-        try:
-            for worker in self.workers:
-                worker.prev_stored = 0
-        except AttributeError:
-            raise RuntimeError('Smoothing is not enabled')
-
 
 
