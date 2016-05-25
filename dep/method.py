@@ -21,6 +21,9 @@ import numpy as np
 from scipy import linalg
 from sklearn.covariance import GraphLassoCV
 
+# LAPACK qr routine
+dgeqrf_routine = linalg.get_lapack_funcs('geqrf')
+
 from util import (
     invert_normal_params,
     olse,
@@ -290,11 +293,21 @@ class Worker(object):
                 mt = np.mean(samp, axis=0, out=self.vec)
                 # Center samples
                 samp -= mt
-                # Sample covariance
-                np.dot(samp.T, samp, out=self.Mat.T)
-                # Convert moment params to natural params
-                invert_normal_params(St, mt, out_A=dQi, out_b=dri)
-                # Unbiased natural parameter estimates
+                # Use QR-decomposition for obtaining Cholesky of the scatter
+                # matrix (only R needed, Q-less algorithm would be nice)
+                _, _, _, info = dgeqrf_routine(samp, overwrite_a=True)
+                if info:
+                    raise linalg.LinAlgError(
+                        "dgeqrf LAPACK routine failed with error code {}"
+                        .format(info)
+                    )
+                # Copy the relevant part of the array into contiguous memory
+                np.copyto(self.Mat, samp[:self.dphi,:])
+                invert_normal_params(
+                    self.Mat, mt, out_A=dQi, out_b=dri,
+                    cho_form=True
+                )
+                # Unbiased (for normal distr.) natural parameter estimates
                 unbias_k = (self.nsamp - self.dphi - 2)
                 dQi *= unbias_k
                 dri *= unbias_k
