@@ -490,13 +490,16 @@ class Master(object):
         range (0,1]. If a number is given, a constant initial damping factor for
         each iteration is used. If a function is given, it must return the
         desired initial damping factor when called with the iteration number.
-        If not provided, an exponentially decaying function from `df0_exp_start`
-        to `df0_exp_end` with speed `df0_exp_speed` is used (see the respective
-        parameters).
+        If not provided, sinusoidal transition from `df0_start` to `df0_end` is
+        used (see the respective parameters).
     
-    df0_exp_start, df0_exp_end, df0_exp_speed : float, optional
-        The parameters for the default exponentially decreasing initial damping
-        factor (see `df0`).
+    df0_start, df0_end, df0_iters: float, optional
+        The parameters for the default sinusoidally transitioning damping
+        factor (see `df0`). Transitions from `df0_start` to `df0_end` in
+        `df0_iters` iterations. Default None applies
+            df0_start = 1/K,
+            df0_end = 1/K + (1 - 1/K) / 2,
+            df0_iters = 20.
     
     df_decay : float, optional
         The decay multiplier for the damping factor used if the resulting
@@ -522,21 +525,21 @@ class Master(object):
     
     # List of constructor default keyword arguments
     DEFAULT_KWARGS = {
-        'A'                : {},
-        'A_n'              : {},
-        'A_k'              : {},
-        'site_ind'         : None,
-        'site_ind_ord'     : None,
-        'site_sizes'       : None,
-        'dphi'             : None,
-        'prior'            : None,
-        'df0'              : None,
-        'df0_exp_start'    : 1.0,
-        'df0_exp_end'      : 0.0,
-        'df0_exp_speed'    : 0.18,
-        'df_decay'         : 0.8,
-        'df_treshold'      : 1e-6,
-        'overwrite_model'  : False
+        'A'                 : {},
+        'A_n'               : {},
+        'A_k'               : {},
+        'site_ind'          : None,
+        'site_ind_ord'      : None,
+        'site_sizes'        : None,
+        'dphi'              : None,
+        'prior'             : None,
+        'df0'               : None,
+        'df0_start'         : None,
+        'df0_end'           : None,
+        'df0_iter'          : 20,
+        'df_decay'          : 0.8,
+        'df_treshold'       : 1e-6,
+        'overwrite_model'   : False
     }
     
     def __init__(self, site_model, X, y, **kwargs):
@@ -692,11 +695,24 @@ class Master(object):
         self.df_decay = kwargs['df_decay']
         self.df_treshold = kwargs['df_treshold']
         if kwargs['df0'] is None:
-            # Use default exponential decay function
-            df0_speed = kwargs['df0_exp_speed']
-            df0_start = kwargs['df0_exp_start']
-            df0_end = kwargs['df0_exp_end']
-            self.df0 = lambda i: np.exp(-df0_speed*(i-2)) * (df0_start - df0_end) + df0_end
+            # Use default sinusoidal function
+            df0_start = kwargs['df0_start']
+            if df0_start is None:
+                df0_start = 1.0 / self.K
+            df0_end = kwargs['df0_end']
+            if df0_end is None:
+                df0_end = ((self.K - 1) * 0.5 + 1) / self.K
+            df0_iter = kwargs['df0_iter']
+            self.df0 = lambda i: (
+                df0_start + (df0_end - df0_start) * 0.5 * (
+                    1 + np.sin(
+                        np.pi * (
+                            max(0, min(i-2, df0_iter-1))
+                            / (df0_iter - 1) - 0.5
+                        )
+                    )
+                )
+            )
         elif isinstance(kwargs['df0'], (float, int)):
             # Use constant initial damping factor
             if kwargs['df0'] <= 0 or kwargs['df0'] > 1:
