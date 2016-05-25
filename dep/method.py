@@ -1019,31 +1019,33 @@ class Master(object):
             raise RuntimeError("Can not mix samples before at least one "
                                "iteration has been done.")
         if not out_S:
-            out_S = np.empty((self.dphi,self.dphi), order='F')
+            out_S = np.zeros((self.dphi,self.dphi), order='F')
         if not out_m:
-            out_m = np.empty(self.dphi)
+            out_m = np.zeros(self.dphi)
         temp_M = np.empty((self.dphi,self.dphi), order='F')
         temp_v = np.empty(self.dphi)
         
-        # Combine mt from every site
-        np.copyto(out_m, self.workers[0].vec)
-        for k in xrange(1,self.K):
-            out_m += self.workers[k].vec
-        out_m /= self.K
-        
-        # Combine St from every site
-        np.subtract(self.workers[0].vec, out_m, out = temp_v)
-        np.multiply(temp_v[:,np.newaxis], temp_v, out=out_S)
-        out_S *= self.workers[0].nsamp
-        for k in xrange(1,self.K):
-            np.subtract(self.workers[k].vec, out_m, out = temp_v)
-            np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M)
-            temp_M *= self.workers[k].nsamp
-            out_S += temp_M
+        # Combine from all the sites
         nsamp_tot = 0
+        means = []
+        nsamps = []
         for k in xrange(self.K):
-            out_S += self.workers[k].Mat
-            nsamp_tot += self.workers[k].nsamp
+            samp = self.workers[k].fit.extract(pars='phi')['phi']
+            nsamp = samp.shape[0]
+            nsamps.append(nsamp)
+            nsamp_tot += nsamp
+            mt = np.mean(samp, axis=0)
+            means.append(mt)
+            samp -= mt
+            out_m += mt
+            samp.T.dot(samp, out=temp_M.T)
+            out_S += temp_M
+        out_m /= self.K
+        for k in xrange(self.K):
+            np.subtract(means[k], out_m, out=temp_v)
+            np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M.T)
+            temp_M *= nsamps[k]
+            out_S += temp_M
         out_S /= nsamp_tot - 1
         
         return out_S, out_m
