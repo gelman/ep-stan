@@ -66,6 +66,7 @@ https://github.com/gelman/ep-stan
 
 from __future__ import division
 import os, argparse
+from timeit import default_timer as timer
 import numpy as np
 
 # Add parent dir to sys.path if not present already. This is only done because
@@ -362,11 +363,14 @@ def main(model_name, conf, ret_master=False):
         
         # Sample and extract parameters
         with suppress_stdout():
+            time_full = timer()
             fit = stan_model.sampling(
                 data = data,
                 seed = seed,
                 **conf.mc_full_opt
             )
+            time_full = (timer() - time_full)
+        
         samp = fit.extract(pars='phi')['phi']
         nsamp = samp.shape[0]
         m_phi_full = samp.mean(axis=0)
@@ -377,6 +381,7 @@ def main(model_name, conf, ret_master=False):
         # Mean stepsize
         steps = [np.mean(p['stepsize__'])
                  for p in fit.get_sampler_params()]
+        print '    sampling time {}'.format(time_full)
         print '    mean stepsize: {:.4}'.format(np.mean(steps))
         # Max Rhat (from all but last row in the last column)
         print '    max Rhat: {:.4}'.format(

@@ -17,6 +17,7 @@ https://github.com/gelman/ep-stan
 
 from __future__ import division
 import sys
+from timeit import default_timer as timer
 import numpy as np
 from scipy import linalg
 from sklearn.covariance import GraphLassoCV
@@ -148,6 +149,8 @@ class Worker(object):
         
         # The last fit object
         self.fit = None
+        # The last elapsed time
+        self.last_time = None
         # The names of the shared parameters in this
         self.fit_pnames = list(u'phi[{}]'.format(i) for i in range(self.dphi))
         
@@ -257,10 +260,13 @@ class Worker(object):
         
         # Sample from the model
         with suppress_stdout():
+            time_start = timer()
             self.fit = self.stan_model.sampling(
                 data=self.data,
                 **self.stan_params
             )
+            time_end = timer()
+            self.last_time = (time_end - time_start)
         
         if self.verbose:
             # Mean stepsize
@@ -838,6 +844,9 @@ class Master(object):
             m_phi_s = np.zeros((niter, self.dphi))
             cov_phi_s = np.zeros((niter, self.dphi, self.dphi))
         
+        # Monitor sampling times
+        stimes = np.zeros(niter)
+        
         # Iterate niter rounds
         for cur_iter in xrange(niter):
             self.iter += 1
@@ -988,9 +997,17 @@ class Master(object):
                 else:
                     return self.INFO_ALL_SITES_FAIL
             
-            if verbose and calc_moments:
-                print "Iter {} done".format(self.iter)
+            # Store max sampling time
+            stimes[cur_iter] = max([w.last_time for w in self.workers])
             
+            if verbose and calc_moments:
+                print("Iter {} done, max sampling time {}"
+                      .format(self.iter, stimes[cur_iter]))
+        
+        if verbose:
+            print("{} iterations done\nTotal limiting sampling time: {}\n"
+                  .format(niter, stimes.sum()))
+        
         if calc_moments:
             return m_phi_s, cov_phi_s, self.INFO_OK
         else:
