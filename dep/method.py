@@ -499,13 +499,13 @@ class Master(object):
         If not provided, sinusoidal transition from `df0_start` to `df0_end` is
         used (see the respective parameters).
     
-    df0_start, df0_end, df0_iters: float, optional
+    df0_start, df0_end, df0_iter: float, optional
         The parameters for the default sinusoidally transitioning damping
         factor (see `df0`). Transitions from `df0_start` to `df0_end` in
-        `df0_iters` iterations. Default None applies
+        `df0_iter` iterations. Default None applies
             df0_start = 1/K,
             df0_end = 1/K + (1 - 1/K) / 2,
-            df0_iters = 20.
+            df0_iter = 20.
     
     df_decay : float, optional
         The decay multiplier for the damping factor used if the resulting

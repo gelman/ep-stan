@@ -219,6 +219,7 @@ def main(model_name, conf, ret_master=False):
             prior = prior,
             seed = conf.seed_mcmc,
             prec_estim = conf.prec_estim,
+            df0_iter = conf.iter,
             **conf.mc_opt
         )
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
