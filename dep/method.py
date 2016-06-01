@@ -450,6 +450,11 @@ class Master(object):
         The random seed used in the sampling. If not provided, a random seed is
         used.
     
+    init_site : scalar or ndarray, optional
+        The initial site precision matrix. If not provided, improper uniform
+        N(0,inf I), i.e. Q is allzeroes, is used. If scalar, N(0,A^2/K I),
+        where A = `init_site`, is used.
+    
     overwrite_model : bool, optional
         If a string for `site_model` is provided, the model is compiled even
         if a precompiled model is found (see util.load_stan).
@@ -539,6 +544,7 @@ class Master(object):
         'site_sizes'        : None,
         'dphi'              : None,
         'prior'             : None,
+        'init_site'         : None,
         'df0'               : None,
         'df0_start'         : None,
         'df0_end'           : None,
@@ -779,6 +785,16 @@ class Master(object):
         self.dQi = np.zeros((self.dphi,self.dphi,self.K), order='F')
         self.dri = np.zeros((self.dphi,self.K), order='F')
         
+        if not kwargs['init_site'] is None:
+            # Config initial site distributions
+            if isinstance(kwargs['init_site'], np.ndarray):
+                for k in xrange(self.K):
+                    np.copyto(self.Qi[:,:,k], kwargs['init_site'])
+            else:
+                diag_elem = self.K / (kwargs['init_site']**2)
+                for k in xrange(self.K):
+                    self.Qi[:,:,k].flat[::self.dphi+1] = diag_elem
+        
         # Track iterations
         self.iter = 0
     
@@ -869,7 +885,7 @@ class Master(object):
                 np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
                 np.add(Qi2.sum(2, out=Q), self.Q0, out=Q)
                 np.add(ri2.sum(1, out=r), self.r0, out=r)
-                # N.B. In the first iteration Q=Q0 and r=r0
+                # N.B. In the first iteration Q=Q0, r=r0 (if zero initialised)
                 
                 # Check for positive definiteness
                 cho_Q = S

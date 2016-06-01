@@ -182,6 +182,9 @@ def main(model_name, conf, ret_master=False):
     S0, m0, Q0, r0 = model.get_prior()
     prior = {'Q':Q0, 'r':r0}
     
+    # Set init_site to N(0,A**2/K I), where A = 10 * max(diag(S0))
+    init_site = 10 * np.max(np.diag(S0))
+    
     # Get parameter information
     pnames, pshapes, phiers = model.get_param_definitions()
     
@@ -220,6 +223,7 @@ def main(model_name, conf, ret_master=False):
             seed = conf.seed_mcmc,
             prec_estim = conf.prec_estim,
             df0_iter = conf.iter,
+            init_site = init_site,
             **conf.mc_opt
         )
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
