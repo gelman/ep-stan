@@ -729,7 +729,7 @@ class Master(object):
             # Use constant initial damping factor
             if kwargs['df0'] <= 0 or kwargs['df0'] > 1:
                 raise ValueError("Constant initial damping factor has to be "
-                                 "between zero and one")
+                                 "in (0,1]")
             self.df0 = lambda i: kwargs['df0']
         else:
             # Use provided initial damping factor function

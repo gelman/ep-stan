@@ -4,10 +4,12 @@ algorithm described in an article "Expectation propagation as a way of life"
 
 Execute with:
 $ python fit.py [-h] [--J P] [--D P] [--K P] [--npg P [P ...]] [--iter N]
-                [--prec_estim S] [--method {both,distributed,full,none}]
-                [--id S] [--save_true B] [--save_res B] [--seed_data N]
-                [--seed_mcmc N] [--mc_opt P P P P] [--mc_full_opt P P P P]
+                [--cor_input B] [--damp F] [--prec_estim S]
+                [--method {both,distributed,full,none}] [--id S] [--save_true B]
+                [--save_res B] [--seed_data N] [--seed_mcmc N]
+                [--mc_opt P P P P] [--mc_full_opt P P P P]
                 model_name
+
 
 positional arguments:
   model_name            name of the model
@@ -19,6 +21,7 @@ optional arguments:
   --K P                 number of sites
   --npg P [P ...]       number of observations per group (constant or min max)
   --iter N              number of distributed EP iterations
+  --damp F              damping factor constant, 1/K by default
   --prec_estim S        estimate method for tilted distribution precision
                         matrix, available options are sample, olse and glassocv
                         (see dep.Master)
@@ -38,6 +41,7 @@ Available models are defined in the folder models in the files
 
 Argument types
 - N denotes a non-negative and P a positive integer argument.
+- F denotes a float argument
 - B denotes a boolean argument, which can be given as
   TRUE, T, 1 or FALSE, F, 0 (case insensitive).
 - S denotes a string argument.
@@ -85,9 +89,9 @@ from dep.method import Master
 from dep.util import load_stan, distribute_groups, suppress_stdout
 
 
-CONFS = ['J','D', 'K', 'npg', 'iter', 'cor_input', 'prec_estim', 'method', 'id',
-         'save_true', 'save_res', 'seed_data', 'seed_mcmc', 'mc_opt',
-         'mc_full_opt']
+CONFS = ['J','D', 'K', 'npg', 'iter', 'cor_input', 'damp', 'prec_estim',
+         'method', 'id', 'save_true', 'save_res', 'seed_data', 'seed_mcmc',
+         'mc_opt', 'mc_full_opt']
 
 CONF_DEFAULT = dict(
     J           = 40,
@@ -96,6 +100,7 @@ CONF_DEFAULT = dict(
     npg         = [40,60],
     iter        = 6,
     cor_input   = False,
+    damp        = None,
     prec_estim  = 'sample',
     method      = 'both',
     id          = None,
@@ -222,7 +227,7 @@ def main(model_name, conf, ret_master=False):
             prior = prior,
             seed = conf.seed_mcmc,
             prec_estim = conf.prec_estim,
-            df0_iter = conf.iter,
+            df0 = conf.damp,
             init_site = init_site,
             **conf.mc_opt
         )
@@ -527,6 +532,12 @@ def _parse_positive_int(arg):
     else:
        raise ValueError("Invalid integer option")
 
+def _parse_damp(arg):
+    f = float(arg)
+    if f <= 0.0  or f > 1.0:
+        raise ValueError("Invalid damp option")
+    return f
+
 def _parse_nonnegative_int(arg):
     if arg.isalnum():
         return int(arg)
@@ -540,6 +551,7 @@ CONF_HELP = dict(
     npg         = 'number of observations per group (constant or min max)',
     iter        = 'number of distributed EP iterations',
     cor_input   = 'correlated input variable',
+    damp        = 'damping factor constant, 1/K by default',
     prec_estim  = ('estimate method for tilted distribution precision matrix, '
                    'currently available options are sample and olse '
                    '(see dep.method.Master)'),
@@ -571,6 +583,7 @@ CONF_CUSTOMS = dict(
     npg         = dict(nargs='+', type=_parse_positive_int, metavar='P'),
     iter        = dict(type=_parse_nonnegative_int, metavar='N'),
     cor_input   = dict(type=_parse_bool, metavar='B'),
+    damp        = dict(type=_parse_damp, metavar='F'),
     prec_estim  = dict(metavar='S'),
     method      = dict(choices=['both', 'distributed', 'full', 'none']),
     id          = dict(metavar='S'),
@@ -640,6 +653,10 @@ if __name__ == '__main__':
     
     # Create configurations object
     conf = configurations(**args)
+    
+    # Edit damp option to 1/K
+    if conf.damp is None:
+        conf.damp = 1.0 / conf.K
     
     # Run
     main(model_name, conf)
