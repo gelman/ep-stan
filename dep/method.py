@@ -225,7 +225,7 @@ class Worker(object):
             return True
         
         
-    def tilted(self, dQi, dri):
+    def tilted(self, dQi, dri, save_fit=False):
         """Estimate the tilted distribution parameters.
         
         This method estimates the tilted distribution parameters and calculates
@@ -242,6 +242,10 @@ class Worker(object):
         ----------
         dQi, dri : ndarray
             Output arrays where the site parameter updates are placed.
+        
+        save_fit : bool, optional
+            If True, the Stan fit-object is saved into the instance variable
+            `fit` for later use. Default is False.
         
         Returns
         -------
@@ -261,7 +265,7 @@ class Worker(object):
         # Sample from the model
         with suppress_stdout():
             time_start = timer()
-            self.fit = self.stan_model.sampling(
+            fit = self.stan_model.sampling(
                 data=self.data,
                 **self.stan_params
             )
@@ -271,25 +275,32 @@ class Worker(object):
         if self.verbose:
             # Mean stepsize
             steps = [np.mean(p['stepsize__'])
-                     for p in self.fit.get_sampler_params()]
+                     for p in fit.get_sampler_params()]
             print '\n    mean stepsize: {:.4}'.format(np.mean(steps))
             # Max Rhat (from all but last row in the last column)
             print '    max Rhat: {:.4}'.format(
-                np.max(self.fit.summary()['summary'][:-1,-1])
+                np.max(fit.summary()['summary'][:-1,-1])
             )
         
         if self.init_prev:
             # Store the last sample of each chain
             if isinstance(self.stan_params['init'], basestring):
                 # No samples stored before ... initialise list of dicts
-                self.stan_params['init'] = get_last_fit_sample(self.fit)
+                self.stan_params['init'] = get_last_fit_sample(fit)
             else:
-                get_last_fit_sample(self.fit, out=self.stan_params['init'])
+                get_last_fit_sample(fit, out=self.stan_params['init'])
         
         # Extract samples
         # TODO: preallocate space for samples
-        samp = copy_fit_samples(self.fit, self.fit_pnames)
+        samp = copy_fit_samples(fit, self.fit_pnames)
         self.nsamp = samp.shape[0]
+        
+        if save_fit:
+            # Save fit
+            self.fit = fit
+        else:
+            # Dereference fit here so that it can be garbage collected
+            fit = None
         
         # Estimate precision matrix
         try:
@@ -997,7 +1008,11 @@ class Master(object):
                     # Force flush here as it is not done automatically
                     sys.stdout.flush()
                 # Process the site
-                posdefs[k] = self.workers[k].tilted(dQi[:,:,k], dri[:,k])
+                posdefs[k] = self.workers[k].tilted(
+                    dQi[:,:,k],
+                    dri[:,k],
+                    save_fit = (cur_iter == niter-1)
+                )
                 if verbose and not posdefs[k]:
                     sys.stdout.write("fail\n")
             if verbose:
@@ -1021,7 +1036,7 @@ class Master(object):
                       .format(self.iter, stimes[cur_iter]))
         
         if verbose:
-            print("{} iterations done\nTotal limiting sampling time: {}\n"
+            print("{} iterations done\nTotal limiting sampling time: {}"
                   .format(niter, stimes.sum()))
         
         if calc_moments:
