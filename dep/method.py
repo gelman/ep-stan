@@ -43,7 +43,7 @@ class Worker(object):
     index : integer
         The index of this site
     
-    stan_model : StanModel
+    stan_model : StanModel or str
         The StanModel instance responsible for the MCMC sampling.
     
     dphi : int
@@ -265,10 +265,11 @@ class Worker(object):
         # Sample from the model
         with suppress_stdout():
             time_start = timer()
-            fit = self.stan_model.sampling(
-                data=self.data,
-                **self.stan_params
-            )
+            if isinstance(self.stan_model, basestring):
+                fit = load_stan(self.stan_model)
+            else:
+                fit = self.stan_model
+            fit = fit.sampling(data=self.data, **self.stan_params)
             time_end = timer()
             self.last_time = (time_end - time_start)
         
@@ -589,6 +590,9 @@ class Master(object):
             if not self.worker_options.has_key(kw):
                 self.worker_options[kw] = default
         
+        # Stan model source (or instance)
+        self.site_model = site_model
+        
         # Validate X
         self.N = X.shape[0]
         if len(X.shape) == 2:
@@ -745,14 +749,6 @@ class Master(object):
         else:
             # Use provided initial damping factor function
             self.df0 = kwargs['df0']
-        
-        # Get Stan model
-        if isinstance(site_model, basestring):
-            # From file
-            self.site_model = load_stan(site_model,
-                                         overwrite=kwargs['overwrite_model'])
-        else:
-            self.site_model = site_model
         
         # Process seed in worker options
         if not isinstance(self.worker_options['seed'], np.random.RandomState):
