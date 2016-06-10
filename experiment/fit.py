@@ -16,25 +16,31 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
-  --J P                 number of hierarchical groups
-  --D P                 number of inputs
-  --K P                 number of sites
-  --npg P [P ...]       number of observations per group (constant or min max)
-  --iter N              number of distributed EP iterations
-  --damp F              damping factor constant, 1/K by default
+  --J P                 number of hierarchical groups, default 40
+  --D P                 number of inputs, default 20
+  --K P                 number of sites, default 25
+  --npg P [P ...]       number of observations per group (constant or min
+                        max), default [40, 60]
+  --iter N              number of distributed EP iterations, default 6
+  --cor_input B         correlated input variable, default False
+  --damp F              damping factor constant, 1/K by default, default None
+  --mix B               mix last iteration samples, default False
   --prec_estim S        estimate method for tilted distribution precision
-                        matrix, available options are sample, olse and glassocv
-                        (see dep.Master)
+                        matrix, currently available options are sample and
+                        olse (see dep.method.Master), default sample
   --method {both,distributed,full,none}
-                        which models are fit
-  --id S                optional id appended to the end of the result files
-  --save_true B         save true values
-  --save_res B          save results
-  --seed_data N         seed for data simulation
-  --seed_mcmc N         seed for sampling
-  --mc_opt P P P P      MCMC sampler opt for dEP (chains iter warmup thin)
+                        which models are fit, default both
+  --id S                optional id appended to the end of the result files,
+                        default None
+  --save_true B         save true values, default True
+  --save_res B          save results, default True
+  --seed_data N         seed for data simulation, default 0
+  --seed_mcmc N         seed for sampling, default 0
+  --mc_opt P P P P      MCMC sampler opt for dEP (chains iter warmup thin),
+                        default (4 400 200 1)
   --mc_full_opt P P P P
-                        MCMC sampler opt for full (chains iter warmup thin)
+                        MCMC sampler opt for full (chains iter warmup thin),
+                        default (4 1000 500 1)
 
 Available models are defined in the folder models in the files 
 `<model_name>.py`, `<model_name>.stan` and `<model_name>_sg.stan`
@@ -89,7 +95,7 @@ from dep.method import Master
 from dep.util import load_stan, distribute_groups, suppress_stdout
 
 
-CONFS = ['J','D', 'K', 'npg', 'iter', 'cor_input', 'damp', 'prec_estim',
+CONFS = ['J','D', 'K', 'npg', 'iter', 'cor_input', 'damp', 'mix', 'prec_estim',
          'method', 'id', 'save_true', 'save_res', 'seed_data', 'seed_mcmc',
          'mc_opt', 'mc_full_opt']
 
@@ -101,6 +107,7 @@ CONF_DEFAULT = dict(
     iter        = 6,
     cor_input   = False,
     damp        = None,
+    mix         = False,
     prec_estim  = 'sample',
     method      = 'both',
     id          = None,
@@ -291,7 +298,8 @@ def main(model_name, conf, ret_master=False):
         # Run the algorithm for `EP_ITER` iterations
         print "Run distributed EP algorithm for {} iterations." \
               .format(conf.iter)
-        m_phi_i, cov_phi_i, info = dep_master.run(conf.iter)
+        m_phi_i, cov_phi_i, info = dep_master.run(
+            conf.iter, save_last_fits=conf.mix)
         if info:
             # Save results until failure
             if conf.save_res:
@@ -311,18 +319,20 @@ def main(model_name, conf, ret_master=False):
                 print "Uncomplete distributed model results saved."
             raise RuntimeError('Dep algorithm failed with error code: {}'
                                .format(info))
-        print "Form the final approximation " \
-              "by mixing the samples from all the sites."
-        cov_phi, m_phi = dep_master.mix_phi()
         
-        # Get mean and var of inferred variables
-        pms, pvars = dep_master.mix_pred(pnames, pmaps, pshapes)
-        # Construct a dict of from these results
-        presults = {}
-        for i in xrange(len(pnames)):
-            pname = pnames[i]
-            presults['m_'+pname] = pms[i]
-            presults['var_'+pname] = pvars[i]
+        if conf.mix:
+            print("Form the final approximation "
+                  "by mixing the last samples from all the sites.")
+            cov_phi, m_phi = dep_master.mix_phi()
+            
+            # Get mean and var of inferred variables
+            pms, pvars = dep_master.mix_pred(pnames, pmaps, pshapes)
+            # Construct a dict of from these results
+            presults = {}
+            for i in xrange(len(pnames)):
+                pname = pnames[i]
+                presults['m_'+pname] = pms[i]
+                presults['var_'+pname] = pvars[i]
         
         # Save results
         if conf.save_res:
@@ -332,15 +342,23 @@ def main(model_name, conf, ret_master=False):
                 filename = 'res_d_{}_{}.npz'.format(model_name, conf.id)
             else:
                 filename = 'res_d_{}.npz'.format(model_name)
-            np.savez(
-                os.path.join(RES_PATH, filename),
-                conf      = conf.__dict__,
-                m_phi_i   = m_phi_i,
-                cov_phi_i = cov_phi_i,
-                m_phi     = m_phi,
-                cov_phi   = cov_phi,
-                **presults
-            )
+            if conf.mix:
+                np.savez(
+                    os.path.join(RES_PATH, filename),
+                    conf      = conf.__dict__,
+                    m_phi_i   = m_phi_i,
+                    cov_phi_i = cov_phi_i,
+                    m_phi     = m_phi,
+                    cov_phi   = cov_phi,
+                    **presults
+                )
+            else:
+                np.savez(
+                    os.path.join(RES_PATH, filename),
+                    conf      = conf.__dict__,
+                    m_phi_i   = m_phi_i,
+                    cov_phi_i = cov_phi_i,
+                )
             print "Distributed model results saved."
         
         # Release master object
@@ -552,6 +570,7 @@ CONF_HELP = dict(
     iter        = 'number of distributed EP iterations',
     cor_input   = 'correlated input variable',
     damp        = 'damping factor constant, 1/K by default',
+    mix         = 'mix last iteration samples',
     prec_estim  = ('estimate method for tilted distribution precision matrix, '
                    'currently available options are sample and olse '
                    '(see dep.method.Master)'),
@@ -584,6 +603,7 @@ CONF_CUSTOMS = dict(
     iter        = dict(type=_parse_nonnegative_int, metavar='N'),
     cor_input   = dict(type=_parse_bool, metavar='B'),
     damp        = dict(type=_parse_damp, metavar='F'),
+    mix         = dict(type=_parse_bool, metavar='B'),
     prec_estim  = dict(metavar='S'),
     method      = dict(choices=['both', 'distributed', 'full', 'none']),
     id          = dict(metavar='S'),
