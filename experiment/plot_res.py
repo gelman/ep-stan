@@ -34,9 +34,10 @@ RES_PATH = os.path.join(CUR_PATH, 'results')
 
 
 def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
-    """Calculate KL-divergence from multivariate N(m0,S0) to N(m1,S1).
+    """Calculate KL-divergence for multiv normal distributions
     
-    Optional argument sum_log_diag_cho_S0 is precomputed sum(log(diag(cho(S0))).
+    Calculates KL(p||q), where p ~ N(m0,S0) and q ~ N(m1,S1). Optional argument 
+    sum_log_diag_cho_S0 is precomputed sum(log(diag(cho(S0))).
     
     """
     choS1 = cho_factor(S1)
