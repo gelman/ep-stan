@@ -134,15 +134,19 @@ def plot_results(model_name, model_id=None, dist_id=None):
         os.path.join(RES_PATH, 'res_d_{}.npz'.format(file_ending_dist)))
     m_phi_i = res_d_file['m_phi_i']
     cov_phi_i = res_d_file['cov_phi_i']
-    res_d = [
-        (   res_d_file['m_'+par],
-            (   res_d_file['var_'+par]
-                if par != 'phi' else
-                np.diag(res_d_file['cov_'+par])
+    if 'cov_phi' in res_d_file.files:
+        mix = True
+        res_d = [
+            (   res_d_file['m_'+par],
+                (   res_d_file['var_'+par]
+                    if par != 'phi' else
+                    np.diag(res_d_file['cov_'+par])
+                )
             )
-        )
-        for par in pnames
-    ]
+            for par in pnames
+        ]
+    else:
+        mix = False
     res_d_file.close()
     
     # Load full result file
@@ -168,63 +172,100 @@ def plot_results(model_name, model_id=None, dist_id=None):
     for pi in xrange(1,len(pnames)):
         if true_vals[pi].ndim != 1:
             true_vals[pi] = true_vals[pi].ravel()
-            res_d[pi] = (res_d[pi][0].ravel(), res_d[pi][1].ravel())
+            if mix:
+                res_d[pi] = (res_d[pi][0].ravel(), res_d[pi][1].ravel())
             res_f[pi] = (res_f[pi][0].ravel(), res_f[pi][1].ravel())
     
-    # Plot approx KL-divergence
+    # Plot approx KL-divergence and MSE
     sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(cov_phi_full)[0])))
     KL_divs = np.empty(niter)
+    mse = np.mean((m_phi_i - m_phi_full)**2, axis=1)
     for i in xrange(niter):
         KL_divs[i] = kl_mvn(m_phi_full, cov_phi_full, m_phi_i[i], cov_phi_i[i],
                             sum_log_diag_cho_S0)
-    plt.plot(np.arange(niter), KL_divs)
-    plt.ylabel('Approximated KL divergence')
-    plt.xlabel('Iteration')
+    fig, ax = plt.subplots(1,1)
+    ax.plot(np.arange(niter), KL_divs, label='KL')
+    ax.plot(np.arange(niter), mse, label='MSE')
+    ax.set_ylabel('Approximated KL divergence and MSE')
+    ax.set_xlabel('Iteration')
+    ax.set_yscale('log')
+    ax.set_xlim([0,niter-1])
+    ax.legend()
     
     # Plot mean and variance as a function of the iteration
     fig, axs = plt.subplots(2, 1, sharex=True)
+    axs[0].set_xlim([0,niter-1])
     fig.subplots_adjust(hspace=0.1)
-    axs[0].plot(np.arange(niter+1),
-                np.vstack((m_phi_i, res_d[0][0])))
+    if mix:
+        axs[0].plot(np.arange(niter+1),
+                    np.vstack((m_phi_i, res_d[0][0])))
+        axs[1].plot(
+            np.arange(niter+1),
+            np.sqrt(np.vstack((
+                np.diagonal(cov_phi_i, axis1=1, axis2=2),
+                res_d[0][1]
+            )))
+        )
+    else:
+        axs[0].plot(np.arange(niter), m_phi_i)
+        axs[1].plot(
+            np.arange(niter),
+            np.sqrt(np.diagonal(cov_phi_i, axis1=1, axis2=2))
+        )
     axs[0].set_ylabel('Mean of $\phi$')
-    axs[1].plot(
-        np.arange(niter+1),
-        np.sqrt(np.vstack((
-            np.diagonal(cov_phi_i, axis1=1, axis2=2),
-            res_d[0][1]
-        )))
-    )
     axs[1].set_ylabel('Std of $\phi$')
     axs[1].set_xlabel('Iteration')
     
-    # Plot compare plots for every variable
-    for pi in xrange(len(pnames)):
-        par = pnames[pi]
-        t = true_vals[pi]
-        m, var = res_d[pi]
-        m_full, var_full = res_f[pi]
+    if mix:
+        # Plot compare plots for every variable
+        for pi in xrange(len(pnames)):
+            par = pnames[pi]
+            t = true_vals[pi]
+            m, var = res_d[pi]
+            m_full, var_full = res_f[pi]
+            fig, axs = plt.subplots(1, 2, figsize=(11, 5))
+            fig.subplots_adjust(left=0.08, right=0.94)
+            fig.suptitle(par)
+            
+            # Plot estimates vs true values
+            compare_plot(
+                true_vals[pi], m,
+                b_err=1.96*np.sqrt(var),
+                a_label='True values',
+                b_label='Estimates from dEP ($\pm 1.96 \sigma$)',
+                ax=axs[0]
+            )
+            
+            # Plot full vs distributed
+            compare_plot(
+                m_full, m,
+                a_err=1.96*np.sqrt(var_full),
+                b_err=1.96*np.sqrt(var),
+                a_label='Estimased from full ($\pm 1.96 \sigma$)',
+                b_label='Estimased from dep ($\pm 1.96 \sigma$)',
+                ax=axs[1]
+            )
+    else:
+        # Plot compare plots for phi
         fig, axs = plt.subplots(1, 2, figsize=(11, 5))
         fig.subplots_adjust(left=0.08, right=0.94)
-        fig.suptitle(par)
-        
-        # Plot estimates vs true values
+        fig.suptitle('phi')
+        # Mean
         compare_plot(
-            true_vals[pi], m,
-            b_err=1.96*np.sqrt(var),
-            a_label='True values',
-            b_label='Estimates from dEP ($\pm 1.96 \sigma$)',
+            m_phi_full, m_phi_i[-1],
+            a_label='full',
+            b_label='dep',
             ax=axs[0]
         )
-        
-        # Plot full vs distributed
+        axs[0].set_title('mean')
+        # Var
         compare_plot(
-            m_full, m,
-            a_err=1.96*np.sqrt(var_full),
-            b_err=1.96*np.sqrt(var),
-            a_label='Estimased from full ($\pm 1.96 \sigma$)',
-            b_label='Estimased from dep ($\pm 1.96 \sigma$)',
+            np.diag(cov_phi_full), np.diag(cov_phi_i[-1]),
+            a_label='full',
+            b_label='dep',
             ax=axs[1]
         )
+        axs[1].set_title('var')
     
     plt.show()
 
