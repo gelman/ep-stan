@@ -50,9 +50,9 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
         The mean vector m, the natural parameter vector r, or None (default)
         if `out_b` is not requested.
     
-    out_A, out_b : {None, ndarray, 'in_place'}, optional
+    out_A, out_b : {None, ndarray, 'in-place'}, optional
         Spesifies where the output is calculate into; None (default) indicates
-        that a new array is created, providing a string 'in_place' overwrites
+        that a new array is created, providing a string 'in-place' overwrites
         the corresponding input array.
     
     cho_form : bool
@@ -71,7 +71,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     
     """
     # Process parameters
-    if out_A == 'in_place':
+    if not isinstance(out_A, np.ndarray) and out_A == 'in-place':
         out_A = A
     elif out_A is None:
         out_A = A.copy(order='F')
@@ -83,7 +83,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
         if not out_A.flags['FARRAY'] and out_A.shape[0] > 1:
             raise ValueError('Provided array A is inappropriate')
     if not b is None:
-        if out_b == 'in_place':
+        if not isinstance(out_b, np.ndarray) and out_b == 'in-place':
             out_b = b
         elif out_b is None:
             out_b = b.copy()
@@ -129,7 +129,7 @@ def olse(S, n, P=None, out=None):
         The prior matrix. Providing None uses the naive prior 1/d I, where d is
         the number of dimensions. Default is None.
     
-    out : {None, ndarray, 'in_place'}, optional
+    out : {None, ndarray, 'in-place'}, optional
         The output array for the precision matrix estimate.
     
     Returns
@@ -144,7 +144,7 @@ def olse(S, n, P=None, out=None):
     
     """
     # Process parameters
-    if out == 'in_place':
+    if not isinstance(out, np.ndarray) and out == 'in-place':
         out = S
     elif out is None:
         out = S.copy(order='F')
@@ -157,7 +157,7 @@ def olse(S, n, P=None, out=None):
             raise ValueError('Provided array should be in F-order')
     # Calculate
     d = out.shape[0]
-    invert_normal_params(out, out_A='in_place')
+    invert_normal_params(out, out_A='in-place')
     tr = np.trace(out)
     tr2 = tr**2
     f2 = fro_norm_squared(out.T)

@@ -342,7 +342,7 @@ class Worker(object):
                 # Normalise self.Mat into dQi
                 np.divide(self.Mat, self.nsamp, out=dQi)
                 # Estimate
-                olse(dQi, self.nsamp, P=self.Q, out='in_place')
+                olse(dQi, self.nsamp, P=self.Q, out='in-place')
                 np.dot(dQi, mt, out=dri)
             
             # Graphical lasso with cross validation
@@ -988,7 +988,7 @@ class Master(object):
                 # Invert Q (chol was already calculated)
                 # N.B. The following inversion could be done while
                 # parallel jobs are running, thus saving time.
-                invert_normal_params(cho_Q, r, out_A='in_place', out_b=m,
+                invert_normal_params(cho_Q, r, out_A='in-place', out_b=m,
                                      cho_form=True)
                 # Store the approximation moments
                 np.copyto(m_phi_s[cur_iter], m)

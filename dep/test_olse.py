@@ -99,7 +99,7 @@ if not rand_distr_every_iter:
     N1 = multivariate_normal(mean=m1, cov=S1)
     Q1, r1 = invert_normal_params(S1, m1)
     if not oracle:
-        Q2, r2 = invert_normal_params(S2, m2, out_A='in_place',out_b='in_place')
+        Q2, r2 = invert_normal_params(S2, m2, out_A='in-place',out_b='in-place')
 
 # Output arrays
 Q_hats = np.empty((d,d,N), order='F')
@@ -144,7 +144,7 @@ for i in xrange(N):
         r1s[:,i] = r1
         Q1s[:,:,i] = Q1
         if not oracle:
-            Q2, r2 = invert_normal_params(S2, m2, out_A='in_place',out_b='in_place')
+            Q2, r2 = invert_normal_params(S2, m2, out_A='in-place',out_b='in-place')
             r2s[:,i] = r2
             Q2s[:,:,i] = Q2
     
