@@ -248,9 +248,8 @@ def main(model_name, conf, ret_master=False):
             # ------ Many groups per site: combine groups ------
             Nk, Nj_k, j_ind_k = distribute_groups(J, K, data.Nj)
             # Create the Master instance
-            stan_model = load_stan(os.path.join(MOD_PATH, model_name))
             dep_master = Master(
-                stan_model,
+                os.path.join(MOD_PATH, model_name),
                 data.X,
                 data.y,
                 A_k = {'J':Nj_k},
@@ -265,7 +264,7 @@ def main(model_name, conf, ret_master=False):
             # ------ One group per site ------
             # Create the Master instance
             dep_master = Master(
-                load_stan(os.path.join(MOD_PATH, model_name+'_sg')),
+                os.path.join(MOD_PATH, model_name+'_sg'),
                 data.X,
                 data.y,
                 site_sizes=data.Nj,
@@ -279,7 +278,7 @@ def main(model_name, conf, ret_master=False):
             Nk, Nk_j, _ = distribute_groups(J, K, data.Nj)
             # Create the Master instance
             dep_master = Master(
-                load_stan(os.path.join(MOD_PATH, model_name+'_sg')),
+                os.path.join(MOD_PATH, model_name+'_sg'),
                 data.X,
                 data.y,
                 site_sizes=Nk,
@@ -385,9 +384,8 @@ def main(model_name, conf, ret_master=False):
             mu_phi = m0,
             Omega_phi = Q0.T    # Q0 transposed in order to get C-contiguous
         )
-        # Load model if not loaded already
-        if not 'stan_model' in locals():
-            stan_model = load_stan(os.path.join(MOD_PATH, model_name))
+        # Load model
+        stan_model = load_stan(os.path.join(MOD_PATH, model_name))
         
         # Sample and extract parameters
         with suppress_stdout():
