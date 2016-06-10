@@ -810,7 +810,7 @@ class Master(object):
         self.iter = 0
     
     
-    def run(self, niter, calc_moments=True, verbose=True):
+    def run(self, niter, calc_moments=True, save_last_fits=True, verbose=True):
         """Run the distributed EP algorithm.
         
         Parameters
@@ -822,6 +822,9 @@ class Master(object):
             If True, the moment parameters (mean and covariance) of the
             posterior approximation are calculated every iteration and returned.
             Default is True.
+        
+        save_last_fits : bool
+            If True (default), the Stan fit-objects from the last iteration are saved for future use (mix_phi and mix_pred methods).
         
         verbose : bool, optional
             If true, some progress information is printed. Default is True.
@@ -1011,7 +1014,7 @@ class Master(object):
                 posdefs[k] = self.workers[k].tilted(
                     dQi[:,:,k],
                     dri[:,k],
-                    save_fit = (cur_iter == niter-1)
+                    save_fit = (save_last_fits and cur_iter == niter-1)
                 )
                 if verbose and not posdefs[k]:
                     sys.stdout.write("fail\n")
