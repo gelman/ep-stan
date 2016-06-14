@@ -18,6 +18,7 @@ https://github.com/gelman/ep-stan
 from __future__ import division
 import sys
 from timeit import default_timer as timer
+import multiprocessing
 import numpy as np
 from scipy import linalg
 from sklearn.covariance import GraphLassoCV
@@ -33,6 +34,90 @@ from util import (
     load_stan,
     copy_fit_samples
 )
+
+
+def sample_stan(queue, path, data, stan_param, other_params=None):
+    """Load and fit Stan model in a subprocess.
+    
+    Implemented for multiprocesing.
+    Additional keyword arguments are passed to the StanModel.sampling method.
+    
+    Parameters
+    ----------
+    queue : multiprocessing.Queue
+        Queue into which the results are put (see Returns).
+    
+    path : str
+        Path to the stan model.
+    
+    data : dict
+        Data for the sampling.
+    
+    stan_param : dict
+        Keyword arguments passed to the Stan.
+    
+    other_params : sequence of str, optional
+        List of additional parameter names. If provided, the associated samples
+        are also returned.
+    
+    Returns
+    -------
+    samps : ndarray
+        samples of phi
+    
+    lastsamp : dict
+        the last sample of the chains for next iteration initialisation
+    
+    duration : float
+        sampling time
+    
+    msteps : float
+        mean stepsize
+    
+    mrhat : float
+        max Rhat
+    
+    other_samp : dict
+        additional requested samples (returned only if such are requested)
+    
+    """
+    # Sample from the model
+    sm = load_stan(path)
+    with suppress_stdout():
+        time_start = timer()
+        fit = sm.sampling(data=data, **stan_param)
+        time_end = timer()
+    duration = time_end - time_start
+    
+    # Extract samples
+    dphi = data['mu_phi'].shape[0]
+    fit_pnames = list(u'phi[{}]'.format(i) for i in range(dphi))
+    samp = copy_fit_samples(fit, fit_pnames)
+    
+    # Get the last sample of all
+    lastsamp = get_last_fit_sample(fit)
+    
+    # Mean stepsize
+    msteps = np.mean([
+        np.mean(p['stepsize__'])
+        for p in fit.get_sampler_params()
+    ])
+    # Max Rhat (from all but last row in the last column)
+    mrhat = np.max(fit.summary()['summary'][:-1,-1])
+    
+    # Returned values
+    ret = [samp, lastsamp, duration, msteps, mrhat]
+    
+    # Extract other params
+    if other_params:
+        other_samp = {
+            par : fit.extract(pars=par)[par]
+            for par in other_params
+        }
+        ret.append(other_samp)
+    
+    # Put returns into the queue
+    queue.put(ret)
 
 
 class Worker(object):
@@ -147,8 +232,8 @@ class Worker(object):
         self.dphi = dphi
         self.iteration = 0
         
-        # The last fit object
-        self.fit = None
+        # The samples saved from the last fit
+        self.saved_samples = None
         # The last elapsed time
         self.last_time = None
         # The names of the shared parameters in this
@@ -225,7 +310,7 @@ class Worker(object):
             return True
         
         
-    def tilted(self, dQi, dri, save_fit=False):
+    def tilted(self, dQi, dri, save_samples=None):
         """Estimate the tilted distribution parameters.
         
         This method estimates the tilted distribution parameters and calculates
@@ -243,9 +328,9 @@ class Worker(object):
         dQi, dri : ndarray
             Output arrays where the site parameter updates are placed.
         
-        save_fit : bool, optional
-            If True, the Stan fit-object is saved into the instance variable
-            `fit` for later use. Default is False.
+        save_samples : sequence of str, optional
+            Additional parameter names, whose samples are to be saved in
+            instance variable `saved_samples` (dict with {pname:samples}).
         
         Returns
         -------
@@ -263,45 +348,63 @@ class Worker(object):
             self.stan_params['seed'] = self.rstate.randint(2**31-1)
         
         # Sample from the model
-        with suppress_stdout():
-            time_start = timer()
-            if isinstance(self.stan_model, basestring):
-                fit = load_stan(self.stan_model)
+        if isinstance(self.stan_model, basestring):
+            q = multiprocessing.Queue()
+            if save_samples:
+                args = (q, self.stan_model, self.data, self.stan_params,
+                        save_samples)
             else:
-                fit = self.stan_model
-            fit = fit.sampling(data=self.data, **self.stan_params)
+                args = (q, self.stan_model, self.data, self.stan_params)
+            p = multiprocessing.Process(target=sample_stan, args=args)
+            p.start()
+            if save_samples:
+                samp, lastsamp, dur, msteps, mrhat, saved_samp = q.get()
+                self.saved_samp = saved_samp
+            else:
+                samp, lastsamp, dur, msteps, mrhat = q.get()
+            samp = np.copy(samp, order='F') # Needs to be copied for `owndata`
+            p.join()
+            self.last_time = dur
+            if self.verbose:
+                # Mean stepsize
+                print '\n    mean stepsize: {:.4}'.format(msteps)
+                # Max Rhat (from all but last row in the last column)
+                print '    max Rhat: {:.4}'.format(mrhat)
+        else:
+            time_start = timer()
+            with suppress_stdout():
+                fit = self.stan_model.sampling(
+                    data=self.data,
+                    **self.stan_params
+                )
             time_end = timer()
             self.last_time = (time_end - time_start)
-        
-        if self.verbose:
-            # Mean stepsize
-            steps = [np.mean(p['stepsize__'])
-                     for p in fit.get_sampler_params()]
-            print '\n    mean stepsize: {:.4}'.format(np.mean(steps))
-            # Max Rhat (from all but last row in the last column)
-            print '    max Rhat: {:.4}'.format(
-                np.max(fit.summary()['summary'][:-1,-1])
-            )
+            # Extract samples
+            samp = copy_fit_samples(fit, self.fit_pnames)
+            lastsamp = get_last_fit_sample(fit)
+            if save_samples:
+                # Extract other params
+                self.saved_samp = {
+                    par : fit.extract(pars=par)[par]
+                    for par in save_samples
+                }
+            if self.verbose:
+                # Mean stepsize
+                steps = [np.mean(p['stepsize__'])
+                         for p in fit.get_sampler_params()]
+                print '\n    mean stepsize: {:.4}'.format(np.mean(steps))
+                # Max Rhat (from all but last row in the last column)
+                print '    max Rhat: {:.4}'.format(
+                    np.max(fit.summary()['summary'][:-1,-1])
+                )
+            # Dereference the fit
+            fit = None
         
         if self.init_prev:
             # Store the last sample of each chain
-            if isinstance(self.stan_params['init'], basestring):
-                # No samples stored before ... initialise list of dicts
-                self.stan_params['init'] = get_last_fit_sample(fit)
-            else:
-                get_last_fit_sample(fit, out=self.stan_params['init'])
+            self.stan_params['init'] = lastsamp
         
-        # Extract samples
-        # TODO: preallocate space for samples
-        samp = copy_fit_samples(fit, self.fit_pnames)
         self.nsamp = samp.shape[0]
-        
-        if save_fit:
-            # Save fit
-            self.fit = fit
-        else:
-            # Dereference fit here so that it can be garbage collected
-            fit = None
         
         # Estimate precision matrix
         try:
@@ -806,7 +909,7 @@ class Master(object):
         self.iter = 0
     
     
-    def run(self, niter, calc_moments=True, save_last_fits=True, verbose=True):
+    def run(self, niter, calc_moments=True, save_last_param=None, verbose=True):
         """Run the distributed EP algorithm.
         
         Parameters
@@ -819,8 +922,9 @@ class Master(object):
             posterior approximation are calculated every iteration and returned.
             Default is True.
         
-        save_last_fits : bool
-            If True (default), the Stan fit-objects from the last iteration are saved for future use (mix_phi and mix_pred methods).
+        save_last_param : sequence of str
+            If provided, the last fit samples of the given parameters are saved 
+            after the last iteration.
         
         verbose : bool, optional
             If true, some progress information is printed. Default is True.
@@ -1007,11 +1111,17 @@ class Master(object):
                     # Force flush here as it is not done automatically
                     sys.stdout.flush()
                 # Process the site
-                posdefs[k] = self.workers[k].tilted(
-                    dQi[:,:,k],
-                    dri[:,k],
-                    save_fit = (save_last_fits and cur_iter == niter-1)
-                )
+                if save_last_param:
+                    posdefs[k] = self.workers[k].tilted(
+                        dQi[:,:,k],
+                        dri[:,k],
+                        save_samples = save_last_param
+                    )
+                else:
+                    posdefs[k] = self.workers[k].tilted(
+                        dQi[:,:,k],
+                        dri[:,k]
+                    )
                 if verbose and not posdefs[k]:
                     sys.stdout.write("fail\n")
             if verbose:
@@ -1077,7 +1187,7 @@ class Master(object):
         means = []
         nsamps = []
         for k in xrange(self.K):
-            samp = self.workers[k].fit.extract(pars='phi')['phi']
+            samp = self.workers[k].saved_samp['phi']
             nsamp = samp.shape[0]
             nsamps.append(nsamp)
             nsamp_tot += nsamp

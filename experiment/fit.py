@@ -297,8 +297,11 @@ def main(model_name, conf, ret_master=False):
         # Run the algorithm for `EP_ITER` iterations
         print "Run distributed EP algorithm for {} iterations." \
               .format(conf.iter)
-        m_phi_i, cov_phi_i, info = dep_master.run(
-            conf.iter, save_last_fits=conf.mix)
+        if conf.mix:
+            m_phi_i, cov_phi_i, info = dep_master.run(
+                conf.iter, save_last_param=pnames)
+        else:
+            m_phi_i, cov_phi_i, info = dep_master.run(conf.iter)
         if info:
             # Save results until failure
             if conf.save_res:
