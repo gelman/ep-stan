@@ -397,6 +397,7 @@ def main(model_name, conf, ret_master=False):
         fit = stan_model.sampling(
             data = data,
             seed = seed,
+            pars = 'phi',
             **conf.mc_full_opt
         )
         time_full = (timer() - time_full)
@@ -433,14 +434,6 @@ def main(model_name, conf, ret_master=False):
         cov_phi_full = samp.T.dot(samp)
         cov_phi_full /= nsamp -1
         
-        # Get mean and var of inferred variables
-        presults = {}
-        for i in xrange(len(pnames)):
-            pname = pnames[i]
-            samp = fit.extract(pname)[pname]
-            presults['m_'+pname+'_full'] = np.mean(samp, axis=0)
-            presults['var_'+pname+'_full'] = np.var(samp, axis=0, ddof=1)
-        
         # Save results
         if conf.save_res:
             if not os.path.exists(RES_PATH):
@@ -454,7 +447,6 @@ def main(model_name, conf, ret_master=False):
                 conf         = conf.__dict__,
                 m_phi_full   = m_phi_full,
                 cov_phi_full = cov_phi_full,
-                **presults
             )
             print "Full model results saved."
     
