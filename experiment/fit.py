@@ -196,8 +196,9 @@ def main(model_name, conf, ret_master=False):
     S0, m0, Q0, r0 = model.get_prior()
     prior = {'Q':Q0, 'r':r0}
     
-    # Set init_site to N(0,A**2/K I), where A = 10 * max(diag(S0))
-    init_site = 10 * np.max(np.diag(S0))
+    #~ # Set init_site to N(0,A**2/K I), where A = 10 * max(diag(S0))
+    #~ init_site = 10 * np.max(np.diag(S0))
+    init_site = None # Zero initialise the sites
     
     # Get parameter information
     pnames, pshapes, phiers = model.get_param_definitions()
@@ -231,12 +232,23 @@ def main(model_name, conf, ret_master=False):
         
         print "Distributed model {} ...".format(model_name)
         
+        # Custom sinusoidal damping factor function
+        if conf.damp is None:
+            df0_start = 0.01
+            df0_end = 0.25
+            df0 = lambda i: (
+                df0_start + (df0_end - df0_start) * 0.5 * (1 + np.sin(
+                np.pi * (max(0,min(i-2,conf.iter-2))/(conf.iter-2) - 0.5)))
+            )
+        else:
+            df0 = conf.damp
+        
         # Options for the ep-algorithm see documentation of dep.method.Master
         dep_options = dict(
             prior = prior,
             seed = conf.seed_mcmc,
             prec_estim = conf.prec_estim,
-            df0 = conf.damp,
+            df0 = df0,
             init_site = init_site,
             **conf.mc_opt
         )
@@ -578,7 +590,7 @@ CONF_HELP = dict(
     npg            = 'number of observations per group (constant or min max)',
     iter           = 'number of distributed EP iterations',
     cor_input      = 'correlated input variable',
-    damp           = 'damping factor constant, 1/K by default',
+    damp           = 'damping factor constant',
     mix            = 'mix last iteration samples',
     prec_estim     = ('estimate method for tilted distribution precision '
                       'matrix, currently available options are sample and olse '
@@ -684,10 +696,6 @@ if __name__ == '__main__':
     
     # Create configurations object
     conf = configurations(**args)
-    
-    # Edit damp option to 1/K
-    if conf.damp is None:
-        conf.damp = 1.0 / conf.K
     
     # Run
     main(model_name, conf)
