@@ -32,6 +32,7 @@ optional arguments:
                         which models are fit, default both
   --id S                optional id appended to the end of the result files,
                         default None
+  --save_full_samp B    save samples obtained from the full model, default False
   --save_true B         save true values, default True
   --save_res B          save results, default True
   --seed_data N         seed for data simulation, default 0
@@ -96,38 +97,39 @@ from dep.util import load_stan, distribute_groups, suppress_stdout
 
 
 CONFS = ['J','D', 'K', 'npg', 'iter', 'cor_input', 'damp', 'mix', 'prec_estim',
-         'method', 'id', 'save_true', 'save_res', 'seed_data', 'seed_mcmc',
-         'mc_opt', 'mc_full_opt']
+         'method', 'id', 'save_full_samp', 'save_true', 'save_res', 'seed_data',
+         'seed_mcmc', 'mc_opt', 'mc_full_opt']
 
 CONF_DEFAULT = dict(
-    J           = 40,
-    D           = 20,
-    K           = 25,
-    npg         = [40,60],
-    iter        = 6,
-    cor_input   = False,
-    damp        = None,
-    mix         = False,
-    prec_estim  = 'sample',
-    method      = 'both',
-    id          = None,
-    save_true   = True,
-    save_res    = True,
-    seed_data   = 0,
-    seed_mcmc   = 0,
+    J              = 40,
+    D              = 20,
+    K              = 25,
+    npg            = [40,60],
+    iter           = 6,
+    cor_input      = False,
+    damp           = None,
+    mix            = False,
+    prec_estim     = 'sample',
+    method         = 'both',
+    id             = None,
+    save_full_samp = False,
+    save_true      = True,
+    save_res       = True,
+    seed_data      = 0,
+    seed_mcmc      = 0,
     # MCMS sampler options for dEP method
-    mc_opt      = dict(
-        chains  = 4,
-        iter    = 400,
-        warmup  = 200,
-        thin    = 1,
+    mc_opt = dict(
+        chains     = 4,
+        iter       = 400,
+        warmup     = 200,
+        thin       = 1,
     ),
     # MCMS sampler options for full method
     mc_full_opt = dict(
-        chains  = 4,
-        iter    = 1000,
-        warmup  = 500,
-        thin    = 1,
+        chains     = 4,
+        iter       = 1000,
+        warmup     = 500,
+        thin       = 1,
     )
 )
 
@@ -390,32 +392,46 @@ def main(model_name, conf, ret_master=False):
         # Load model
         stan_model = load_stan(os.path.join(MOD_PATH, model_name))
         
-        # Sample and extract parameters
-        with suppress_stdout():
-            time_full = timer()
-            fit = stan_model.sampling(
-                data = data,
-                seed = seed,
-                **conf.mc_full_opt
-            )
-            time_full = (timer() - time_full)
-        
+        # Sample and extract samples
+        time_full = timer()
+        fit = stan_model.sampling(
+            data = data,
+            seed = seed,
+            **conf.mc_full_opt
+        )
+        time_full = (timer() - time_full)
         samp = fit.extract(pars='phi')['phi']
-        nsamp = samp.shape[0]
-        m_phi_full = samp.mean(axis=0)
-        samp -= m_phi_full
-        cov_phi_full = samp.T.dot(samp)
-        cov_phi_full /= nsamp -1
         
         # Mean stepsize
-        steps = [np.mean(p['stepsize__'])
-                 for p in fit.get_sampler_params()]
+        steps = [np.mean(p['stepsize__']) for p in fit.get_sampler_params()]
         print '    sampling time {}'.format(time_full)
         print '    mean stepsize: {:.4}'.format(np.mean(steps))
         # Max Rhat (from all but last row in the last column)
         print '    max Rhat: {:.4}'.format(
             np.max(fit.summary()['summary'][:-1,-1])
         )
+        
+        # Save samples
+        if conf.save_full_samp:
+            if not os.path.exists(RES_PATH):
+                os.makedirs(RES_PATH)
+            if conf.id:
+                filename = 'full_samp_{}_{}.npz'.format(model_name, conf.id)
+            else:
+                filename = 'full_samp_{}.npz'.format(model_name)
+            np.savez(
+                os.path.join(RES_PATH, filename),
+                conf = conf.__dict__,
+                samp_phi = samp
+            )
+            print "Full model samples saved."
+        
+        # Moment estimates
+        nsamp = samp.shape[0]
+        m_phi_full = samp.mean(axis=0)
+        samp -= m_phi_full
+        cov_phi_full = samp.T.dot(samp)
+        cov_phi_full /= nsamp -1
         
         # Get mean and var of inferred variables
         presults = {}
@@ -564,25 +580,26 @@ def _parse_nonnegative_int(arg):
        raise ValueError("Invalid integer option")
 
 CONF_HELP = dict(
-    J           = 'number of hierarchical groups',
-    D           = 'number of inputs',
-    K           = 'number of sites',
-    npg         = 'number of observations per group (constant or min max)',
-    iter        = 'number of distributed EP iterations',
-    cor_input   = 'correlated input variable',
-    damp        = 'damping factor constant, 1/K by default',
-    mix         = 'mix last iteration samples',
-    prec_estim  = ('estimate method for tilted distribution precision matrix, '
-                   'currently available options are sample and olse '
-                   '(see dep.method.Master)'),
-    method      = 'which models are fit',
-    id          = 'optional id appended to the end of the result files',
-    save_true   = 'save true values',
-    save_res    = 'save results',
-    seed_data   = 'seed for data simulation',
-    seed_mcmc   = 'seed for sampling',
-    mc_opt      = 'MCMC sampler opt for dEP (chains iter warmup thin)',
-    mc_full_opt = 'MCMC sampler opt for full (chains iter warmup thin)',
+    J              = 'number of hierarchical groups',
+    D              = 'number of inputs',
+    K              = 'number of sites',
+    npg            = 'number of observations per group (constant or min max)',
+    iter           = 'number of distributed EP iterations',
+    cor_input      = 'correlated input variable',
+    damp           = 'damping factor constant, 1/K by default',
+    mix            = 'mix last iteration samples',
+    prec_estim     = ('estimate method for tilted distribution precision '
+                      'matrix, currently available options are sample and olse '
+                      '(see dep.method.Master)'),
+    method         = 'which models are fit',
+    id             = 'optional id appended to the end of the result files',
+    save_full_samp = 'save samples obtained from the full model',
+    save_true      = 'save true values',
+    save_res       = 'save results',
+    seed_data      = 'seed for data simulation',
+    seed_mcmc      = 'seed for sampling',
+    mc_opt         = 'MCMC sampler opt for dEP (chains iter warmup thin)',
+    mc_full_opt    = 'MCMC sampler opt for full (chains iter warmup thin)',
 )
 for conf in CONFS:
     if conf.startswith('mc_'):
@@ -597,23 +614,24 @@ for conf in CONFS:
             CONF_HELP[conf] + ', default {}'.format(CONF_DEFAULT[conf])
 
 CONF_CUSTOMS = dict(
-    J           = dict(type=_parse_positive_int, metavar='P'),
-    D           = dict(type=_parse_positive_int, metavar='P'),
-    K           = dict(type=_parse_positive_int, metavar='P'),
-    npg         = dict(nargs='+', type=_parse_positive_int, metavar='P'),
-    iter        = dict(type=_parse_nonnegative_int, metavar='N'),
-    cor_input   = dict(type=_parse_bool, metavar='B'),
-    damp        = dict(type=_parse_damp, metavar='F'),
-    mix         = dict(type=_parse_bool, metavar='B'),
-    prec_estim  = dict(metavar='S'),
-    method      = dict(choices=['both', 'distributed', 'full', 'none']),
-    id          = dict(metavar='S'),
-    save_true   = dict(type=_parse_bool, metavar='B'),
-    save_res    = dict(type=_parse_bool, metavar='B'),
-    seed_data   = dict(type=_parse_nonnegative_int, metavar='N'),
-    seed_mcmc   = dict(type=_parse_nonnegative_int, metavar='N'),
-    mc_opt      = dict(nargs=4, type=_parse_positive_int, metavar='P'),
-    mc_full_opt = dict(nargs=4, type=_parse_positive_int, metavar='P'),
+    J              = dict(type=_parse_positive_int, metavar='P'),
+    D              = dict(type=_parse_positive_int, metavar='P'),
+    K              = dict(type=_parse_positive_int, metavar='P'),
+    npg            = dict(nargs='+', type=_parse_positive_int, metavar='P'),
+    iter           = dict(type=_parse_nonnegative_int, metavar='N'),
+    cor_input      = dict(type=_parse_bool, metavar='B'),
+    damp           = dict(type=_parse_damp, metavar='F'),
+    mix            = dict(type=_parse_bool, metavar='B'),
+    prec_estim     = dict(metavar='S'),
+    method         = dict(choices=['both', 'distributed', 'full', 'none']),
+    id             = dict(metavar='S'),
+    save_full_samp = dict(type=_parse_bool, metavar='B'),
+    save_true      = dict(type=_parse_bool, metavar='B'),
+    save_res       = dict(type=_parse_bool, metavar='B'),
+    seed_data      = dict(type=_parse_nonnegative_int, metavar='N'),
+    seed_mcmc      = dict(type=_parse_nonnegative_int, metavar='N'),
+    mc_opt         = dict(nargs=4, type=_parse_positive_int, metavar='P'),
+    mc_full_opt    = dict(nargs=4, type=_parse_positive_int, metavar='P'),
 )
 
 if __name__ == '__main__':
