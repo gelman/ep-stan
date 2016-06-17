@@ -25,6 +25,7 @@ from __future__ import division
 import os
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
+from scipy import stats
 import matplotlib.pyplot as plt
 
 
@@ -154,16 +155,27 @@ def plot_results(model_name, model_id=None, dist_id=None):
         os.path.join(RES_PATH, 'res_f_{}.npz'.format(file_ending)))
     m_phi_full = res_f_file['m_phi_full']
     cov_phi_full = res_f_file['cov_phi_full']
-    res_f = [
-        (   res_f_file['m_'+par+'_full'],
-            (   res_f_file['var_'+par+'_full']
-                if par != 'phi' else
-                np.diag(res_f_file['cov_'+par+'_full'])
+    if mix:
+        res_f = [
+            (   res_f_file['m_'+par+'_full'],
+                (   res_f_file['var_'+par+'_full']
+                    if par != 'phi' else
+                    np.diag(res_f_file['cov_'+par+'_full'])
+                )
             )
-        )
-        for par in pnames
-    ]
+            for par in pnames
+        ]
     res_f_file.close()
+    
+    # Load full samples if found
+    full_samp_file_path = os.path.join(
+        RES_PATH, 'full_samp_{}.npz'.format(file_ending))
+    if os.path.exists(full_samp_file_path):
+        full_samp_file = np.load(full_samp_file_path)
+        full_samp = full_samp_file['samp_phi']
+        full_samp_file.close()
+    else:
+        full_samp = None
     
     niter = m_phi_i.shape[0]
     dphi = m_phi_i.shape[1]
@@ -174,7 +186,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
             true_vals[pi] = true_vals[pi].ravel()
             if mix:
                 res_d[pi] = (res_d[pi][0].ravel(), res_d[pi][1].ravel())
-            res_f[pi] = (res_f[pi][0].ravel(), res_f[pi][1].ravel())
+                res_f[pi] = (res_f[pi][0].ravel(), res_f[pi][1].ravel())
     
     # Plot approx KL-divergence and MSE
     sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(cov_phi_full)[0])))
@@ -191,6 +203,19 @@ def plot_results(model_name, model_id=None, dist_id=None):
     ax.set_yscale('log')
     ax.set_xlim([0,niter-1])
     ax.legend()
+    
+    # Plot log-likelihood
+    if full_samp is not None:
+        ll_i = np.zeros(niter)
+        for i in range(niter):
+            ll_i[i] = np.sum(stats.multivariate_normal.logpdf(
+                full_samp, mean=m_phi_i[i], cov=cov_phi_i[i]))
+        fig, ax = plt.subplots(1,1)
+        ax.plot(np.arange(niter), ll_i)
+        ax.set_ylabel('Log-likelihood')
+        ax.set_xlabel('Iteration')
+        ax.set_xlim([0,niter-1])
+        ax.legend()
     
     # Plot mean and variance as a function of the iteration
     fig, axs = plt.subplots(2, 1, sharex=True)
