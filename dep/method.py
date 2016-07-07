@@ -649,6 +649,10 @@ class Master(object):
     INFO_DF_TRESHOLD_REACHED_CAVITY = 3
     INFO_ALL_SITES_FAIL = 4
     
+    # Constrain pos.def. min eig.val.
+    MIN_EIG_TRESHOLD = 1e-5
+    MIN_EIG = 0.5
+    
     # List of constructor default keyword arguments
     DEFAULT_KWARGS = {
         'A'                 : {},
@@ -990,6 +994,8 @@ class Master(object):
                 print "Iter {}, starting df {:.3g}".format(self.iter, df)
                 fail_printline_pos = False
                 fail_printline_cov = False
+            # Fail flag for pos.def enforcing
+            failed_force_pos_def = False
             
             while True:
                 # Try to update the global posterior approximation
@@ -1027,11 +1033,31 @@ class Master(object):
                     if df < self.df_treshold:
                         if verbose:
                             print "\nDamping factor reached minimum."
-                        if calc_moments:
-                            return m_phi_s, cov_phi_s, \
-                                self.INFO_DF_TRESHOLD_REACHED_GLOBAL
-                        else:
-                            return self.INFO_DF_TRESHOLD_REACHED_GLOBAL
+                        df = self.df0(self.iter)
+                        np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
+                        np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
+                        if failed_force_pos_def:
+                            if verbose:
+                                print "Failed to force pos_def global."
+                            if calc_moments:
+                                return m_phi_s, cov_phi_s, \
+                                    self.INFO_DF_TRESHOLD_REACHED_CAVITY
+                            else:
+                                return self.INFO_DF_TRESHOLD_REACHED_CAVITY
+                        failed_force_pos_def = True
+                        # Try to fix by forcing improper sites to proper
+                        posdefs.fill(0)
+                        for k in xrange(self.K):
+                            # Set min eigenvalue to MIN_EIG by adding to the
+                            # diagonal if it is smaller than MIN_EIG_TRESHOLD
+                            min_eig = linalg.eigvalsh(
+                                Qi2[:,:,k], eigvals=(0,0))[0]
+                            if min_eig < self.MIN_EIG_TRESHOLD:
+                                Qi.flat[::self.dphi+1] += self.MIN_EIG - min_eig
+                                posdefs[k] = 1
+                        if verbose:
+                            print "Force sites {} pos_def.".format(
+                                np.nonzero(posdefs)[0])
                     continue
                 
                 # Cavity distributions (parallelisable)
@@ -1079,11 +1105,31 @@ class Master(object):
                     if df < self.df_treshold:
                         if verbose:
                             print "\nDamping factor reached minimum."
-                        if calc_moments:
-                            return m_phi_s, cov_phi_s, \
-                                self.INFO_DF_TRESHOLD_REACHED_CAVITY
-                        else:
-                            return self.INFO_DF_TRESHOLD_REACHED_CAVITY
+                        df = self.df0(self.iter)
+                        np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
+                        np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
+                        if failed_force_pos_def:
+                            if verbose:
+                                print "Failed to force pos_def cavities."
+                            if calc_moments:
+                                return m_phi_s, cov_phi_s, \
+                                    self.INFO_DF_TRESHOLD_REACHED_CAVITY
+                            else:
+                                return self.INFO_DF_TRESHOLD_REACHED_CAVITY
+                        failed_force_pos_def = True
+                        # Try to fix by forcing improper sites to proper
+                        posdefs.fill(0)
+                        for k in xrange(self.K):
+                            # Set min eigenvalue to MIN_EIG by adding to the
+                            # diagonal if it is smaller than MIN_EIG_TRESHOLD
+                            min_eig = linalg.eigvalsh(
+                                Qi2[:,:,k], eigvals=(0,0))[0]
+                            if min_eig < self.MIN_EIG_TRESHOLD:
+                                Qi.flat[::self.dphi+1] += self.MIN_EIG - min_eig
+                                posdefs[k] = 1
+                        if verbose:
+                            print "Force sites {} pos_def.".format(
+                                np.nonzero(posdefs)[0])
             if verbose and (fail_printline_pos or fail_printline_cov):
                 print
             
