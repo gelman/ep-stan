@@ -1053,7 +1053,7 @@ class Master(object):
                             min_eig = linalg.eigvalsh(
                                 Qi2[:,:,k], eigvals=(0,0))[0]
                             if min_eig < self.MIN_EIG_TRESHOLD:
-                                Qi.flat[::self.dphi+1] += self.MIN_EIG - min_eig
+                                Qi[:,:,k].flat[::self.dphi+1] += self.MIN_EIG - min_eig
                                 posdefs[k] = 1
                         if verbose:
                             print "Force sites {} pos_def.".format(
@@ -1125,7 +1125,7 @@ class Master(object):
                             min_eig = linalg.eigvalsh(
                                 Qi2[:,:,k], eigvals=(0,0))[0]
                             if min_eig < self.MIN_EIG_TRESHOLD:
-                                Qi.flat[::self.dphi+1] += self.MIN_EIG - min_eig
+                                Qi[:,:,k].flat[::self.dphi+1] += self.MIN_EIG - min_eig
                                 posdefs[k] = 1
                         if verbose:
                             print "Force sites {} pos_def.".format(
