@@ -21,7 +21,7 @@ https://github.com/gelman/ep-stan
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
-from __future__ import division
+
 import os
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
@@ -169,7 +169,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
     dphi = m_phi_i.shape[1]
     
     # Ravel params if necessary
-    for pi in xrange(1,len(pnames)):
+    for pi in range(1,len(pnames)):
         if true_vals[pi].ndim != 1:
             true_vals[pi] = true_vals[pi].ravel()
             if mix:
@@ -180,7 +180,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
     sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(cov_phi_full)[0])))
     KL_divs = np.empty(niter)
     mse = np.mean((m_phi_i - m_phi_full)**2, axis=1)
-    for i in xrange(niter):
+    for i in range(niter):
         KL_divs[i] = kl_mvn(m_phi_full, cov_phi_full, m_phi_i[i], cov_phi_i[i],
                             sum_log_diag_cho_S0)
     fig, ax = plt.subplots(1,1)
@@ -218,7 +218,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
     
     if mix:
         # Plot compare plots for every variable
-        for pi in xrange(len(pnames)):
+        for pi in range(len(pnames)):
             par = pnames[pi]
             t = true_vals[pi]
             m, var = res_d[pi]

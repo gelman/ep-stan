@@ -6,7 +6,7 @@
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
-from __future__ import division
+
 import numpy as np
 from scipy.special import erfinv, logit
 
@@ -62,10 +62,10 @@ def rand_corr_vine(d, alpha=2, beta=2, pmin=-0.8, pmax=0.8, seed=None):
     # Output array
     C = np.eye(d)
     # Convert partial correlations to raw correlations
-    for i in xrange(d-1):
-        for j in xrange(i+1,d):
+    for i in range(d-1):
+        for j in range(i+1,d):
             cur = P[i,j]
-            for k in xrange(i-1,-1,-1):
+            for k in range(i-1,-1,-1):
                 cur *= np.sqrt((1 - P[i,k])*(1 - P[j,k]))
                 cur += P[k,i]*P[k,j]
             C[i,j] = cur
@@ -275,7 +275,7 @@ def calc_input_param_classification(alpha, beta, Sigma_x=None):
             divisor = np.sqrt(2) * ERFINVGAMMA0 * ssbeta
             mu_x = np.zeros(J)
             sigma_x = np.empty(J)
-            for j in xrange(J):
+            for j in range(J):
                 if np.abs(alpha[j]) < DELTA_MAX:
                     # No mean adjustment needed
                     sigma_x[j] = (LOGITP0 + np.abs(alpha[j])) / divisor
@@ -302,7 +302,7 @@ def calc_input_param_classification(alpha, beta, Sigma_x=None):
             divisor = np.sqrt(2) * ERFINVGAMMA0 * ssbeta
             mu_x = np.zeros(J)
             sigma_x = np.empty(J)
-            for j in xrange(J):
+            for j in range(J):
                 if np.abs(alpha[j]) < DELTA_MAX:
                     # No mean adjustment needed
                     sigma_x[j] = (LOGITP0 + np.abs(alpha[j])) / divisor[j]
@@ -381,7 +381,7 @@ class data(object):
             # Categorial: percentage of wrong classes
             uncertainty_global = np.count_nonzero(y_true != y)/self.N
             uncertainty_group = np.empty(self.J)
-            for j in xrange(self.J):
+            for j in range(self.J):
                 uncertainty_group[j] = (
                     np.count_nonzero(
                         y_true[j_lim[j]:j_lim[j+1]] != y[j_lim[j]:j_lim[j+1]]
@@ -393,7 +393,7 @@ class data(object):
             sse = np.sum(np.square(y - y_true))
             uncertainty_global = 1 - sse/sst
             uncertainty_group = np.empty(self.J)
-            for j in xrange(self.J):
+            for j in range(self.J):
                 sst = np.sum(np.square(
                     y[j_lim[j]:j_lim[j+1]] - np.mean(y[j_lim[j]:j_lim[j+1]])
                 ))

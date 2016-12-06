@@ -12,13 +12,13 @@ https://github.com/gelman/ep-stan
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
-from __future__ import division
+
 import numpy as np
 from scipy import linalg
 from scipy.stats import multivariate_normal
 # import matplotlib.pyplot as plt
 
-from util import invert_normal_params, olse
+from .util import invert_normal_params, olse
 from cython_util import copy_triu_to_tril
 
 
@@ -121,7 +121,7 @@ else:
         Q2s = S2[:,:,np.newaxis]
 
 # Sample estimates
-for i in xrange(N):
+for i in range(N):
     
     if rand_distr_every_iter:
         # Generate random distr
@@ -167,39 +167,39 @@ for i in xrange(N):
     r_samps[:,i] *= unbias_k
 
 # Print result statistics
-print 'Statistics of {} estimates'.format(N)
-print ('{:9}'+4*' {:>13}').format(
-      'estimate', 'me (bias)', 'std', 'mse', '97.5se')
-print 65*'-'
-for i in xrange(min(d,print_max)):
-    print 'r[{}]'.format(i)    
-    print ('{:9}'+4*' {:>13.5f}').format(
+print('Statistics of {} estimates'.format(N))
+print(('{:9}'+4*' {:>13}').format(
+      'estimate', 'me (bias)', 'std', 'mse', '97.5se'))
+print(65*'-')
+for i in range(min(d,print_max)):
+    print('r[{}]'.format(i))    
+    print(('{:9}'+4*' {:>13.5f}').format(
           '  _olse',
           np.mean(r_hats[i] - r1s[i]),
           np.sqrt(np.var(r_hats[i], ddof=1)),
           np.mean((r_hats[i] - r1s[i])**2),
-          np.percentile((r_hats[i] - r1s[i])**2, 97.5))
-    print ('{:9}'+4*' {:>13.5f}').format(
+          np.percentile((r_hats[i] - r1s[i])**2, 97.5)))
+    print(('{:9}'+4*' {:>13.5f}').format(
           '  _sample',
           np.mean(r_samps[i] - r1s[i]),
           np.sqrt(np.var(r_samps[i], ddof=1)),
           np.mean((r_samps[i] - r1s[i])**2),
-          np.percentile((r_samps[i] - r1s[i])**2, 97.5))
-for i in xrange(min(d,print_max)):
-    for j in xrange(i,min(d,print_max)):
-        print 'Q[{},{}]'.format(i,j)
-        print ('{:9}'+4*' {:>13.5f}').format(
+          np.percentile((r_samps[i] - r1s[i])**2, 97.5)))
+for i in range(min(d,print_max)):
+    for j in range(i,min(d,print_max)):
+        print('Q[{},{}]'.format(i,j))
+        print(('{:9}'+4*' {:>13.5f}').format(
               '  _olse',
               np.mean(Q_hats[i,j] - Q1s[i,j]),
               np.sqrt(np.var(Q_hats[i,j], ddof=1)),
               np.mean((Q_hats[i,j] - Q1s[i,j])**2),
-              np.percentile((Q_hats[i,j] - Q1s[i,j])**2, 97.5))
-        print ('{:9}'+4*' {:>13.5f}').format(
+              np.percentile((Q_hats[i,j] - Q1s[i,j])**2, 97.5)))
+        print(('{:9}'+4*' {:>13.5f}').format(
               '  _sample',
               np.mean(Q_samps[i,j] - Q1s[i,j]),
               np.sqrt(np.var(Q_samps[i,j], ddof=1)),
               np.mean((Q_samps[i,j] - Q1s[i,j])**2),
-              np.percentile((Q_samps[i,j] - Q1s[i,j])**2, 97.5))
+              np.percentile((Q_samps[i,j] - Q1s[i,j])**2, 97.5)))
 
 
 

@@ -74,7 +74,7 @@ https://github.com/gelman/ep-stan
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
-from __future__ import division
+
 import os, argparse
 from timeit import default_timer as timer
 import numpy as np
@@ -140,12 +140,12 @@ class configurations(object):
     """Configuration container for the function main."""
     def __init__(self, **kwargs):
         # Set given options
-        for k, v in kwargs.iteritems():
+        for k, v in kwargs.items():
             if k not in CONF_DEFAULT:
                 raise ValueError("Invalid option `{}`".format(k))
             setattr(self, k, v)
         # Set missing options to defaults
-        for k, v in CONF_DEFAULT.iteritems():
+        for k, v in CONF_DEFAULT.items():
             if k not in kwargs:
                 setattr(self, k, v)
     def __str__(self):
@@ -169,8 +169,8 @@ def main(model_name, conf, ret_master=False):
     if not isinstance(conf, configurations):
         raise ValueError("Invalid arg. `conf`, use class fit.configurations")
     
-    print "Configurations:"
-    print '    ' + str(conf).replace('\n', '\n    ')
+    print("Configurations:")
+    print('    ' + str(conf).replace('\n', '\n    '))
     
     # Localise few options
     J = conf.J
@@ -220,14 +220,14 @@ def main(model_name, conf, ret_master=False):
             X_param = data.X_param,
             **data.true_values
         )
-        print "True values saved into results"
+        print("True values saved into results")
     
     # ------------------------------------------------------
     #     Fit distributed model
     # ------------------------------------------------------
     if conf.method == 'both' or conf.method == 'distributed' or ret_master:
         
-        print "Distributed model {} ...".format(model_name)
+        print("Distributed model {} ...".format(model_name))
         
         # Options for the ep-algorithm see documentation of dep.method.Master
         dep_options = dict(
@@ -292,12 +292,12 @@ def main(model_name, conf, ret_master=False):
             raise ValueError("K cant be greater than number of samples")
         
         if ret_master:
-            print "Returning dep.Master"
+            print("Returning dep.Master")
             return dep_master
         
         # Run the algorithm for `EP_ITER` iterations
-        print "Run distributed EP algorithm for {} iterations." \
-              .format(conf.iter)
+        print("Run distributed EP algorithm for {} iterations." \
+              .format(conf.iter))
         m_phi_i, cov_phi_i, info = dep_master.run(
             conf.iter, save_last_fits=conf.mix)
         if info:
@@ -316,7 +316,7 @@ def main(model_name, conf, ret_master=False):
                     cov_phi_i = cov_phi_i,
                     last_iter = dep_master.iter
                 )
-                print "Uncomplete distributed model results saved."
+                print("Uncomplete distributed model results saved.")
             raise RuntimeError('Dep algorithm failed with error code: {}'
                                .format(info))
         
@@ -329,7 +329,7 @@ def main(model_name, conf, ret_master=False):
             pms, pvars = dep_master.mix_pred(pnames, pmaps, pshapes)
             # Construct a dict of from these results
             presults = {}
-            for i in xrange(len(pnames)):
+            for i in range(len(pnames)):
                 pname = pnames[i]
                 presults['m_'+pname] = pms[i]
                 presults['var_'+pname] = pvars[i]
@@ -359,7 +359,7 @@ def main(model_name, conf, ret_master=False):
                     m_phi_i   = m_phi_i,
                     cov_phi_i = cov_phi_i,
                 )
-            print "Distributed model results saved."
+            print("Distributed model results saved.")
         
         # Release master object
         del dep_master
@@ -369,7 +369,7 @@ def main(model_name, conf, ret_master=False):
     # ------------------------------------------------------
     if conf.method == 'both' or conf.method == 'full':
         
-        print "Full model {} ...".format(model_name)
+        print("Full model {} ...".format(model_name))
         
         seed = np.random.RandomState(seed=conf.seed_mcmc)
         # Temp fix for the RandomState seed problem with pystan in 32bit Python
@@ -409,16 +409,16 @@ def main(model_name, conf, ret_master=False):
         # Mean stepsize
         steps = [np.mean(p['stepsize__'])
                  for p in fit.get_sampler_params()]
-        print '    sampling time {}'.format(time_full)
-        print '    mean stepsize: {:.4}'.format(np.mean(steps))
+        print('    sampling time {}'.format(time_full))
+        print('    mean stepsize: {:.4}'.format(np.mean(steps)))
         # Max Rhat (from all but last row in the last column)
-        print '    max Rhat: {:.4}'.format(
+        print('    max Rhat: {:.4}'.format(
             np.max(fit.summary()['summary'][:-1,-1])
-        )
+        ))
         
         # Get mean and var of inferred variables
         presults = {}
-        for i in xrange(len(pnames)):
+        for i in range(len(pnames)):
             pname = pnames[i]
             samp = fit.extract(pname)[pname]
             presults['m_'+pname+'_full'] = np.mean(samp, axis=0)
@@ -439,7 +439,7 @@ def main(model_name, conf, ret_master=False):
                 cov_phi_full = cov_phi_full,
                 **presults
             )
-            print "Full model results saved."
+            print("Full model results saved.")
     
 
 def _create_pmaps(phiers, J, K, Ns):
@@ -450,14 +450,14 @@ def _create_pmaps(phiers, J, K, Ns):
     elif K < J:
         # ------ Many groups per site: combined groups ------
         pmaps = []
-        for pi in xrange(len(phiers)):
+        for pi in range(len(phiers)):
             ih = phiers[pi]
             if ih is None:
                 pmaps.append(None)
             else:
                 pmap = []
                 i = 0
-                for k in xrange(K):
+                for k in range(K):
                     # Create indexings until the ih dimension, remaining
                     # dimension's slice(None) can be left out
                     if ih == 0:
@@ -467,7 +467,7 @@ def _create_pmaps(phiers, J, K, Ns):
                             tuple(
                                 slice(i, i+Ns[k])
                                 if i2 == ih else slice(None)
-                                for i2 in xrange(ih+1)
+                                for i2 in range(ih+1)
                             )
                         )
                     i += Ns[k]
@@ -476,7 +476,7 @@ def _create_pmaps(phiers, J, K, Ns):
     elif K == J:
         # ------ One group per site ------
         pmaps = []
-        for pi in xrange(len(phiers)):
+        for pi in range(len(phiers)):
             ih = phiers[pi]
             if ih is None:
                 pmaps.append(None)
@@ -485,13 +485,13 @@ def _create_pmaps(phiers, J, K, Ns):
                 pmaps.append(np.arange(K))
             else:
                 pmap = []
-                for k in xrange(K):
+                for k in range(K):
                     # Create indexings until the ih dimension, remaining
                     # dimension's slice(None) can be left out
                     pmap.append(
                         tuple(
                             k if i2 == ih else slice(None)
-                            for i2 in xrange(ih+1)
+                            for i2 in range(ih+1)
                         )
                     )
                 pmaps.append(pmap)
@@ -499,7 +499,7 @@ def _create_pmaps(phiers, J, K, Ns):
     else:
         # ------ Multiple sites per group: split groups ------
         pmaps = []
-        for pi in xrange(len(phiers)):
+        for pi in range(len(phiers)):
             ih = phiers[pi]
             if ih is None:
                 pmaps.append(None)
@@ -507,22 +507,22 @@ def _create_pmaps(phiers, J, K, Ns):
                 # First dimensions can be mapped with one ndarray
                 pmap = np.empty(K, dtype=np.int32)
                 i = 0
-                for j in xrange(J):
-                    for _ in xrange(Ns[j]):
+                for j in range(J):
+                    for _ in range(Ns[j]):
                         pmap[i] = j
                         i += 1
                 pmaps.append(pmap)
             else:
                 pmap = []
                 i = 0
-                for j in xrange(J):
-                    for _ in xrange(Ns[j]):
+                for j in range(J):
+                    for _ in range(Ns[j]):
                         # Create indexings until the ih dimension, remaining
                         # dimension's slice(None) can be left out
                         pmap.append(
                             tuple(
                                 j if i2 == ih else slice(None)
-                                for i2 in xrange(ih+1)
+                                for i2 in range(ih+1)
                             )
                         )
                         i += 1
