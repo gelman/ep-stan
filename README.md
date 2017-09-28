@@ -12,7 +12,8 @@ Python code supplement for "Expectation propagation as a way of life"
 
 ### Setup
 Compile the Cython utilities with `python setup.py build_ext --inplace`.
-Test Scipy compatibility by running `python test.py`, see notes on the bottom.
+Test Scipy compatibility by running `python test_scipy.py`, see notes on the
+bottom.
 
 ### Usage
 The folder experiment contains simple hierarchical logistic regression examples.
@@ -28,4 +29,4 @@ issue in the in-place operation of dpotri Lapack-routine with C- or F-order
 matrices. In some builds, the in-place operation works for F-order matrices but
 not for C-order matrices, whereas in some builds, it works the opposite way.
 The former behaviour is assumed in this program. This compatibility problem can
-be tested by running a simple test script by `python test.py`.
+be tested by running a simple test script by `python test_scipy.py`.
