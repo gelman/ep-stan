@@ -31,10 +31,10 @@ Definition:
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
-from __future__ import division
+
 import numpy as np
 from scipy.linalg import cholesky
-from common import data, calc_input_param_lin_reg, rand_corr_vine
+from .common import data, calc_input_param_lin_reg, rand_corr_vine
 
 
 # ------------------------------------------------------------------------------
@@ -143,7 +143,7 @@ class model(object):
         j_lim = np.concatenate(([0], np.cumsum(Nj)))
         # Group indices for each sample
         j_ind = np.empty(N, dtype=np.int64)
-        for j in xrange(J):
+        for j in range(J):
             j_ind[j_lim[j]:j_lim[j+1]] = j
         
         # Assign parameters
@@ -165,7 +165,7 @@ class model(object):
         beta_j = mu_b + rnd_data.laplace(size=(J,D))*sigma_b
         
         # Regulate beta
-        for j in xrange(J):
+        for j in range(J):
             beta_sum = np.sum(beta_j[j])
             while np.abs(beta_sum) < B_ABS_MIN_SUM:
                 # Replace one random element in beta
@@ -188,15 +188,15 @@ class model(object):
         # Different sigma_x for every group
         X = np.empty((N,D))
         if Sigma_x is None:
-            for j in xrange(J):
+            for j in range(J):
                 X[j_lim[j]:j_lim[j+1],:] = rnd_data.randn(Nj[j],D)*sigma_x_j[j]
         else:
             cho_x = cholesky(Sigma_x)
-            for j in xrange(J):
+            for j in range(J):
                 X[j_lim[j]:j_lim[j+1],:] = \
                     rnd_data.randn(Nj[j],D).dot(sigma_x_j[j]*cho_x)
         y_true = np.empty(N)
-        for n in xrange(N):
+        for n in range(N):
             y_true[n] = alpha_j[j_ind[n]] + X[n].dot(beta_j[j_ind[n]])
         y = y_true + rnd_data.randn(N)*sigma
         

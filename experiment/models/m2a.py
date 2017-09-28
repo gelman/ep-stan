@@ -25,10 +25,10 @@ Definition:
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
-from __future__ import division
+
 import numpy as np
 from scipy.linalg import cholesky
-from common import data, calc_input_param_lin_reg, rand_corr_vine
+from .common import data, calc_input_param_lin_reg, rand_corr_vine
 
 
 # ------------------------------------------------------------------------------
@@ -129,7 +129,7 @@ class model(object):
         j_lim = np.concatenate(([0], np.cumsum(Nj)))
         # Group indices for each sample
         j_ind = np.empty(N, dtype=np.int64)
-        for j in xrange(J):
+        for j in range(J):
             j_ind[j_lim[j]:j_lim[j+1]] = j
         
         # Assign parameters

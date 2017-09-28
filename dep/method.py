@@ -15,7 +15,7 @@ https://github.com/gelman/ep-stan
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
-from __future__ import division
+
 import sys
 from timeit import default_timer as timer
 import multiprocessing
@@ -26,7 +26,7 @@ from sklearn.covariance import GraphLassoCV
 # LAPACK qr routine
 dgeqrf_routine = linalg.get_lapack_funcs('geqrf')
 
-from util import (
+from .util import (
     invert_normal_params,
     olse,
     get_last_fit_sample,
@@ -91,7 +91,7 @@ def sample_stan(queue, path, data, stan_param, other_params=None):
     
     # Extract samples
     dphi = data['mu_phi'].shape[0]
-    fit_pnames = list(u'phi[{}]'.format(i) for i in range(dphi))
+    fit_pnames = list('phi[{}]'.format(i) for i in range(dphi))
     samp = copy_fit_samples(fit, fit_pnames)
     
     # Get the last sample of all
@@ -172,18 +172,18 @@ class Worker(object):
         
         # Parse options
         # Set missing options to defaults
-        for (kw, default) in self.DEFAULT_OPTIONS.iteritems():
-            if not options.has_key(kw):
+        for (kw, default) in self.DEFAULT_OPTIONS.items():
+            if kw not in options:
                 options[kw] = default
-        for (kw, default) in self.DEFAULT_STAN_PARAMS.iteritems():
-            if not options.has_key(kw):
+        for (kw, default) in self.DEFAULT_STAN_PARAMS.items():
+            if kw not in options:
                 options[kw] = default
         # Extranct stan parameters
         self.stan_params = {}
-        for (kw, val) in options.iteritems():
-            if self.DEFAULT_STAN_PARAMS.has_key(kw):
+        for (kw, val) in options.items():
+            if kw in self.DEFAULT_STAN_PARAMS:
                 self.stan_params[kw] = val
-            elif not self.DEFAULT_OPTIONS.has_key(kw):
+            elif kw not in self.DEFAULT_OPTIONS:
                 # Unrecognised option
                 raise TypeError("Unexpected option '{}'".format(kw))
         
@@ -237,7 +237,7 @@ class Worker(object):
         # The last elapsed time
         self.last_time = None
         # The names of the shared parameters in this
-        self.fit_pnames = list(u'phi[{}]'.format(i) for i in range(self.dphi))
+        self.fit_pnames = list('phi[{}]'.format(i) for i in range(self.dphi))
         
         # Initialisation
         self.init_prev = options['init_prev']
@@ -245,7 +245,7 @@ class Worker(object):
             # Store the original init method so that it can be reset, when
             # an iteration fails
             self.init_orig = self.stan_params['init']
-            if not isinstance(self.init_orig, basestring):
+            if not isinstance(self.init_orig, str):
                 # If init_prev is used, init option has to be a string
                 raise ValueError("Arg. `init` has to be a string if "
                                  "`init_prev` is True")
@@ -348,7 +348,7 @@ class Worker(object):
             self.stan_params['seed'] = self.rstate.randint(2**31-1)
         
         # Sample from the model
-        if isinstance(self.stan_model, basestring):
+        if isinstance(self.stan_model, str):
             q = multiprocessing.Queue()
             if save_samples:
                 args = (q, self.stan_model, self.data, self.stan_params,
@@ -367,9 +367,9 @@ class Worker(object):
             self.last_time = dur
             if self.verbose:
                 # Mean stepsize
-                print '\n    mean stepsize: {:.4}'.format(msteps)
+                print('\n    mean stepsize: {:.4}'.format(msteps))
                 # Max Rhat (from all but last row in the last column)
-                print '    max Rhat: {:.4}'.format(mrhat)
+                print('    max Rhat: {:.4}'.format(mrhat))
         else:
             time_start = timer()
             with suppress_stdout():
@@ -392,11 +392,11 @@ class Worker(object):
                 # Mean stepsize
                 steps = [np.mean(p['stepsize__'])
                          for p in fit.get_sampler_params()]
-                print '\n    mean stepsize: {:.4}'.format(np.mean(steps))
+                print('\n    mean stepsize: {:.4}'.format(np.mean(steps)))
                 # Max Rhat (from all but last row in the last column)
-                print '    max Rhat: {:.4}'.format(
+                print('    max Rhat: {:.4}'.format(
                     np.max(fit.summary()['summary'][:-1,-1])
-                )
+                ))
             # Dereference the fit
             fit = None
         
@@ -458,7 +458,7 @@ class Worker(object):
                 # Fit
                 self.glassocv.fit(samp)
                 if self.verbose:
-                    print '    glasso alpha: {:.4}'.format(self.glassocv.alpha_)
+                    print('    glasso alpha: {:.4}'.format(self.glassocv.alpha_))
                 np.copyto(dQi, self.glassocv.precision_.T)
                 # Calculate corresponding r
                 np.dot(dQi, mt, out=dri)
@@ -677,24 +677,24 @@ class Master(object):
         
         # Parse keyword arguments
         self.worker_options = {}
-        for (kw, val) in kwargs.iteritems():
-            if (    Worker.DEFAULT_OPTIONS.has_key(kw)
-                 or Worker.DEFAULT_STAN_PARAMS.has_key(kw)
+        for (kw, val) in kwargs.items():
+            if (    kw in Worker.DEFAULT_OPTIONS
+                 or kw in Worker.DEFAULT_STAN_PARAMS
                ):
                 self.worker_options[kw] = val
-            elif not self.DEFAULT_KWARGS.has_key(kw):
+            elif kw not in self.DEFAULT_KWARGS:
                 # Unrecognised keyword argument
                 raise TypeError("Unexpected keyword argument '{}'".format(kw))
         # Set missing kwargs to defaults
-        for (kw, default) in self.DEFAULT_KWARGS.iteritems():
-            if not kwargs.has_key(kw):
+        for (kw, default) in self.DEFAULT_KWARGS.items():
+            if kw not in kwargs:
                 kwargs[kw] = default
         # Set missing worker options to defaults
-        for (kw, default) in Worker.DEFAULT_OPTIONS.iteritems():
-            if not self.worker_options.has_key(kw):
+        for (kw, default) in Worker.DEFAULT_OPTIONS.items():
+            if kw not in self.worker_options:
                 self.worker_options[kw] = default
-        for (kw, default) in Worker.DEFAULT_STAN_PARAMS.iteritems():
-            if not self.worker_options.has_key(kw):
+        for (kw, default) in Worker.DEFAULT_STAN_PARAMS.items():
+            if kw not in self.worker_options:
                 self.worker_options[kw] = default
         
         # Stan model source (or instance)
@@ -728,7 +728,7 @@ class Master(object):
             self.K = len(self.Nk)
             self.k_lim = np.concatenate(([0], np.cumsum(self.Nk)))
             self.k_ind = np.empty(self.N, dtype=np.int64)
-            for k in xrange(self.K):
+            for k in range(self.K):
                 self.k_ind[self.k_lim[k]:self.k_lim[k+1]] = k
         elif not kwargs['site_ind_ord'] is None:
             # Sorted array of site indices provided
@@ -765,12 +765,12 @@ class Master(object):
         # Process A
         self.A = kwargs['A']
         # Check for name clashes
-        for key in self.A.iterkeys():
+        for key in self.A.keys():
             if key in Worker.RESERVED_STAN_PARAMETER_NAMES:
                 raise ValueError("Additional data name {} clashes.".format(key))
         # Process A_n
         self.A_n = kwargs['A_n'].copy()
-        for (key, val) in kwargs['A_n'].iteritems():
+        for (key, val) in kwargs['A_n'].items():
             if val.shape[0] != self.N:
                 raise ValueError("The shapes of `A_n[{}]` and `X` does not "
                                  "match".format(repr(key)))
@@ -784,7 +784,7 @@ class Master(object):
                 self.A_n[key] = np.ascontiguousarray(val)
         # Process A_k
         self.A_k = kwargs['A_k']
-        for (key, val) in self.A_k.iteritems():
+        for (key, val) in self.A_k.items():
             # Check for length
             if len(val) != self.K:
                 raise ValueError("Array-like length mismatch in `A_k` "
@@ -811,11 +811,11 @@ class Master(object):
             # Use provided prior
             if not hasattr(prior, 'has_key'):
                 raise TypeError("Argument `prior` is of wrong type")
-            if prior.has_key('Q') and prior.has_key('r'):
+            if 'Q' in prior and 'r' in prior:
                 # In a natural form already
                 self.Q0 = np.asfortranarray(prior['Q'])
                 self.r0 = prior['r']
-            elif prior.has_key('S') and prior.has_key('m'):
+            elif 'S' in prior and 'm' in prior:
                 # Convert into natural format
                 self.Q0, self.r0 = invert_normal_params(prior['S'], prior['m'])
             else:
@@ -864,11 +864,11 @@ class Master(object):
         
         # Initialise the workers
         self.workers = []
-        for k in xrange(self.K):
+        for k in range(self.K):
             A = dict((key, val[self.k_lim[k]:self.k_lim[k+1]])
-                     for (key, val) in self.A_n.iteritems())
+                     for (key, val) in self.A_n.items())
             A.update(self.A)
-            for (key, val) in self.A_k.iteritems():
+            for (key, val) in self.A_k.items():
                 A[key] = val[k]
             self.workers.append(
                 Worker(
@@ -902,11 +902,11 @@ class Master(object):
         if not kwargs['init_site'] is None:
             # Config initial site distributions
             if isinstance(kwargs['init_site'], np.ndarray):
-                for k in xrange(self.K):
+                for k in range(self.K):
                     np.copyto(self.Qi[:,:,k], kwargs['init_site'])
             else:
                 diag_elem = self.K / (kwargs['init_site']**2)
-                for k in xrange(self.K):
+                for k in range(self.K):
                     self.Qi[:,:,k].flat[::self.dphi+1] = diag_elem
         
         # Track iterations
@@ -946,8 +946,8 @@ class Master(object):
         
         if niter < 1:
             if verbose:
-                print "Nothing to do here as provided arg. `niter` is {}" \
-                      .format(niter)
+                print("Nothing to do here as provided arg. `niter` is {}" \
+                      .format(niter))
             if calc_moments:
                 return None, None, self.INFO_OK
             else:
@@ -982,7 +982,7 @@ class Master(object):
         stimes = np.zeros(niter)
         
         # Iterate niter rounds
-        for cur_iter in xrange(niter):
+        for cur_iter in range(niter):
             self.iter += 1
             # Initial dampig factor
             if self.iter > 1:
@@ -991,7 +991,7 @@ class Master(object):
                 # At the first round (rond zero) there is nothing to damp yet
                 df = 1
             if verbose:
-                print "Iter {}, starting df {:.3g}".format(self.iter, df)
+                print("Iter {}, starting df {:.3g}".format(self.iter, df))
                 fail_printline_pos = False
                 fail_printline_cov = False
             # Fail flag for pos.def enforcing
@@ -1025,20 +1025,20 @@ class Master(object):
                         sys.stdout.flush()
                     if self.iter == 1:
                         if verbose:
-                            print "\nInvalid prior."
+                            print("\nInvalid prior.")
                         if calc_moments:
                             return m_phi_s, cov_phi_s, self.INFO_INVALID_PRIOR
                         else:
                             return self.INFO_INVALID_PRIOR
                     if df < self.df_treshold:
                         if verbose:
-                            print "\nDamping factor reached minimum."
+                            print("\nDamping factor reached minimum.")
                         df = self.df0(self.iter)
                         np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
                         np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
                         if failed_force_pos_def:
                             if verbose:
-                                print "Failed to force pos_def global."
+                                print("Failed to force pos_def global.")
                             if calc_moments:
                                 return m_phi_s, cov_phi_s, \
                                     self.INFO_DF_TRESHOLD_REACHED_CAVITY
@@ -1047,7 +1047,7 @@ class Master(object):
                         failed_force_pos_def = True
                         # Try to fix by forcing improper sites to proper
                         posdefs.fill(0)
-                        for k in xrange(self.K):
+                        for k in range(self.K):
                             # Set min eigenvalue to MIN_EIG by adding to the
                             # diagonal if it is smaller than MIN_EIG_TRESHOLD
                             min_eig = linalg.eigvalsh(
@@ -1056,14 +1056,14 @@ class Master(object):
                                 Qi[:,:,k].flat[::self.dphi+1] += self.MIN_EIG - min_eig
                                 posdefs[k] = 1
                         if verbose:
-                            print "Force sites {} pos_def.".format(
-                                np.nonzero(posdefs)[0])
+                            print("Force sites {} pos_def.".format(
+                                np.nonzero(posdefs)[0]))
                     continue
                 
                 # Cavity distributions (parallelisable)
                 # -------------------------------------
                 # Check positive definitness for each cavity distribution
-                for k in xrange(self.K):
+                for k in range(self.K):
                     posdefs[k] = \
                         self.workers[k].cavity(Q, r, Qi2[:,:,k], ri2[:,k])
                     # Early stopping criterion (when in serial)
@@ -1092,7 +1092,7 @@ class Master(object):
                     if verbose:
                         if fail_printline_pos:
                             fail_printline_pos = False
-                            print
+                            print()
                         fail_printline_cov = True
                         sys.stdout.write(
                             "\rNon pos. def. cavity, " +
@@ -1104,13 +1104,13 @@ class Master(object):
                         sys.stdout.flush()
                     if df < self.df_treshold:
                         if verbose:
-                            print "\nDamping factor reached minimum."
+                            print("\nDamping factor reached minimum.")
                         df = self.df0(self.iter)
                         np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
                         np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
                         if failed_force_pos_def:
                             if verbose:
-                                print "Failed to force pos_def cavities."
+                                print("Failed to force pos_def cavities.")
                             if calc_moments:
                                 return m_phi_s, cov_phi_s, \
                                     self.INFO_DF_TRESHOLD_REACHED_CAVITY
@@ -1119,7 +1119,7 @@ class Master(object):
                         failed_force_pos_def = True
                         # Try to fix by forcing improper sites to proper
                         posdefs.fill(0)
-                        for k in xrange(self.K):
+                        for k in range(self.K):
                             # Set min eigenvalue to MIN_EIG by adding to the
                             # diagonal if it is smaller than MIN_EIG_TRESHOLD
                             min_eig = linalg.eigvalsh(
@@ -1128,10 +1128,10 @@ class Master(object):
                                 Qi[:,:,k].flat[::self.dphi+1] += self.MIN_EIG - min_eig
                                 posdefs[k] = 1
                         if verbose:
-                            print "Force sites {} pos_def.".format(
-                                np.nonzero(posdefs)[0])
+                            print("Force sites {} pos_def.".format(
+                                np.nonzero(posdefs)[0]))
             if verbose and (fail_printline_pos or fail_printline_cov):
-                print
+                print()
             
             if calc_moments:
                 # Invert Q (chol was already calculated)
@@ -1143,15 +1143,15 @@ class Master(object):
                 np.copyto(m_phi_s[cur_iter], m)
                 np.copyto(cov_phi_s[cur_iter], S.T)
                 if verbose:
-                    print "Mean and std of phi[0]: {:.3}, {:.3}" \
+                    print("Mean and std of phi[0]: {:.3}, {:.3}" \
                           .format(m_phi_s[cur_iter,0], 
-                                  np.sqrt(cov_phi_s[cur_iter,0,0]))
+                                  np.sqrt(cov_phi_s[cur_iter,0,0])))
             
             # Tilted distributions (parallelisable)
             # -------------------------------------
             if verbose:
-                    print "Process tilted distributions"
-            for k in xrange(self.K):
+                    print("Process tilted distributions")
+            for k in range(self.K):
                 if verbose:
                     sys.stdout.write("\r    site {}".format(k+1)+' '*10+'\b'*9)
                     # Force flush here as it is not done automatically
@@ -1172,11 +1172,11 @@ class Master(object):
                     sys.stdout.write("fail\n")
             if verbose:
                 if np.all(posdefs):
-                    print "\rAll sites ok"
+                    print("\rAll sites ok")
                 elif np.any(posdefs):
-                    print "\rSome sites failed and are not updated"
+                    print("\rSome sites failed and are not updated")
                 else:
-                    print "\rEvery site failed"
+                    print("\rEvery site failed")
             if not np.any(posdefs):
                 if calc_moments:
                     return m_phi_s, cov_phi_s, self.INFO_ALL_SITES_FAIL
@@ -1187,12 +1187,12 @@ class Master(object):
             stimes[cur_iter] = max([w.last_time for w in self.workers])
             
             if verbose and calc_moments:
-                print("Iter {} done, max sampling time {}"
-                      .format(self.iter, stimes[cur_iter]))
+                print(("Iter {} done, max sampling time {}"
+                      .format(self.iter, stimes[cur_iter])))
         
         if verbose:
-            print("{} iterations done\nTotal limiting sampling time: {}"
-                  .format(niter, stimes.sum()))
+            print(("{} iterations done\nTotal limiting sampling time: {}"
+                  .format(niter, stimes.sum())))
         
         if calc_moments:
             return m_phi_s, cov_phi_s, self.INFO_OK
@@ -1232,7 +1232,7 @@ class Master(object):
         nsamp_tot = 0
         means = []
         nsamps = []
-        for k in xrange(self.K):
+        for k in range(self.K):
             samp = self.workers[k].saved_samp['phi']
             nsamp = samp.shape[0]
             nsamps.append(nsamp)
@@ -1244,7 +1244,7 @@ class Master(object):
             samp.T.dot(samp, out=temp_M.T)
             out_S += temp_M
         out_m /= self.K
-        for k in xrange(self.K):
+        for k in range(self.K):
             np.subtract(means[k], out_m, out=temp_v)
             np.multiply(temp_v[:,np.newaxis], temp_v, out=temp_M.T)
             temp_M *= nsamps[k]
@@ -1299,7 +1299,7 @@ class Master(object):
                                "iteration has been done.")
         
         # Check if one or multiple parameters are requested
-        if isinstance(params, basestring):
+        if isinstance(params, str):
             only_one_param = True
             params = [params]
             smap = [smap]
@@ -1310,7 +1310,7 @@ class Master(object):
         # Process each parameter
         mean = []
         var = []
-        for ip in xrange(len(params)):
+        for ip in range(len(params)):
             
             # Gather moments from each worker
             par = params[ip]
@@ -1333,7 +1333,7 @@ class Master(object):
                 ns[0] = samp.shape[0]
                 ms[0] = np.mean(samp, axis=0)
                 vs[0] = np.sum(samp**2, axis=0) - ns[0]*(ms[0]**2)
-                for iw in xrange(1,len(self.workers)):
+                for iw in range(1,len(self.workers)):
                     fit = self.workers[iw].fit
                     samp = fit.extract(pars=par)[par]
                     # Ensure that one dimensional parameters with length 1 are
@@ -1367,7 +1367,7 @@ class Master(object):
                 ms = []
                 vs = []
                 count = np.zeros(par_shape)
-                for iw in xrange(len(self.workers)):
+                for iw in range(len(self.workers)):
                     count[sit[iw]] += 1  # Check smap                    
                     fit = self.workers[iw].fit
                     samp = fit.extract(pars=par)[par]
@@ -1391,7 +1391,7 @@ class Master(object):
                     # Every index has only one contribution
                     mc = np.zeros(par_shape)
                     vc = np.zeros(par_shape)
-                    for iw in xrange(len(self.workers)):
+                    for iw in range(len(self.workers)):
                         mc[sit[iw]] = ms[iw]
                         vc[sit[iw]] = vs[iw]/(ns[iw]-1)
                     mean.append(mc)
@@ -1402,11 +1402,11 @@ class Master(object):
                     nc = np.zeros(par_shape, dtype=np.int64)
                     mc = np.zeros(par_shape)
                     vc = np.zeros(par_shape)
-                    for iw in xrange(len(self.workers)):
+                    for iw in range(len(self.workers)):
                         nc[sit[iw]] += ns[iw]
                         mc[sit[iw]] += ns[iw]*ms[iw]
                     mc /= nc
-                    for iw in xrange(len(self.workers)):
+                    for iw in range(len(self.workers)):
                         temp = np.asarray(ms[iw] - mc[sit[iw]])
                         np.square(temp, out=temp)
                         temp *= ns[iw]
@@ -1417,7 +1417,7 @@ class Master(object):
                     if np.any(onecont):
                         # Some indexes have only one contribution
                         # Replace those with more precise values
-                        for iw in xrange(len(self.workers)):
+                        for iw in range(len(self.workers)):
                             mc[sit[iw]] = ms[iw]
                             vc[sit[iw]] = vs[iw]/(ns[iw]-1)
                     

@@ -14,18 +14,18 @@ behaviour is assumed in this program. This script test if this holds.
 # Copyright (C) 2014 Tuomas Sivula
 # All rights reserved.
 
-from __future__ import division
+
 import numpy as np
 from scipy import linalg
 
 # LAPACK positive definite inverse routine
 dpotri_routine = linalg.get_lapack_funcs('potri')
 
-print "A simple test for Scipy compatibility"
+print("A simple test for Scipy compatibility")
 
 A = 2*np.eye(6).T
 dpotri_routine(A, overwrite_c=True)
 if np.sum(A - (1/2**2)*np.eye(6).T) > 1e-10:
-    print "Test failed"
+    print("Test failed")
 else:
-    print "Test successful"
+    print("Test successful")
