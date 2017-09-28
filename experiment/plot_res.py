@@ -3,11 +3,11 @@
 Execute with:
     $ python plot_res.py <model_name> [<model_id>, [<dist_id>]]
 
-The optional <dist_id> can be used to select the distributed results from file 
+The optional <dist_id> can be used to select the distributed results from file
     res_d_<model_name>_<model_id>_<dist_id>.npz
 while the true values and the full values are still obtained from
     ..._<model_name>_<model_id>.npz
-If <dist_id> is omitted, the same file ending is used also for distributed 
+If <dist_id> is omitted, the same file ending is used also for distributed
 results. If also <model_id> is omitted, no file ending are used.
 
 The most recent version of the code can be found on GitHub:
@@ -36,10 +36,10 @@ RES_PATH = os.path.join(CUR_PATH, 'results')
 
 def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
     """Calculate KL-divergence for multiv normal distributions
-    
-    Calculates KL(p||q), where p ~ N(m0,S0) and q ~ N(m1,S1). Optional argument 
+
+    Calculates KL(p||q), where p ~ N(m0,S0) and q ~ N(m1,S1). Optional argument
     sum_log_diag_cho_S0 is precomputed sum(log(diag(cho(S0))).
-    
+
     """
     choS1 = cho_factor(S1)
     if sum_log_diag_cho_S0 is None:
@@ -62,24 +62,24 @@ def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None,
     # Ensure arrays
     a = np.asarray(a)
     b = np.asarray(b)
-    
+
     # Plot into new axes or to the given one
     if ax is None:
         fig = plt.figure()
         ax = plt.axes()
-    
+
     # Plot basics
     ax.plot(b, a, 'bo')[0].get_axes()
-    
+
     # Set common axis limits
     limits = (min(ax.get_xlim()[0], ax.get_ylim()[0]),
-              max(ax.get_xlim()[1], ax.get_ylim()[1]))    
+              max(ax.get_xlim()[1], ax.get_ylim()[1]))
     ax.set_xlim(limits)
     ax.set_ylim(limits)
-    
+
     # Plot diagonal
     ax.plot(limits, limits, 'r-')
-    
+
     # Plot optional error bars
     if not a_err is None:
         a_err = np.asarray(a_err)
@@ -99,19 +99,19 @@ def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None,
             b_p = b_err
             b_m = b_err
         ax.plot(np.vstack((b+b_p, b-b_m)), np.tile(a, (2,1)), 'b-')
-    
+
     # Optional labels
     if not a_label is None:
         ax.set_ylabel(a_label)
     if not b_label is None:
         ax.set_xlabel(b_label)
-    
+
     return ax
 
 
 def plot_results(model_name, model_id=None, dist_id=None):
     """Plot some results."""
-    
+
     # Handle optional model id and dist id
     if model_id:
         file_ending = model_name + '_' + model_id
@@ -121,7 +121,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
         file_ending_dist = file_ending + '_' + dist_id
     else:
         file_ending_dist = file_ending
-    
+
     # Load true values
     true_vals_file = np.load(
         os.path.join(RES_PATH, 'true_vals_{}.npz'.format(file_ending)))
@@ -129,7 +129,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
     pnames.extend(true_vals_file['pnames'])
     true_vals = [true_vals_file[par] for par in pnames]
     true_vals_file.close()
-    
+
     # Load distributed result file
     res_d_file = np.load(
         os.path.join(RES_PATH, 'res_d_{}.npz'.format(file_ending_dist)))
@@ -149,7 +149,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
     else:
         mix = False
     res_d_file.close()
-    
+
     # Load full result file
     res_f_file = np.load(
         os.path.join(RES_PATH, 'res_f_{}.npz'.format(file_ending)))
@@ -166,7 +166,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
             for par in pnames
         ]
     res_f_file.close()
-    
+
     # Load full samples if found
     full_samp_file_path = os.path.join(
         RES_PATH, 'full_samp_{}.npz'.format(file_ending))
@@ -176,10 +176,10 @@ def plot_results(model_name, model_id=None, dist_id=None):
         full_samp_file.close()
     else:
         full_samp = None
-    
+
     niter = m_phi_i.shape[0]
     dphi = m_phi_i.shape[1]
-    
+
     # Ravel params if necessary
     for pi in range(1,len(pnames)):
         if true_vals[pi].ndim != 1:
@@ -187,7 +187,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
             if mix:
                 res_d[pi] = (res_d[pi][0].ravel(), res_d[pi][1].ravel())
                 res_f[pi] = (res_f[pi][0].ravel(), res_f[pi][1].ravel())
-    
+
     # Plot approx KL-divergence and MSE
     sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(cov_phi_full)[0])))
     KL_divs = np.empty(niter)
@@ -203,7 +203,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
     ax.set_yscale('log')
     ax.set_xlim([0,niter-1])
     ax.legend()
-    
+
     # Plot log-likelihood
     if full_samp is not None:
         ll_i = np.zeros(niter)
@@ -216,7 +216,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
         ax.set_xlabel('Iteration')
         ax.set_xlim([0,niter-1])
         ax.legend()
-    
+
     # Plot mean and variance as a function of the iteration
     fig, axs = plt.subplots(2, 1, sharex=True)
     axs[0].set_xlim([0,niter-1])
@@ -240,7 +240,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
     axs[0].set_ylabel('Mean of $\phi$')
     axs[1].set_ylabel('Std of $\phi$')
     axs[1].set_xlabel('Iteration')
-    
+
     if mix:
         # Plot compare plots for every variable
         for pi in range(len(pnames)):
@@ -251,23 +251,23 @@ def plot_results(model_name, model_id=None, dist_id=None):
             fig, axs = plt.subplots(1, 2, figsize=(11, 5))
             fig.subplots_adjust(left=0.08, right=0.94)
             fig.suptitle(par)
-            
+
             # Plot estimates vs true values
             compare_plot(
                 true_vals[pi], m,
                 b_err=1.96*np.sqrt(var),
                 a_label='True values',
-                b_label='Estimates from dEP ($\pm 1.96 \sigma$)',
+                b_label='Estimates from epstan ($\pm 1.96 \sigma$)',
                 ax=axs[0]
             )
-            
+
             # Plot full vs distributed
             compare_plot(
                 m_full, m,
                 a_err=1.96*np.sqrt(var_full),
                 b_err=1.96*np.sqrt(var),
                 a_label='Estimased from full ($\pm 1.96 \sigma$)',
-                b_label='Estimased from dep ($\pm 1.96 \sigma$)',
+                b_label='Estimased from epstan ($\pm 1.96 \sigma$)',
                 ax=axs[1]
             )
     else:
@@ -279,7 +279,7 @@ def plot_results(model_name, model_id=None, dist_id=None):
         compare_plot(
             m_phi_full, m_phi_i[-1],
             a_label='full',
-            b_label='dep',
+            b_label='epstan',
             ax=axs[0]
         )
         axs[0].set_title('mean')
@@ -287,11 +287,11 @@ def plot_results(model_name, model_id=None, dist_id=None):
         compare_plot(
             np.diag(cov_phi_full), np.diag(cov_phi_i[-1]),
             a_label='full',
-            b_label='dep',
+            b_label='epstan',
             ax=axs[1]
         )
         axs[1].set_title('var')
-    
+
     plt.show()
 
 
@@ -300,6 +300,3 @@ if __name__ == '__main__':
         plot_results(*os.sys.argv[1:])
     else:
         raise TypeError("Provide the model name as command line argument")
-
-
-

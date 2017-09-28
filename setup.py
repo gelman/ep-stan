@@ -1,4 +1,4 @@
-"""Compile the Cython module in file `dep/cython_util.pyx`.
+"""Compile the Cython module in file `epstan/cython_util.pyx`.
 
 Compile with:
     $ python setup.py build_ext --inplace
@@ -9,6 +9,5 @@ from distutils.core import setup
 from Cython.Build import cythonize
 
 setup(
-    ext_modules = cythonize("dep/cython_util.pyx")
+    ext_modules = cythonize("epstan/cython_util.pyx")
 )
-
