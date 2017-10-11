@@ -4,10 +4,11 @@ algorithm described in an article "Expectation propagation as a way of life"
 
 Execute with:
 $ python fit.py [-h] [--J P] [--D P] [--K P] [--npg P [P ...]] [--iter N]
-                [--cor_input B] [--damp F] [--prec_estim S]
-                [--method {both,distributed,full,none}] [--id S] [--save_true B]
-                [--save_res B] [--seed_data N] [--seed_mcmc N]
-                [--mc_opt P P P P] [--mc_full_opt P P P P]
+                [--cor_input B] [--damp F] [--mix B] [--prec_estim S]
+                [--run_ep B] [--run_full B] [--run_consensus B] [--id S]
+                [--save_full_samp B] [--save_true B] [--save_res B]
+                [--seed_data N] [--seed_mcmc N] [--mc_opt P P P P]
+                [--mc_full_opt P P P P]
                 model_name
 
 
@@ -23,16 +24,18 @@ optional arguments:
                         max), default [40, 60]
   --iter N              number of distributed EP iterations, default 6
   --cor_input B         correlated input variable, default False
-  --damp F              damping factor constant, 1/K by default, default None
+  --damp F              damping factor constant, default None
   --mix B               mix last iteration samples, default False
   --prec_estim S        estimate method for tilted distribution precision
                         matrix, currently available options are sample and
                         olse (see epstan.method.Master), default sample
-  --method {both,distributed,full,none}
-                        which models are fit, default both
+  --run_ep B            run the distributed EP method, default True
+  --run_full B          run the full model method, default True
+  --run_consensus B     run consensus MC method, default True
   --id S                optional id appended to the end of the result files,
                         default None
-  --save_full_samp B    save samples obtained from the full model, default False
+  --save_full_samp B    save samples obtained from the full model, default
+                        False
   --save_true B         save true values, default True
   --save_res B          save results, default True
   --seed_data N         seed for data simulation, default 0
@@ -42,6 +45,9 @@ optional arguments:
   --mc_full_opt P P P P
                         MCMC sampler opt for full (chains iter warmup thin),
                         default (4 1000 500 1)
+  --mc_consensus_opt P P P P
+                        MCMC sampler opt for consensus MC (chains iter warmup
+                        thin), default (4 1000 500 1)
 
 Available models are defined in the folder models in the files
 `<model_name>.py`, `<model_name>.stan` and `<model_name>_sg.stan`
@@ -53,10 +59,12 @@ Argument types
   TRUE, T, 1 or FALSE, F, 0 (case insensitive).
 - S denotes a string argument.
 
-The results of full model are saved into file
+The results of full model method are saved into file
     `res_f_<model_name>.npz`,
-the results of distributed model are saved into file
+the results of distributed method are saved into file
     `res_d_<model_name>.npz`
+the results of consensus MC method are saved into file
+    `res_c_<model_name>.npz`
 and the true values are saved into the file
     `true_vals_<model_name>.npz`
 into the folder results.
@@ -96,9 +104,12 @@ from epstan.method import Master
 from epstan.util import load_stan, distribute_groups, suppress_stdout
 
 
-CONFS = ['J','D', 'K', 'npg', 'iter', 'cor_input', 'damp', 'mix', 'prec_estim',
-         'method', 'id', 'save_full_samp', 'save_true', 'save_res', 'seed_data',
-         'seed_mcmc', 'mc_opt', 'mc_full_opt']
+CONFS = [
+    'J','D', 'K', 'npg', 'iter', 'cor_input', 'damp', 'mix', 'prec_estim',
+    'run_ep', 'run_full', 'run_consensus', 'id', 'save_full_samp', 'save_true',
+    'save_res', 'seed_data', 'seed_mcmc', 'mc_opt', 'mc_full_opt',
+    'mc_consensus_opt'
+]
 
 CONF_DEFAULT = dict(
     J              = 40,
@@ -110,7 +121,9 @@ CONF_DEFAULT = dict(
     damp           = None,
     mix            = False,
     prec_estim     = 'sample',
-    method         = 'both',
+    run_ep         = True,
+    run_full       = True,
+    run_consensus  = True,
     id             = None,
     save_full_samp = False,
     save_true      = True,
@@ -130,12 +143,15 @@ CONF_DEFAULT = dict(
         iter       = 1000,
         warmup     = 500,
         thin       = 1,
-    )
+    ),
+    # MCMS sampler options for consensus MC method
+    mc_consensus_opt = dict(
+        chains     = 4,
+        iter       = 1000,
+        warmup     = 500,
+        thin       = 1,
+    ),
 )
-
-# Temp fix for the RandomState seed problem with pystan in 32bit Python.
-# Detect automatically if in 32bit mode
-TMP_FIX_32BIT = os.sys.maxsize <= 2**32
 
 
 class configurations(object):
@@ -185,9 +201,9 @@ def main(model_name, conf, ret_master=False):
 
     # Simulate_data
     if conf.cor_input:
-        data = model.simulate_data(Sigma_x='rand', seed=conf.seed_data)
+        data = model.simulate_data(Sigma_x='rand', rng=conf.seed_data)
     else:
-        data = model.simulate_data(seed=conf.seed_data)
+        data = model.simulate_data(rng=conf.seed_data)
 
     # Calculate the uncertainty
     uncertainty_global, uncertainty_group = data.calc_uncertainty()
@@ -226,9 +242,9 @@ def main(model_name, conf, ret_master=False):
         print("True values saved into results")
 
     # ------------------------------------------------------
-    #     Fit distributed model
+    #     Distributed method
     # ------------------------------------------------------
-    if conf.method == 'both' or conf.method == 'distributed' or ret_master:
+    if conf.run_ep or ret_master:
 
         print("Distributed model {} ...".format(model_name))
 
@@ -252,8 +268,6 @@ def main(model_name, conf, ret_master=False):
             init_site = init_site,
             **conf.mc_opt
         )
-        # Temp fix for the RandomState seed problem with pystan in 32bit Python
-        epstan_options['tmp_fix_32bit'] = TMP_FIX_32BIT
 
         if K < 2:
             raise ValueError("K should be at least 2.")
@@ -289,17 +303,7 @@ def main(model_name, conf, ret_master=False):
 
         elif K <= data.N:
             # ------ Multiple sites per group: split groups ------
-            Nk, Nk_j, _ = distribute_groups(J, K, data.Nj)
-            # Create the Master instance
-            epstan_master = Master(
-                os.path.join(MOD_PATH, model_name+'_sg'),
-                data.X,
-                data.y,
-                site_sizes=Nk,
-                **epstan_options
-            )
-            # Construct the map: which site contribute to which parameter
-            pmaps = _create_pmaps(phiers, J, K, Nk_j)
+            raise NotImplementedError("Splitting the groups not implemented.")
 
         else:
             raise ValueError("K cant be greater than number of samples")
@@ -309,8 +313,10 @@ def main(model_name, conf, ret_master=False):
             return epstan_master
 
         # Run the algorithm for `EP_ITER` iterations
-        print("Run distributed EP algorithm for {} iterations." \
-              .format(conf.iter))
+        print(
+            "Run distributed EP algorithm for {} iterations."
+            .format(conf.iter)
+        )
         if conf.mix:
             m_phi_i, cov_phi_i, info = epstan_master.run(
                 conf.iter, save_last_param=pnames)
@@ -333,8 +339,10 @@ def main(model_name, conf, ret_master=False):
                     last_iter = epstan_master.iter
                 )
                 print("Uncomplete distributed model results saved.")
-            raise RuntimeError('epstan algorithm failed with error code: {}'
-                               .format(info))
+            raise RuntimeError(
+                'epstan algorithm failed with error code: {}'
+                .format(info)
+            )
 
         if conf.mix:
             print("Form the final approximation "
@@ -380,16 +388,16 @@ def main(model_name, conf, ret_master=False):
         # Release master object
         del epstan_master
 
+        print("Done with distributed method")
+
     # ------------------------------------------------------
-    #     Fit full model
+    #     Full model sampling
     # ------------------------------------------------------
-    if conf.method == 'both' or conf.method == 'full':
+    if conf.run_full:
 
         print("Full model {} ...".format(model_name))
 
         seed = np.random.RandomState(seed=conf.seed_mcmc)
-        # Temp fix for the RandomState seed problem with pystan in 32bit Python
-        seed = seed.randint(2**31-1) if TMP_FIX_32BIT else seed
 
         data = dict(
             N = data.X.shape[0],
@@ -461,6 +469,111 @@ def main(model_name, conf, ret_master=False):
                 cov_phi_full = cov_phi_full,
             )
             print("Full model results saved.")
+
+        print("Done with full model method")
+
+    # ------------------------------------------------------
+    #     Consensus MC
+    # ------------------------------------------------------
+    if conf.run_consensus:
+
+        print("Consensus MC {} ...".format(model_name))
+
+        seed = np.random.RandomState(seed=conf.seed_mcmc)
+
+        # prior for each consensus site
+        cons_prior_k_Q = Q0 / K
+        cons_prior_k_r = r0 / K
+        cons_prior_k_m = linalg.cho_solve(
+            linalg.cho_factor(cons_prior_k_Q),
+            cons_prior_k_r
+        )
+
+        if K < 2:
+            raise ValueError("K should be at least 2.")
+
+        elif K < J:
+            # ------ Many groups per site: combine groups ------
+            Nk, Nj_k, j_ind_k = distribute_groups(J, K, data.Nj)
+            k_lim = np.concatenate(([0], np.cumsum(Nk)))
+            stan_model = load_stan(os.path.join(MOD_PATH, model_name))
+
+            # sample for each site
+            samples = []
+            for k in range(K):
+                data_k = dict(
+                    N = Nk[k],
+                    D = D,
+                    J = Nj_k[k],
+                    X = data.X[k_lim[k]:k_lim[k+1]],
+                    y = data.y[k_lim[k]:k_lim[k+1]],
+                    j_ind = j_ind_k[k_lim[k]:k_lim[k+1]] + 1,
+                    mu_phi = cons_prior_k_m.copy(),
+                    Omega_phi = cons_prior_k_Q.copy()
+                )
+                fit = stan_model.sampling(
+                    data = data_k,
+                    seed = seed,
+                    pars = 'phi',
+                    init = 'random',
+                    **conf.mc_consensus_opt
+                )
+                samples.append(fit.extract(pars='phi')['phi'])
+
+        elif K == J:
+            # ------ One group per site ------
+            stan_model = load_stan(os.path.join(MOD_PATH, model_name+'_sg'))
+
+            # sample for each site
+            samples = []
+            for k in range(K):
+                data_k = dict(
+                    N = data.Nj[k],
+                    D = D,
+                    X = data.X[data.j_lim[k]:data.j_lim[k+1]],
+                    y = data.y[data.j_lim[k]:data.j_lim[k+1]],
+                    mu_phi = cons_prior_k_m.copy(),
+                    Omega_phi = cons_prior_k_Q.copy()
+                )
+                fit = stan_model.sampling(
+                    data = data_k,
+                    seed = seed,
+                    pars = 'phi',
+                    init = 'random',
+                    **conf.mc_consensus_opt
+                )
+                samples.append(fit.extract(pars='phi')['phi'])
+
+        elif K <= data.N:
+            # ------ Multiple sites per group: split groups ------
+            raise NotImplementedError("Splitting the groups not implemented.")
+
+        else:
+            raise ValueError("K cant be greater than number of samples")
+
+        # TODO make more efficient similar as in Master.mix_phi()
+        samples_concat = np.concatenate(samples, axis=0)
+        m_phi_cons = np.mean(samples_concat, axis=0)
+        cov_phi_cons = np.cov(samples_concat, rowvar=False, ddof=1)
+
+        # Save results
+        if conf.save_res:
+            if not os.path.exists(RES_PATH):
+                os.makedirs(RES_PATH)
+            if conf.id:
+                filename = 'res_c_{}_{}.npz'.format(model_name, conf.id)
+            else:
+                filename = 'res_c_{}.npz'.format(model_name)
+            np.savez(
+                os.path.join(RES_PATH, filename),
+                conf         = conf.__dict__,
+                m_phi_cons   = m_phi_cons,
+                cov_phi_cons = cov_phi_cons,
+            )
+            print("Consensus MC results saved.")
+
+        print("Done with consensus MC")
+
 
 
 def _create_pmaps(phiers, J, K, Ns):
@@ -584,26 +697,34 @@ def _parse_nonnegative_int(arg):
        raise ValueError("Invalid integer option")
 
 CONF_HELP = dict(
-    J              = 'number of hierarchical groups',
-    D              = 'number of inputs',
-    K              = 'number of sites',
-    npg            = 'number of observations per group (constant or min max)',
-    iter           = 'number of distributed EP iterations',
-    cor_input      = 'correlated input variable',
-    damp           = 'damping factor constant',
-    mix            = 'mix last iteration samples',
-    prec_estim     = ('estimate method for tilted distribution precision '
-                      'matrix, currently available options are sample and olse '
-                      '(see epstan.method.Master)'),
-    method         = 'which models are fit',
-    id             = 'optional id appended to the end of the result files',
-    save_full_samp = 'save samples obtained from the full model',
-    save_true      = 'save true values',
-    save_res       = 'save results',
-    seed_data      = 'seed for data simulation',
-    seed_mcmc      = 'seed for sampling',
-    mc_opt         = 'MCMC sampler opt for epstan (chains iter warmup thin)',
-    mc_full_opt    = 'MCMC sampler opt for full (chains iter warmup thin)',
+    J                = 'number of hierarchical groups',
+    D                = 'number of inputs',
+    K                = 'number of sites',
+    npg              = 'number of observations per group (constant or min max)',
+    iter             = 'number of distributed EP iterations',
+    cor_input        = 'correlated input variable',
+    damp             = 'damping factor constant',
+    mix              = 'mix last iteration samples',
+    prec_estim       = (
+        'estimate method for tilted distribution precision '
+        'matrix, currently available options are sample and olse '
+        '(see epstan.method.Master)'
+    ),
+    run_ep           = 'run the distributed EP method',
+    run_full         = 'run the full model method',
+    run_consensus    = 'run consensus MC method',
+    id               = 'optional id appended to the end of the result files',
+    save_full_samp   = 'save samples obtained from the full model',
+    save_true        = 'save true values',
+    save_res         = 'save results',
+    seed_data        = 'seed for data simulation',
+    seed_mcmc        = 'seed for sampling',
+    mc_opt           = 'MCMC sampler opt for epstan (chains iter warmup thin)',
+    mc_full_opt      = 'MCMC sampler opt for full (chains iter warmup thin)',
+    mc_consensus_opt = (
+        'MCMC sampler opt for consensus MC '
+        '(chains iter warmup thin)'
+    ),
 )
 for conf in CONFS:
     if conf.startswith('mc_'):
@@ -618,25 +739,29 @@ for conf in CONFS:
             CONF_HELP[conf] + ', default {}'.format(CONF_DEFAULT[conf])
 
 CONF_CUSTOMS = dict(
-    J              = dict(type=_parse_positive_int, metavar='P'),
-    D              = dict(type=_parse_positive_int, metavar='P'),
-    K              = dict(type=_parse_positive_int, metavar='P'),
-    npg            = dict(nargs='+', type=_parse_positive_int, metavar='P'),
-    iter           = dict(type=_parse_nonnegative_int, metavar='N'),
-    cor_input      = dict(type=_parse_bool, metavar='B'),
-    damp           = dict(type=_parse_damp, metavar='F'),
-    mix            = dict(type=_parse_bool, metavar='B'),
-    prec_estim     = dict(metavar='S'),
-    method         = dict(choices=['both', 'distributed', 'full', 'none']),
-    id             = dict(metavar='S'),
-    save_full_samp = dict(type=_parse_bool, metavar='B'),
-    save_true      = dict(type=_parse_bool, metavar='B'),
-    save_res       = dict(type=_parse_bool, metavar='B'),
-    seed_data      = dict(type=_parse_nonnegative_int, metavar='N'),
-    seed_mcmc      = dict(type=_parse_nonnegative_int, metavar='N'),
-    mc_opt         = dict(nargs=4, type=_parse_positive_int, metavar='P'),
-    mc_full_opt    = dict(nargs=4, type=_parse_positive_int, metavar='P'),
+    J                = dict(type=_parse_positive_int, metavar='P'),
+    D                = dict(type=_parse_positive_int, metavar='P'),
+    K                = dict(type=_parse_positive_int, metavar='P'),
+    npg              = dict(nargs='+', type=_parse_positive_int, metavar='P'),
+    iter             = dict(type=_parse_nonnegative_int, metavar='N'),
+    cor_input        = dict(type=_parse_bool, metavar='B'),
+    damp             = dict(type=_parse_damp, metavar='F'),
+    mix              = dict(type=_parse_bool, metavar='B'),
+    prec_estim       = dict(metavar='S'),
+    run_ep           = dict(type=_parse_bool, metavar='B'),
+    run_full         = dict(type=_parse_bool, metavar='B'),
+    run_consensus    = dict(type=_parse_bool, metavar='B'),
+    id               = dict(metavar='S'),
+    save_full_samp   = dict(type=_parse_bool, metavar='B'),
+    save_true        = dict(type=_parse_bool, metavar='B'),
+    save_res         = dict(type=_parse_bool, metavar='B'),
+    seed_data        = dict(type=_parse_nonnegative_int, metavar='N'),
+    seed_mcmc        = dict(type=_parse_nonnegative_int, metavar='N'),
+    mc_opt           = dict(nargs=4, type=_parse_positive_int, metavar='P'),
+    mc_full_opt      = dict(nargs=4, type=_parse_positive_int, metavar='P'),
+    mc_consensus_opt = dict(nargs=4, type=_parse_positive_int, metavar='P'),
 )
+
 
 if __name__ == '__main__':
 
@@ -687,6 +812,13 @@ if __name__ == '__main__':
             iter   = args['mc_full_opt'][1],
             warmup = args['mc_full_opt'][2],
             thin   = args['mc_full_opt'][3],
+        )
+    if not isinstance(args['mc_consensus_opt'], dict):
+        args['mc_consensus_opt'] = dict(
+            chains = args['mc_consensus_opt'][0],
+            iter   = args['mc_consensus_opt'][1],
+            warmup = args['mc_consensus_opt'][2],
+            thin   = args['mc_consensus_opt'][3],
         )
     if isinstance(args['npg'], list):
         if len(args['npg']) == 1:

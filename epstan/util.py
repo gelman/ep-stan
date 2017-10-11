@@ -18,7 +18,7 @@ import numpy as np
 from scipy import linalg
 from pystan import StanModel
 
-from cython_util import (
+from .cython_util import (
     copy_triu_to_tril,
     auto_outer,
     ravel_triu,
@@ -35,40 +35,40 @@ _LOG_2PI = np.log(2*np.pi)
 
 def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
     """Invert moment parameters into natural parameters or vice versa.
-    
+
     Switch between moment parameters (S,m) and natural parameters (Q,r) of
     a multivariate normal distribution. Providing (S,m) yields (Q,r) and vice
     versa.
-    
+
     Parameters
     ----------
     A : ndarray
         A symmetric positive-definite matrix to be inverted. Either the
         covariance matrix S or the precision matrix Q.
-    
+
     b : {None, ndarray}, optional
         The mean vector m, the natural parameter vector r, or None (default)
         if `out_b` is not requested.
-    
+
     out_A, out_b : {None, ndarray, 'in-place'}, optional
         Spesifies where the output is calculate into; None (default) indicates
         that a new array is created, providing a string 'in-place' overwrites
         the corresponding input array.
-    
+
     cho_form : bool
         If True, `A` is assumed to be the upper Cholesky of the real S or Q.
-    
+
     Returns
     -------
     out_A, out_b : ndarray
         The corresponding output arrays (`out_A` in F-order). If `b` was not
         provided, `out_b` is None.
-    
+
     Raises
     ------
     LinAlgError
         If the provided array A is not positive definite.
-    
+
     """
     # Process parameters
     if not isinstance(out_A, np.ndarray) and out_A == 'in-place':
@@ -91,7 +91,7 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
             np.copyto(out_b, b)
     else:
         out_b = None
-    
+
     # Invert
     if not cho_form:
         cho = linalg.cho_factor(out_A, overwrite_a=True)
@@ -112,36 +112,36 @@ def invert_normal_params(A, b=None, out_A=None, out_b=None, cho_form=False):
 
 def olse(S, n, P=None, out=None):
     """Optimal linear shrinkage estimator.
-    
+
     Estimate precision matrix form the given sample covariance matrix with
     optimal linear shrinkage method [1]_. using the naive prior matrix 1/d I,
     where d is the number of dimensions.
-    
+
     Parameters
     ----------
     S : ndarray
         The sample covariance matrix.
-    
+
     n : int
         Number of contributing samples
-    
+
     P : {None, ndarray}, optional
         The prior matrix. Providing None uses the naive prior 1/d I, where d is
         the number of dimensions. Default is None.
-    
+
     out : {None, ndarray, 'in-place'}, optional
         The output array for the precision matrix estimate.
-    
+
     Returns
     -------
     out : ndarray
         The precision matrix estimate.
-    
+
     References
     ----------
     .. [1] Bodnar, T., Gupta, A.K. and Parolya, N., Optimal Linear Shrinkage
        Estimator for Large Dimensional Precision Matrix, arXiv:1308.0931, 2014.
-    
+
     """
     # Process parameters
     if not isinstance(out, np.ndarray) and out == 'in-place':
@@ -225,73 +225,73 @@ def _cv_estim(f, h, Eh, opt, cov_k=None, var_k=None, ddof_f=0, ddof_h=0,
     else:
         out -= np.multiply(hm, a, out=hm)
     return out, a
-    
+
 
 def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
                ldet_Q_tilde=None, multiple_cv=True, regulate_a=None, max_a=None,
                m_treshold=0.9, S_hat=None, m_hat=None, ret_a=False):
     """Approximate moments using control variate.
-    
+
     N.B. This requires that the sample log probabilities are normalised!
-    
+
     Parameters
     ----------
     samp : ndarray
         The samples from the distribution being approximated.
-    
+
     lp : ndarray
         Log probability density at the samples.
-    
+
     Q_tilde, r_tilde : ndarray
         The control variate distribution natural parameters.
-    
+
     S_tilde, m_tilde : ndarray, optional
         The control variate distribution moment parameters.
-    
+
     ldet_Q_tilde : float, optional
         Half of the logarithm of the determinant of Q_tilde, i.e. sum of the
         logarithm of the diagonal elements of Cholesky factorisation of Q_tilde.
-    
+
     multiple_cv : bool, optional
         If this is set to True, each dimension of h is used to control each
         dimension of f. Otherwise each dimension of h control only the
         corresponding dimension of f. Default value is True.
-    
+
     regulate_a : {None, float}, optional
         Regularisation multiplier for correlation term `a`. The estimate of `a`
         is multiplied with this value. Closer to zero may provide smaller bias
         but greater variance. Providing 1 or None corresponds to no
         regularisation.
-    
+
     max_a : {None, float}, optional
         Maximum absolute value for correlation term `a`. If not provided or
         None, `a` is not limited.
-    
+
     m_treshold : {float, None}, optional
         If the fraction of samples of h in one side of `m_tilde` is greater than
         this, the normal sample estimates are used instead. Providing None
         indicates that no treshold is used.
-    
+
     S_hat, m_hat : ndarray, optional
         The output arrays (S_hat in F-order).
-    
+
     ret_a : bool, optional
         Indicates whether a_S and a_m are returned. Default value is False.
-    
+
     Returns
     -------
     S_hat, m_hat : ndarray
         The approximated moment parameters.
-    
+
     treshold_exceeded : bool
         True if the control variate estimate was used and False if the normal
         sample estimate was used.
-    
+
     a_S, a_m : float
         The respective estimates for `a`. Returned if `ret_a` is True.
-    
+
     """
-    
+
     opt = dict(
         multiple_cv = multiple_cv,
         regulate_a = regulate_a,
@@ -302,19 +302,19 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         # Force samp to two dimensional
         samp = samp[:,np.newaxis]
     d = samp.shape[1]
-    
+
     if S_hat is None:
        S_hat = np.empty((d,d), order='F')
     if m_hat is None:
        m_hat = np.empty(d)
-    
+
     # Invert Q_tilde, r_tilde to moment params if not provided
     if S_tilde is None or m_tilde is None or ldet_Q_tilde is None:
         cho_tilde = linalg.cho_factor(Q_tilde)[0]
     if S_tilde is None or m_tilde is None:
         S_tilde, m_tilde = \
             invert_normal_params(cho_tilde, r_tilde, cho_form=True)
-    
+
     # Calc lp_tilde
     if ldet_Q_tilde is None:
         const = np.sum(np.log(np.diag(cho_tilde))) - 0.5*d*_LOG_2PI
@@ -324,17 +324,17 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     lp_tilde = np.sum(dev_tilde.dot(Q_tilde)*dev_tilde, axis=1)
     lp_tilde *= 0.5
     np.subtract(const, lp_tilde, out=lp_tilde)
-    
+
     # Probability ratios
     pr = np.subtract(lp_tilde, lp, out=lp_tilde)
-    pr = np.exp(pr, out=pr)    
-    
+    pr = np.exp(pr, out=pr)
+
     # ----------------------------------
     #   Mean
     # ----------------------------------
     f = samp
     h = samp*pr[:,np.newaxis]
-    
+
     if m_treshold:
         # Check if the treshold ratio is exceeded
         if m_treshold < 0.5:
@@ -350,12 +350,12 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
                 return S_hat, m_hat, False, 0, 0
             else:
                 return S_hat, m_hat, False
-    
+
     # Estimate f_hat
     _, a_m = _cv_estim(f, h, m_tilde, opt, cov_k = n, var_k = n-1, out = m_hat)
     if not ret_a:
         del a_m
-    
+
     # ----------------------------------
     #   Covariance
     # ----------------------------------
@@ -365,7 +365,7 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     else:
         d2 = ((d+1) >> 1) * d
     d2vec = np.empty(d2)
-    
+
     # Calc h
     # dev_tilde = samp - m_tilde # Calculated before
     h = np.empty((n,d2))
@@ -373,15 +373,15 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
     h *= pr[:,np.newaxis]
     Eh = np.empty(d2)
     ravel_triu(S_tilde.T, Eh)
-    
+
     # Calc f with either using the new m_hat or sample mean. If the former is
     # used, the unbiasness (ddof_f) should be examined.
     dev = samp - m_hat
     # dev = samp - np.mean(samp, axis=0)
-    
+
     f = np.empty((n,d2))
     auto_outer(dev, f)
-    
+
     # Estimate f_hat (for some reason ddof_h=1 might give better results)
     _, a_S = _cv_estim(f, h, Eh, opt, cov_k = n**2, var_k = (n-1)**2,
                        ddof_f = 1, ddof_h = 0, out = d2vec)
@@ -389,7 +389,7 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         del a_S
     # Reshape f_hat into covariance matrix S_hat
     unravel_triu(d2vec, S_hat.T)
-    
+
     if ret_a:
         return S_hat, m_hat, True, a_S, a_m
     else:
@@ -398,24 +398,26 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
 
 def copy_fit_samples(fit, pnames, out=None):
     """Copy the samples from PyStan fit object into F-order array.
-    
+
     Parameters
     ----------
     fit : StanFit4<model_name>
         Instance containing the fitted results.
+
     pnames : list of string
         List containing the names of the parameters in desired order.
+
     out : ndarray, optional
         The output array.
-    
+
 	Returns
 	-------
 	ndarray
         Array of shape (n_samp, len(pnames)) containing the samples from all
         the chains with burn-in removed.
-    
+
     """
-    
+
     # The following works at least for pystan version 2.5.0.0
     ndim = len(pnames)
     nchains = fit.sim['chains']
@@ -443,29 +445,30 @@ def copy_fit_samples(fit, pnames, out=None):
 
 def get_last_fit_sample(fit, out=None):
     """Extract the last sample from a PyStan fit object.
-    
+
     Parameters
     ----------
     fit : StanFit4<model_name>
         Instance containing the fitted results.
+
     out : list of dict, optional
         The list into which the output is placed. By default a new list is
         created. Must be of appropriate shape and content (see Returns).
-	    
+
 	Returns
 	-------
 	list of dict
 		List of nchains dicts for which each parameter name yields an ndarray
         corresponding to the sample values (similary to the init argument for
         the method StanModel.sampling).
-    
+
     """
-    
+
     # The following works at least for pystan version 2.5.0.0
     if out is None:
         # Initialise list of dicts
         out = [{fit.model_pars[i] : np.empty(fit.par_dims[i], order='F')
-                for i in range(len(fit.model_pars))} 
+                for i in range(len(fit.model_pars))}
                for _ in range(fit.sim['chains'])]
     # Extract the sample for each chain and parameter
     for c in range(fit.sim['chains']):         # For each chain
@@ -493,7 +496,7 @@ def get_last_fit_sample(fit, out=None):
 
 def load_stan(filename, overwrite=False):
     """Load or compile a stan model.
-    
+
     Parameters
     ----------
     filename : string
@@ -502,17 +505,18 @@ def load_stan(filename, overwrite=False):
         the model is not built but loaded from the pickle file (unless
         `overwrite` is True). Otherwise the model is compiled from the
         respective file ending with '.stan' and saved into '.pkl' file.
+
     overwrite : bool
         Compile and save a new model even if a pickled model with same name
         already exists.
-    
+
     """
     # Remove '.pkl' or '.stan' endings
     if filename.endswith('.pkl'):
         filename = filename[:-4]
     elif filename.endswith('.stan'):
         filename = filename[:-5]
-    
+
     if not overwrite and os.path.isfile(filename+'.pkl'):
         # Use precompiled model
         with open(filename+'.pkl', 'rb') as f:
@@ -542,33 +546,33 @@ def load_stan(filename, overwrite=False):
 
 def distribute_groups(J, K, Nj):
     """Distribute J groups to K sites.
-    
+
     Parameters
     ----------
     J : int
         Number of groups
-    
+
     K : int
         Number of sites
-    
+
     Nj : ndarray or int
-        Number of items in each group. Providing an integer corresponds to 
+        Number of items in each group. Providing an integer corresponds to
         constant number of items in each group.
-    
+
     Returns
     -------
     Nk : ndarray
         Number of samples per site (shape: (K,) ).
-    
+
     Nj_k or Nk_j : ndarray
         If K < J:  number of groups per site (shape (K,) )
            K == J: None
            K > J:  number of sites per group (shape (J,) )
-    
+
     j_ind_k : ndarray
         Within site group indexes. Shape (N,), where N is the total nuber of
         samples, i.e. np.sum(Nj). Returned only if K < J, None otherwise.
-    
+
     """
     # Check arguments
     if isinstance(Nj, int):
@@ -578,10 +582,10 @@ def distribute_groups(J, K, Nj):
     if np.any(Nj <= 0):
         raise ValueError("Every group must have at least one item")
     N = Nj.sum()
-    
+
     if K < 2:
         raise ValueError("K should be at least 2.")
-    
+
     elif K < J:
         # ------ Many groups per site ------
         # Combine smallest pairs of consecutive groups until K has been reached
@@ -607,14 +611,14 @@ def distribute_groups(J, K, Nj):
         for k in range(K):
             for ji in range(Nj_k[k]):
                 ki = ji + k_lim[k]
-                j_ind_k[j_lim[ki]:j_lim[ki+1]] = ji        
+                j_ind_k[j_lim[ki]:j_lim[ki+1]] = ji
         return Nk, Nj_k, j_ind_k
-    
+
     elif K == J:
         # ------ One group per site ------
         # Nothing to do here really
         return Nj, None, None
-    
+
     elif K <= N:
         # ------ Multiple sites per group ------
         # Split biggest groups until enough sites are formed
@@ -637,7 +641,7 @@ def distribute_groups(J, K, Nj):
                     Nk[k] = Nj2[j]
                 k += 1
         return Nk, ppg, None
-    
+
     else:
         raise ValueError("K cant be greater than number of samples")
 
@@ -647,12 +651,12 @@ def distribute_groups(J, K, Nj):
 # http://stackoverflow.com/questions/11130156/suppress-stdout-stderr-print-from-python-functions
 class suppress_stdout(object):
     '''
-    A context manager for doing a "deep suppression" of stdout and stderr in 
-    Python, i.e. will suppress all print, even if the print originates in a 
+    A context manager for doing a "deep suppression" of stdout and stderr in
+    Python, i.e. will suppress all print, even if the print originates in a
     compiled C/Fortran sub-function.
        This will not suppress raised exceptions, since exceptions are printed
     to stderr just before a script exits, and after the context manager has
-    exited (at least, I think that is why it lets exceptions through).      
+    exited (at least, I think that is why it lets exceptions through).
 
     '''
     def __init__(self):
@@ -674,6 +678,3 @@ class suppress_stdout(object):
         os.close(self.null_fds[0])
         os.close(self.null_fds[1])
 # <<< Temp solution to suppres output from STAN model (remove when fixed)
-
-
-

@@ -32,16 +32,16 @@ DELTA_MAX = np.sqrt(2)*SIGMA_F0*ERFINVGAMMA0 - LOGITP0
 
 def rand_corr_vine(d, alpha=2, beta=2, pmin=-0.8, pmax=0.8, seed=None):
     """Create random correlation matrix using modified vine method.
-    
-    Each partial corelation is distributed according to Beta(alpha, beta) 
-    shifted and scaled to [pmin, pmax]. This method could be further optimised. 
-    Does not necessarily return pos-def matrix if high correlations are 
+
+    Each partial corelation is distributed according to Beta(alpha, beta)
+    shifted and scaled to [pmin, pmax]. This method could be further optimised.
+    Does not necessarily return pos-def matrix if high correlations are
     imposed.
-    
+
     Reference:
-    Lewandowski, Kurowicka, and Joe, 2009, "Generating random 
+    Lewandowski, Kurowicka, and Joe, 2009, "Generating random
     correlation matrices based on vines and extended onion method"
-    
+
     """
     if isinstance(seed, np.random.RandomState):
         rand_state = seed
@@ -80,27 +80,27 @@ def rand_corr_vine(d, alpha=2, beta=2, pmin=-0.8, pmax=0.8, seed=None):
 
 def calc_input_param_lin_reg(beta, sigma, Sigma_x=None):
     """Calculate suitable sigma_x for linear regression models.
-    
+
     Parameters
     ----------
     beta : float or ndarray
-        The explanatory variable coefficient of size (J,D), (D,) or (), where J 
+        The explanatory variable coefficient of size (J,D), (D,) or (), where J
         is the number of groups and D is the number of input dimensions.
-    
+
     sigma : float
         The noise standard deviation.
-    
+
     Sigma_x : ndarray
         The covariance structure of the input variable:
             Cov(x) = sigma_x * Sigma_x.
         If not provided or None, Sigma_x is considered as an identity matrix.
-    
+
     Returns
     -------
     sigma_x : float or ndarray
-        If beta is two dimensional, sigma_x is calculated for each group. 
+        If beta is two dimensional, sigma_x is calculated for each group.
         Otherwise a single value is returned.
-    
+
     """
     beta = np.asarray(beta)
     if Sigma_x is not None and ( beta.ndim == 0 or beta.shape[-1] <= 1 ):
@@ -131,28 +131,28 @@ def calc_input_param_lin_reg(beta, sigma, Sigma_x=None):
 
 def calc_input_param_classification(alpha, beta, Sigma_x=None):
     """Calculate suitable mu_x and sigma_x for classification models.
-    
+
     Parameters
     ----------
     alpha : float or ndarray
-        The intercept coefficient of size (J) or (), where J is the number of 
+        The intercept coefficient of size (J) or (), where J is the number of
         groups.
-    
+
     beta : float or ndarray
-        The explanatory variable coefficient of size (J,D), (D,) or (), where J 
+        The explanatory variable coefficient of size (J,D), (D,) or (), where J
         is the number of groups and D is the number of input dimensions.
-    
+
     Sigma_x : ndarray
         The covariance structure of the input variable:
             Cov(x) = sigma_x * Sigma_x.
         If not provided or None, Sigma_x is considered as an identity matrix.
-    
+
     Returns
     -------
     mu_x, sigma_x : float or ndarray
-        If beta is two dimensional and/or alpha is one dimensional, params are 
+        If beta is two dimensional and/or alpha is one dimensional, params are
         calculated for each group. Otherwise single values are returned.
-    
+
     """
     # Check arguments
     alpha = np.asarray(alpha)
@@ -172,7 +172,7 @@ def calc_input_param_classification(alpha, beta, Sigma_x=None):
     if Sigma_x is not None and ( beta.ndim == 0 or beta.shape[-1] <= 1 ):
         raise ValueError("Input dimension has to be greater than 1 "
                          "if Sigma is provided")
-    
+
     # Process
     if J == 1:
         # Single group
@@ -212,7 +212,7 @@ def calc_input_param_classification(alpha, beta, Sigma_x=None):
         if not scalar_output:
             mu_x = np.asarray([mu_x])
             sigma_x = np.asarray([sigma_x])
-    
+
     else:
         # Multiple groups
         alpha = np.squeeze(alpha)
@@ -220,7 +220,7 @@ def calc_input_param_classification(alpha, beta, Sigma_x=None):
             beta = beta[0]
         if beta.ndim == 0:
             beta = beta[np.newaxis]
-        
+
         if alpha.ndim == 0:
             # Common alpha: beta.ndim == 2
             if np.abs(alpha) < DELTA_MAX:
@@ -259,7 +259,7 @@ def calc_input_param_classification(alpha, beta, Sigma_x=None):
                     # Only one input dimension
                     sigma_x = np.abs(beta[:,0]).copy()
                 np.divide(SIGMA_F0, sigma_x, out=sigma_x)
-        
+
         elif beta.ndim == 1:
             # Common beta: alpha.ndim == 1
             sbeta = np.sum(beta)
@@ -286,7 +286,7 @@ def calc_input_param_classification(alpha, beta, Sigma_x=None):
                     else:
                         mu_x[j] = (-DELTA_MAX -alpha[j])/sbeta
                     sigma_x[j] = SIGMA_F0/ssbeta
-        
+
         else:
             # Multiple alpha and beta: alpha.ndim == 1 and beta.ndim == 2
             sbeta = np.sum(beta, axis=-1)
@@ -313,48 +313,48 @@ def calc_input_param_classification(alpha, beta, Sigma_x=None):
                     else:
                         mu_x[j] = (-DELTA_MAX -alpha[j])/sbeta[j]
                     sigma_x[j] = SIGMA_F0/ssbeta[j]
-    
+
     return mu_x, sigma_x
 
 
 class data(object):
     """Data simulated from the hierarchical models.
-    
+
     Attributes
     ----------
     X : ndarray
         Explanatory variable
-    
+
     y : ndarray
         Response variable data
-    
+
     X_param : dict
         Parameters of the distribution of X.
-    
+
     y_true : ndarray
         The true expected values of the response variable at X
-    
+
     Nj : ndarray
         Number of observations in each group
-    
+
     N : int
         Total number of observations
-    
+
     J : int
         Number of hierarchical groups
-    
+
     j_lim : ndarray
         Index limits of the partitions of the observations:
         y[j_lim[j]:j_lim[j+1]] belong to group j.
-    
+
     j_ind : ndarray
         The group index of each observation
-    
+
     true_values : dict
         True values of `phi` and other inferred variables
-    
+
     """
-    
+
     def __init__(self, X, y, X_param, y_true, Nj, j_lim, j_ind, true_values):
         self.X = X
         self.y = y
@@ -366,12 +366,12 @@ class data(object):
         self.j_ind = j_ind
         self.true_values = true_values
         self.X_param = X_param
-    
+
     def calc_uncertainty(self):
         """Calculate the uncertainty in the response variable.
-        
+
         Returns: uncertainty_global, uncertainty_group
-        
+
         """
         y = self.y
         y_true = self.y_true
@@ -402,5 +402,3 @@ class data(object):
                 ))
                 uncertainty_group[j] = 1 - sse/sst
         return uncertainty_global, uncertainty_group
-
-
