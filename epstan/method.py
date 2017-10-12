@@ -808,7 +808,7 @@ class Master(object):
             self.r0 = np.zeros(self.dphi)
         else:
             # Use provided prior
-            if not hasattr(prior, 'has_key'):
+            if not isinstance(prior, dict):
                 raise TypeError("Argument `prior` is of wrong type")
             if 'Q' in prior and 'r' in prior:
                 # In a natural form already

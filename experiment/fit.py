@@ -86,7 +86,9 @@ https://github.com/gelman/ep-stan
 
 import os, argparse
 from timeit import default_timer as timer
+
 import numpy as np
+from scipy import linalg
 
 # Add parent dir to sys.path if not present already. This is only done because
 # of easy importing of the package epstan. Adding the parent directory into the
