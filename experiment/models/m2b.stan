@@ -1,11 +1,12 @@
+/**
+ * Licensed under the 3-clause BSD license.
+ * http://opensource.org/licenses/BSD-3-Clause
+ *
+ * Copyright (C) 2014 Tuomas Sivula
+ * All rights reserved.
+ */
 
-# Licensed under the 3-clause BSD license.
-# http://opensource.org/licenses/BSD-3-Clause
-#
-# Copyright (C) 2014 Tuomas Sivula
-# All rights reserved.
-
-# Model 2b
+// Model 2b
 
 data {
     int<lower=1> N;
@@ -27,20 +28,19 @@ transformed parameters {
     vector[D] beta;
     real<lower=0> sigma_a;
     real<lower=0> sigma_b;
-    sigma_a <- exp(phi[1]);
-    sigma_b <- exp(phi[2]);
-    alpha <- eta * sigma_a;
-    beta <- etb * sigma_b;
+    sigma_a = exp(phi[1]);
+    sigma_b = exp(phi[2]);
+    alpha = eta * sigma_a;
+    beta = etb * sigma_b;
 }
 model {
     vector[N] f;
     phi ~ multi_normal_prec(mu_phi, Omega_phi);
     eta ~ normal(0, 1);
     etb ~ normal(0, 1);
-    f <- X * beta;
+    f = X * beta;
     for (n in 1:N){
-        f[n] <- alpha[j_ind[n]] + f[n];
+        f[n] = alpha[j_ind[n]] + f[n];
     }
     y ~ bernoulli_logit(f);
 }
-

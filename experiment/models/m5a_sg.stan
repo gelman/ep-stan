@@ -1,11 +1,12 @@
+/**
+ * Licensed under the 3-clause BSD license.
+ * http://opensource.org/licenses/BSD-3-Clause
+ *
+ * Copyright (C) 2014 Tuomas Sivula
+ * All rights reserved.
+ */
 
-# Licensed under the 3-clause BSD license.
-# http://opensource.org/licenses/BSD-3-Clause
-#
-# Copyright (C) 2014 Tuomas Sivula
-# All rights reserved.
-
-# Model 5a single group
+// Model 5a single group
 
 data {
     int<lower=1> N;
@@ -28,13 +29,13 @@ transformed parameters {
     vector[D] beta;
     vector[D] mu_b;
     vector<lower=0>[D] sigma_b;
-    sigma <- exp(phi[1]);
-    mu_a <- phi[2];
-    sigma_a <- exp(phi[3]);
-    alpha <- mu_a + eta * sigma_a;
-    mu_b <- segment(phi, 4, D);
-    sigma_b <- exp(tail(phi, D));
-    beta <- mu_b + etb .* sigma_b;
+    sigma = exp(phi[1]);
+    mu_a = phi[2];
+    sigma_a = exp(phi[3]);
+    alpha = mu_a + eta * sigma_a;
+    mu_b = segment(phi, 4, D);
+    sigma_b = exp(tail(phi, D));
+    beta = mu_b + etb .* sigma_b;
 }
 model {
     phi ~ multi_normal_prec(mu_phi, Omega_phi);
@@ -42,4 +43,3 @@ model {
     etb ~ double_exponential(0, 1);
     y ~ normal(alpha + X * beta, sigma);
 }
-

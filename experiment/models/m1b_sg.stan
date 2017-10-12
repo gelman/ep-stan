@@ -1,11 +1,12 @@
+/**
+ * Licensed under the 3-clause BSD license.
+ * http://opensource.org/licenses/BSD-3-Clause
+ *
+ * Copyright (C) 2014 Tuomas Sivula
+ * All rights reserved.
+ */
 
-# Licensed under the 3-clause BSD license.
-# http://opensource.org/licenses/BSD-3-Clause
-#
-# Copyright (C) 2014 Tuomas Sivula
-# All rights reserved.
-
-# Model 1b with single group
+// Model 1b with single group
 
 data {
     int<lower=1> N;
@@ -23,13 +24,12 @@ transformed parameters {
     real alpha;
     vector[D] beta;
     real<lower=0> sigma_a;
-    sigma_a <- exp(phi[1]);
-    alpha <- eta * sigma_a;
-    beta <- tail(phi, D);
+    sigma_a = exp(phi[1]);
+    alpha = eta * sigma_a;
+    beta = tail(phi, D);
 }
 model {
     phi ~ multi_normal_prec(mu_phi, Omega_phi);
     eta ~ normal(0, 1);
     y ~ bernoulli_logit(alpha + X * beta);
 }
-

@@ -1,11 +1,12 @@
+/**
+ * Licensed under the 3-clause BSD license.
+ * http://opensource.org/licenses/BSD-3-Clause
+ *
+ * Copyright (C) 2014 Tuomas Sivula
+ * All rights reserved.
+ */
 
-# Licensed under the 3-clause BSD license.
-# http://opensource.org/licenses/BSD-3-Clause
-#
-# Copyright (C) 2014 Tuomas Sivula
-# All rights reserved.
-
-# Model 3a
+// Model 3a
 
 data {
     int<lower=1> N;
@@ -28,12 +29,12 @@ transformed parameters {
     real<lower=0> sigma_a;
     vector[D] beta[J];
     vector<lower=0>[D] sigma_b;
-    sigma <- exp(phi[1]);
-    sigma_a <- exp(phi[2]);
-    alpha <- eta * sigma_a;
-    sigma_b <- exp(tail(phi, D));
+    sigma = exp(phi[1]);
+    sigma_a = exp(phi[2]);
+    alpha = eta * sigma_a;
+    sigma_b = exp(tail(phi, D));
     for (j in 1:J){
-        beta[j] <- etb[j] .* sigma_b;
+        beta[j] = etb[j] .* sigma_b;
     }
 }
 model {
@@ -44,8 +45,7 @@ model {
         etb[j] ~ normal(0, 1);
     }
     for (n in 1:N){
-        f[n] <- alpha[j_ind[n]] + X[n] * beta[j_ind[n]];
+        f[n] = alpha[j_ind[n]] + X[n] * beta[j_ind[n]];
     }
     y ~ normal(f, sigma);
 }
-

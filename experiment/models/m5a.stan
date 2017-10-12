@@ -1,11 +1,12 @@
+/**
+ * Licensed under the 3-clause BSD license.
+ * http://opensource.org/licenses/BSD-3-Clause
+ *
+ * Copyright (C) 2014 Tuomas Sivula
+ * All rights reserved.
+ */
 
-# Licensed under the 3-clause BSD license.
-# http://opensource.org/licenses/BSD-3-Clause
-#
-# Copyright (C) 2014 Tuomas Sivula
-# All rights reserved.
-
-# Model 5a
+// Model 5a
 
 data {
     int<lower=1> N;
@@ -30,14 +31,14 @@ transformed parameters {
     vector[D] beta[J];
     vector[D] mu_b;
     vector<lower=0>[D] sigma_b;
-    sigma <- exp(phi[1]);
-    mu_a <- phi[2];
-    sigma_a <- exp(phi[3]);
-    alpha <- mu_a + eta * sigma_a;
-    mu_b <- segment(phi, 4, D);
-    sigma_b <- exp(tail(phi, D));
+    sigma = exp(phi[1]);
+    mu_a = phi[2];
+    sigma_a = exp(phi[3]);
+    alpha = mu_a + eta * sigma_a;
+    mu_b = segment(phi, 4, D);
+    sigma_b = exp(tail(phi, D));
     for (j in 1:J){
-        beta[j] <- mu_b + etb[j] .* sigma_b;
+        beta[j] = mu_b + etb[j] .* sigma_b;
     }
 }
 model {
@@ -48,8 +49,7 @@ model {
         etb[j] ~ double_exponential(0, 1);
     }
     for (n in 1:N){
-        f[n] <- alpha[j_ind[n]] + X[n] * beta[j_ind[n]];
+        f[n] = alpha[j_ind[n]] + X[n] * beta[j_ind[n]];
     }
     y ~ normal(f, sigma);
 }
-

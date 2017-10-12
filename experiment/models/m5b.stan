@@ -1,11 +1,12 @@
+/**
+ * Licensed under the 3-clause BSD license.
+ * http://opensource.org/licenses/BSD-3-Clause
+ *
+ * Copyright (C) 2014 Tuomas Sivula
+ * All rights reserved.
+ */
 
-# Licensed under the 3-clause BSD license.
-# http://opensource.org/licenses/BSD-3-Clause
-#
-# Copyright (C) 2014 Tuomas Sivula
-# All rights reserved.
-
-# Model 5b
+// Model 5b
 
 data {
     int<lower=1> N;
@@ -29,13 +30,13 @@ transformed parameters {
     vector[D] beta[J];
     vector[D] mu_b;
     vector<lower=0>[D] sigma_b;
-    mu_a <- phi[1];
-    sigma_a <- exp(phi[2]);
-    alpha <- mu_a + eta * sigma_a;
-    mu_b <- segment(phi, 3, D);
-    sigma_b <- exp(tail(phi, D));
+    mu_a = phi[1];
+    sigma_a = exp(phi[2]);
+    alpha = mu_a + eta * sigma_a;
+    mu_b = segment(phi, 3, D);
+    sigma_b = exp(tail(phi, D));
     for (j in 1:J){
-        beta[j] <- mu_b + etb[j] .* sigma_b;
+        beta[j] = mu_b + etb[j] .* sigma_b;
     }
 }
 model {
@@ -46,8 +47,7 @@ model {
         etb[j] ~ double_exponential(0, 1);
     }
     for (n in 1:N){
-        f[n] <- alpha[j_ind[n]] + X[n] * beta[j_ind[n]];
+        f[n] = alpha[j_ind[n]] + X[n] * beta[j_ind[n]];
     }
     y ~ bernoulli_logit(f);
 }
-
