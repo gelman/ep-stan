@@ -149,8 +149,7 @@ class Worker(object):
         'init_prev'       : True,
         'prec_estim'      : 'sample',
         'prec_estim_skip' : 0,
-        'verbose'         : True,
-        'tmp_fix_32bit'   : False # FIXME: Temp fix for RandomState problem
+        'verbose'         : True
     }
 
     DEFAULT_STAN_PARAMS = {
@@ -263,13 +262,6 @@ class Worker(object):
         # Verbose option
         self.verbose = options['verbose']
 
-        # FIXME: Temp fix for RandomState problem in 32-bit Python
-        if options['tmp_fix_32bit']:
-            self.fix32bit = True
-            self.rstate = self.stan_params['seed']
-        else:
-            self.fix32bit = False
-
 
     def cavity(self, Q, r, Qi, ri):
         """Form the cavity distribution and convert them to moment parameters.
@@ -341,10 +333,6 @@ class Worker(object):
 
         if self.phase != 1:
             raise RuntimeError('Cavity has to be calculated before tilted.')
-
-        # FIXME: Temp fix for RandomState problem in 32-bit Python
-        if self.fix32bit:
-            self.stan_params['seed'] = self.rstate.randint(2**31-1)
 
         # Sample from the model
         if isinstance(self.stan_model, str):
