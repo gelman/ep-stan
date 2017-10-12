@@ -35,11 +35,10 @@ from .util import (
 )
 
 
-def sample_stan(queue, path, data, stan_param, other_params=None):
+def sample_stan(queue, path, data, stan_params, other_params=None):
     """Load and fit Stan model in a subprocess.
 
     Implemented for multiprocesing.
-    Additional keyword arguments are passed to the StanModel.sampling method.
 
     Parameters
     ----------
@@ -52,7 +51,7 @@ def sample_stan(queue, path, data, stan_param, other_params=None):
     data : dict
         Data for the sampling.
 
-    stan_param : dict
+    stan_params : dict
         Keyword arguments passed to the Stan.
 
     other_params : sequence of str, optional
@@ -84,7 +83,7 @@ def sample_stan(queue, path, data, stan_param, other_params=None):
     sm = load_stan(path)
     with suppress_stdout():
         time_start = timer()
-        fit = sm.sampling(data=data, **stan_param)
+        fit = sm.sampling(data=data, **stan_params)
         time_end = timer()
     duration = time_end - time_start
 
@@ -156,7 +155,7 @@ class Worker(object):
         'chains'          : 4,
         'iter'            : 1000,
         'warmup'          : None,
-        'thin'            : 2,
+        'thin'            : 1,
         'init'            : 'random',
         'seed'            : None
     }
@@ -176,7 +175,7 @@ class Worker(object):
         for (kw, default) in self.DEFAULT_STAN_PARAMS.items():
             if kw not in options:
                 options[kw] = default
-        # Extranct stan parameters
+        # Extract stan parameters
         self.stan_params = {}
         for (kw, val) in options.items():
             if kw in self.DEFAULT_STAN_PARAMS:

@@ -4,7 +4,7 @@ Execute with:
     $ python plot_res.py <model_name> [<model_id>, [<dist_id>]]
 
 The optional <dist_id> can be used to select the distributed results from file
-    res_d_<model_name>_<model_id>_<dist_id>.npz
+    ..._<model_name>_<model_id>_<dist_id>.npz
 while the true values and the full values are still obtained from
     ..._<model_name>_<model_id>.npz
 If <dist_id> is omitted, the same file ending is used also for distributed
@@ -112,6 +112,10 @@ def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None,
 def plot_results(model_name, model_id=None, dist_id=None):
     """Plot some results."""
 
+    # -------------
+    #   load data
+    # -------------
+
     # Handle optional model id and dist id
     if model_id:
         file_ending = model_name + '_' + model_id
@@ -176,6 +180,17 @@ def plot_results(model_name, model_id=None, dist_id=None):
         full_samp_file.close()
     else:
         full_samp = None
+
+    # Load consensus result file
+    res_c_file = np.load(
+        os.path.join(RES_PATH, 'res_c_{}.npz'.format(file_ending_dist)))
+    m_phi_cons = res_c_file['m_phi_cons']
+    cov_phi_cons = res_c_file['cov_phi_cons']
+    res_c_file.close()
+
+    # ---------
+    #   plots
+    # ---------
 
     niter = m_phi_i.shape[0]
     dphi = m_phi_i.shape[1]
