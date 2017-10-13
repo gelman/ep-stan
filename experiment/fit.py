@@ -411,12 +411,14 @@ def main(model_name, conf, ret_master=False):
 
         # sample multiple times with different number of iterations
         # preallocate output arrays
-        m_phi_full = np.full((conf.iters, model.dphi), np.nan)
-        cov_phi_full = np.full((conf.iters, model.dphi, model.dphi), np.nan)
-        time_full = np.full(conf.iters, np.nan)
-        mstepsize_full = np.full(conf.iters, np.nan)
-        mrhat_full = np.full(conf.iters, np.nan)
-        for i in conf.iters:
+        m_phi_full = np.full((conf.iter, model.dphi), np.nan)
+        cov_phi_full = np.full((conf.iter, model.dphi, model.dphi), np.nan)
+        time_full = np.full(conf.iter, np.nan)
+        mstepsize_full = np.full(conf.iter, np.nan)
+        mrhat_full = np.full(conf.iter, np.nan)
+        for i in range(conf.iter):
+
+            print('  iter {}'.format(i))
 
             # Sample and extract samples
             time_start = timer()
@@ -425,11 +427,11 @@ def main(model_name, conf, ret_master=False):
                 seed = seed,
                 pars = 'phi',
                 chains = conf.chains,
-                iter = conf.target_siter,
+                iter = (i + 1) * conf.siter,
                 warmup = None,
-                trin = 1,
+                thin = 1,
             )
-            time_full[i] = (timer() - time_start)
+            time_full[i] = timer() - time_start
             print('    sampling time {}'.format(time_full[i]))
 
             samp = fit.extract(pars='phi')['phi']
@@ -449,7 +451,7 @@ def main(model_name, conf, ret_master=False):
             samp.mean(axis=0, out=m_phi_full[i])
             samp -= m_phi_full[i]
             samp.T.dot(samp, out=cov_phi_full[i])
-            cov_phi_full[i] /= nsamp -1
+            cov_phi_full[i] /= nsamp - 1
 
         # Save results
         if conf.save_res:
@@ -461,9 +463,12 @@ def main(model_name, conf, ret_master=False):
                 filename = 'res_f_{}.npz'.format(model_name)
             np.savez(
                 os.path.join(RES_PATH, filename),
-                conf         = conf.__dict__,
-                m_phi_full   = m_phi_full,
-                cov_phi_full = cov_phi_full,
+                conf           = conf.__dict__,
+                m_phi_full     = m_phi_full,
+                cov_phi_full   = cov_phi_full,
+                time_full      = time_full,
+                mstepsize_full = mstepsize_full,
+                mrhat_full     = mrhat_full,
             )
             print("Full model results saved.")
 
@@ -491,55 +496,41 @@ def main(model_name, conf, ret_master=False):
 
         elif K < J:
             # ------ Many groups per site: combine groups ------
+            # get stan model
+            stan_model = load_stan(os.path.join(MOD_PATH, model_name))
+            # generate datas for each site
             Nk, Nj_k, j_ind_k = distribute_groups(J, K, data.Nj)
             k_lim = np.concatenate(([0], np.cumsum(Nk)))
-            stan_model = load_stan(os.path.join(MOD_PATH, model_name))
-
-            # sample for each site
-            samples = []
-            for k in range(K):
-                data_k = dict(
+            data_k = tuple(
+                dict(
                     N = Nk[k],
                     D = D,
                     J = Nj_k[k],
                     X = data.X[k_lim[k]:k_lim[k+1]],
                     y = data.y[k_lim[k]:k_lim[k+1]],
                     j_ind = j_ind_k[k_lim[k]:k_lim[k+1]] + 1,
-                    mu_phi = cons_prior_k_m.copy(),
-                    Omega_phi = cons_prior_k_Q.copy()
+                    mu_phi = cons_prior_k_m,
+                    Omega_phi = cons_prior_k_Q
                 )
-                fit = stan_model.sampling(
-                    data = data_k,
-                    seed = seed,
-                    pars = 'phi',
-                    init = 'random',
-                    **conf.mc_consensus_opt
-                )
-                samples.append(fit.extract(pars='phi')['phi'])
+                for k in range(K)
+            )
 
         elif K == J:
             # ------ One group per site ------
+            # get stan model
             stan_model = load_stan(os.path.join(MOD_PATH, model_name+'_sg'))
-
-            # sample for each site
-            samples = []
-            for k in range(K):
-                data_k = dict(
+            # generate datas for each site
+            data_k = tuple(
+                dict(
                     N = data.Nj[k],
                     D = D,
                     X = data.X[data.j_lim[k]:data.j_lim[k+1]],
                     y = data.y[data.j_lim[k]:data.j_lim[k+1]],
-                    mu_phi = cons_prior_k_m.copy(),
-                    Omega_phi = cons_prior_k_Q.copy()
+                    mu_phi = cons_prior_k_m,
+                    Omega_phi = cons_prior_k_Q
                 )
-                fit = stan_model.sampling(
-                    data = data_k,
-                    seed = seed,
-                    pars = 'phi',
-                    init = 'random',
-                    **conf.mc_consensus_opt
-                )
-                samples.append(fit.extract(pars='phi')['phi'])
+                for k in range(K)
+            )
 
         elif K <= data.N:
             # ------ Multiple sites per group: split groups ------
@@ -548,10 +539,57 @@ def main(model_name, conf, ret_master=False):
         else:
             raise ValueError("K cant be greater than number of samples")
 
-        # TODO make more efficient similar as in Master.mix_phi()
-        samples_concat = np.concatenate(samples, axis=0)
-        m_phi_cons = np.mean(samples_concat, axis=0)
-        cov_phi_cons = np.cov(samples_concat, rowvar=False, ddof=1)
+        # sample multiple times with different number of iterations
+        # preallocate output arrays
+        m_phi_cons = np.full((conf.iter, model.dphi), np.nan)
+        cov_phi_cons = np.full((conf.iter, model.dphi, model.dphi), np.nan)
+        time_cons = np.full(conf.iter, np.nan)
+        mstepsize_cons = np.full(conf.iter, np.nan)
+        mrhat_cons = np.full(conf.iter, np.nan)
+        for i in range(conf.iter):
+
+            print('  iter {}'.format(i))
+
+            # sample for each site
+            samples = []
+            times = np.full(K, np.nan)
+            mstepsizes = np.full(K, np.nan)
+            mrhats = np.full(K, np.nan)
+            for k in range(K):
+                time_start = timer()
+                fit = stan_model.sampling(
+                    data = data_k[k],
+                    seed = seed,
+                    pars = 'phi',
+                    chains = conf.chains,
+                    iter = (i + 1) * conf.siter,
+                    warmup = None,
+                    thin = 1,
+                )
+                times[k] = timer() - time_start
+                mstepsizes[k] = np.mean([
+                    np.mean(p['stepsize__'])
+                    for p in fit.get_sampler_params()
+                ])
+                mrhats[k] = np.max(fit.summary()['summary'][:-1,-1])
+                samples.append(fit.extract(pars='phi')['phi'])
+
+            # Moment estimates
+            # TODO make more efficient similar as in Master.mix_phi()
+            samp = np.concatenate(samples, axis=0)
+            nsamp = samp.shape[0]
+            samp.mean(axis=0, out=m_phi_cons[i])
+            samp -= m_phi_cons[i]
+            samp.T.dot(samp, out=cov_phi_cons[i])
+            cov_phi_cons[i] /= nsamp - 1
+
+            # diagnostics
+            time_cons[i] = np.max(times)
+            mstepsize_cons[i] = np.mean(mstepsizes)
+            mrhat_cons[i] = np.max(mrhats)
+
+            # dereference samples
+            del samples, samp
 
         # Save results
         if conf.save_res:
@@ -566,6 +604,9 @@ def main(model_name, conf, ret_master=False):
                 conf         = conf.__dict__,
                 m_phi_cons   = m_phi_cons,
                 cov_phi_cons = cov_phi_cons,
+                time_cons      = time_cons,
+                mstepsize_cons = mstepsize_cons,
+                mrhat_cons     = mrhat_cons,
             )
             print("Consensus MC results saved.")
 
@@ -602,7 +643,7 @@ def main(model_name, conf, ret_master=False):
             chains = conf.chains,
             iter = conf.target_siter,
             warmup = None,
-            trin = 1,
+            thin = 1,
         )
         time_target = (timer() - time_target)
         samp = fit.extract(pars='phi')['phi']
@@ -636,7 +677,7 @@ def main(model_name, conf, ret_master=False):
         m_phi_target = samp.mean(axis=0)
         samp -= m_phi_target
         cov_phi_target = samp.T.dot(samp)
-        cov_phi_target /= nsamp -1
+        cov_phi_target /= nsamp - 1
 
         # Save results
         if conf.save_res:
