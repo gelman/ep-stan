@@ -2,7 +2,7 @@
 algorithm described in an article "Expectation propagation as a way of life"
 (arXiv:1412.4869).
 
-Execute with:
+usage:
 $ python fit.py [-h] [--J P] [--D P] [--K P] [--npg P [P ...]] [--iter N]
                 [--cor_input B] [--damp F] [--mix B] [--prec_estim S]
                 [--run_ep B] [--run_full B] [--run_consensus B] [--id S]
@@ -11,46 +11,51 @@ $ python fit.py [-h] [--J P] [--D P] [--K P] [--npg P [P ...]] [--iter N]
                 [--mc_full_opt P P P P]
                 model_name
 
-
 positional arguments:
   model_name            name of the model
 
-optional arguments:
+optional arguments - general:
   -h, --help            show this help message and exit
+
+optional arguments - data:
   --J P                 number of hierarchical groups, default 40
   --D P                 number of inputs, default 20
-  --K P                 number of sites, default 25
   --npg P [P ...]       number of observations per group (constant or min
                         max), default [40, 60]
-  --iter N              number of distributed EP iterations, default 6
   --cor_input B         correlated input variable, default False
+
+optional arguments - selected methods:
+  --run_all B           run all the methods, default False
+  --run_ep B            run the distributed EP method, default False
+  --run_full B          run the full model method, default False
+  --run_consensus B     run consensus MC method, default False
+  --run_target B        run target approximation, default False
+
+optional arguments - iterations:
+  --iter P              number of distributed EP iterations, default 6
+  --siter P             Stan iterations in each major iteration, default 400
+  --target_siter P      Stan iterations for the target approximation, default
+                        1000
+  --chains P            number of chains used in stan sampling, default 4
+
+optional arguments - method options:
+  --K P                 number of sites, default 25
   --damp F              damping factor constant, default None
   --mix B               mix last iteration samples, default False
   --prec_estim S        estimate method for tilted distribution precision
                         matrix, currently available options are sample and
                         olse (see epstan.method.Master), default sample
-  --run_ep B            run the distributed EP method, default True
-  --run_full B          run the full model method, default True
-  --run_consensus B     run consensus MC method, default True
-  --id S                optional id appended to the end of the result files,
-                        default None
-  --save_full_samp B    save samples obtained from the full model, default
-                        False
-  --save_true B         save true values, default True
-  --save_res B          save results, default True
+
+optional arguments - seeds for randomisation:
   --seed_data N         seed for data simulation, default 0
   --seed_mcmc N         seed for sampling, default 0
-  --mc_opt P P P P      MCMC sampler opt for epstan (chains iter warmup thin),
-                        default (4 400 200 1)
-  --mc_full_opt P P P P
-                        MCMC sampler opt for full (chains iter warmup thin),
-                        default (4 1000 500 1)
-  --mc_consensus_opt P P P P
-                        MCMC sampler opt for consensus MC (chains iter warmup
-                        thin), default (4 1000 500 1)
 
-Available models are defined in the folder models in the files
-`<model_name>.py`, `<model_name>.stan` and `<model_name>_sg.stan`
+optional arguments - saving options:
+  --id S                optional id appended to the end of the result files,
+                        default None
+  --save_true B         save true values, default True
+  --save_res B          save results, default True
+  --save_target_samp B  save target approximation samples, default False
 
 Argument types
 - N denotes a non-negative and P a positive integer argument.
@@ -58,6 +63,9 @@ Argument types
 - B denotes a boolean argument, which can be given as
   TRUE, T, 1 or FALSE, F, 0 (case insensitive).
 - S denotes a string argument.
+
+Available models are defined in the folder models in the files
+`<model_name>.py`, `<model_name>.stan` and `<model_name>_sg.stan`
 
 The results of full model method are saved into file
     `res_f_<model_name>.npz`,
@@ -69,8 +77,8 @@ and the true values are saved into the file
     `true_vals_<model_name>.npz`
 into the folder results.
 
-After running this skript for both full and distributed, the script plot_res.py
-can be used to plot the results.
+After running this skript for all the methods, the script plot_res.py can be
+used to plot the results.
 
 The most recent version of the code can be found on GitHub:
 https://github.com/gelman/ep-stan
@@ -107,10 +115,10 @@ from epstan.util import load_stan, distribute_groups, suppress_stdout
 
 
 CONFS = [
-    'J', 'D', 'K', 'npg', 'cor_input',
-    'run_ep', 'run_full', 'run_consensus', 'run_target',
+    'J', 'D', 'npg', 'cor_input',
+    'run_all', 'run_ep', 'run_full', 'run_consensus', 'run_target',
     'iter', 'siter', 'target_siter', 'chains',
-    'damp', 'mix', 'prec_estim',
+    'K', 'damp', 'mix', 'prec_estim',
     'seed_data', 'seed_mcmc',
     'id', 'save_true', 'save_res', 'save_target_samp',
 ]
@@ -123,6 +131,7 @@ CONF_DEFAULT = dict(
     npg              = [40,60],
     cor_input        = False,
 
+    run_all          = False,
     run_ep           = False,
     run_full         = False,
     run_consensus    = False,
@@ -238,7 +247,7 @@ def main(model_name, conf, ret_master=False):
     # --------------------------------------------------------------------------
     #   Distributed method
     # --------------------------------------------------------------------------
-    if conf.run_ep or ret_master:
+    if conf.run_ep or conf.run_all or ret_master:
 
         print("Distributed method")
 
@@ -261,7 +270,7 @@ def main(model_name, conf, ret_master=False):
             df0 = df0,
             init_site = init_site,
             chains = conf.chains,
-            iter = conf.siter
+            iter = conf.siter,
             warmup = None,
             thin = 1,
         )
@@ -390,13 +399,13 @@ def main(model_name, conf, ret_master=False):
     # --------------------------------------------------------------------------
     #   Full model sampling
     # --------------------------------------------------------------------------
-    if conf.run_full:
+    if conf.run_full or conf.run_all:
 
         print("Full model")
 
         seed = np.random.RandomState(seed=conf.seed_mcmc)
 
-        data = dict(
+        data_full = dict(
             N = data.X.shape[0],
             D = data.X.shape[1],
             J = J,
@@ -421,17 +430,18 @@ def main(model_name, conf, ret_master=False):
             print('  iter {}'.format(i))
 
             # Sample and extract samples
-            time_start = timer()
-            fit = stan_model.sampling(
-                data = data,
-                seed = seed,
-                pars = 'phi',
-                chains = conf.chains,
-                iter = (i + 1) * conf.siter,
-                warmup = None,
-                thin = 1,
-            )
-            time_full[i] = timer() - time_start
+            with suppress_stdout():
+                time_start = timer()
+                fit = stan_model.sampling(
+                    data = data_full,
+                    seed = seed,
+                    pars = 'phi',
+                    chains = conf.chains,
+                    iter = (i + 1) * conf.siter,
+                    warmup = None,
+                    thin = 1,
+                )
+                time_full[i] = timer() - time_start
             print('    sampling time {}'.format(time_full[i]))
 
             samp = fit.extract(pars='phi')['phi']
@@ -477,7 +487,7 @@ def main(model_name, conf, ret_master=False):
     # --------------------------------------------------------------------------
     #   Consensus MC
     # --------------------------------------------------------------------------
-    if conf.run_consensus:
+    if conf.run_consensus or conf.run_all:
 
         print("Consensus MC")
 
@@ -556,17 +566,18 @@ def main(model_name, conf, ret_master=False):
             mstepsizes = np.full(K, np.nan)
             mrhats = np.full(K, np.nan)
             for k in range(K):
-                time_start = timer()
-                fit = stan_model.sampling(
-                    data = data_k[k],
-                    seed = seed,
-                    pars = 'phi',
-                    chains = conf.chains,
-                    iter = (i + 1) * conf.siter,
-                    warmup = None,
-                    thin = 1,
-                )
-                times[k] = timer() - time_start
+                with suppress_stdout():
+                    time_start = timer()
+                    fit = stan_model.sampling(
+                        data = data_k[k],
+                        seed = seed,
+                        pars = 'phi',
+                        chains = conf.chains,
+                        iter = (i + 1) * conf.siter,
+                        warmup = None,
+                        thin = 1,
+                    )
+                    times[k] = timer() - time_start
                 mstepsizes[k] = np.mean([
                     np.mean(p['stepsize__'])
                     for p in fit.get_sampler_params()
@@ -615,13 +626,13 @@ def main(model_name, conf, ret_master=False):
     # --------------------------------------------------------------------------
     #   Target sampling
     # --------------------------------------------------------------------------
-    if conf.run_target:
+    if conf.run_target or conf.run_all:
 
         print("Target approximation")
 
         seed = np.random.RandomState(seed=conf.seed_mcmc)
 
-        data = dict(
+        data_target = dict(
             N = data.X.shape[0],
             D = data.X.shape[1],
             J = J,
@@ -636,16 +647,17 @@ def main(model_name, conf, ret_master=False):
 
         # Sample and extract samples
         time_target = timer()
-        fit = stan_model.sampling(
-            data = data,
-            seed = seed,
-            pars = 'phi',
-            chains = conf.chains,
-            iter = conf.target_siter,
-            warmup = None,
-            thin = 1,
-        )
-        time_target = (timer() - time_target)
+        with suppress_stdout():
+            fit = stan_model.sampling(
+                data = data_target,
+                seed = seed,
+                pars = 'phi',
+                chains = conf.chains,
+                iter = conf.target_siter,
+                warmup = None,
+                thin = 1,
+            )
+            time_target = (timer() - time_target)
         samp = fit.extract(pars='phi')['phi']
 
         # Mean stepsize
@@ -684,9 +696,9 @@ def main(model_name, conf, ret_master=False):
             if not os.path.exists(RES_PATH):
                 os.makedirs(RES_PATH)
             if conf.id:
-                filename = 'res_f_{}_{}.npz'.format(model_name, conf.id)
+                filename = 'target_{}_{}.npz'.format(model_name, conf.id)
             else:
-                filename = 'res_f_{}.npz'.format(model_name)
+                filename = 'target_{}.npz'.format(model_name)
             np.savez(
                 os.path.join(RES_PATH, filename),
                 conf         = conf.__dict__,
@@ -826,6 +838,7 @@ CONF_HELP = dict(
     npg              = 'number of observations per group (constant or min max)',
     cor_input        = 'correlated input variable',
 
+    run_all          = 'run all the methods',
     run_ep           = 'run the distributed EP method',
     run_full         = 'run the full model method',
     run_consensus    = 'run consensus MC method',
@@ -874,6 +887,7 @@ CONF_CUSTOMS = dict(
     npg              = dict(nargs='+', type=_parse_positive_int, metavar='P'),
     cor_input        = dict(type=_parse_bool, metavar='B'),
 
+    run_all          = dict(type=_parse_bool, metavar='B'),
     run_ep           = dict(type=_parse_bool, metavar='B'),
     run_full         = dict(type=_parse_bool, metavar='B'),
     run_consensus    = dict(type=_parse_bool, metavar='B'),
@@ -901,27 +915,13 @@ CONF_CUSTOMS = dict(
 
 if __name__ == '__main__':
 
-    # Process help string
-    descr_ind = __doc__.find('\n\n')
-    epilog_ind = __doc__.find('optional arguments:\n')
-    epilog_ind = __doc__.find('\n\n', epilog_ind)
-    if descr_ind == -1 or epilog_ind == -1:
-        description = None
-        epilog = __doc__
-        formatter_class = argparse.ArgumentDefaultsHelpFormatter
-    else:
-        description = __doc__[:descr_ind]
-        epilog = __doc__[epilog_ind+2:]
-        formatter_class = argparse.RawDescriptionHelpFormatter
-
     # Parse arguments
     parser = argparse.ArgumentParser(
-        description = description,
-        epilog = epilog,
-        formatter_class = formatter_class
+        description = __doc__.split('\n\n', 1)[0],
+        epilog = "See module docstring for more detailed info.",
+        formatter_class = argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('model_name', help = "name of the model")
-
     for opt in CONFS:
         parser.add_argument(
             '--'+opt,
