@@ -4,11 +4,11 @@ Python code supplement for "Expectation propagation as a way of life"
 
 ### Requirements (tested version):
 - python (3.5.2)
-- numpy (1.13.2)
+- numpy (1.13.3)
 - scipy (0.19.1)
 - cython (0.27)
 - pystan (2.16.0.0)
-- matplotlib (2.0.2) (only for plotting the results)
+- matplotlib (2.1.0) (only for plotting the results)
 
 ### Setup
 Compile the Cython utilities with `python setup.py build_ext --inplace`.
