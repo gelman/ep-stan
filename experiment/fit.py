@@ -324,11 +324,20 @@ def main(model_name, conf, ret_master=False):
             .format(conf.iter)
         )
         if conf.mix:
-            m_phi_i, cov_phi_i, info = epstan_master.run(
-                conf.iter, save_last_param=pnames)
+            info, (m_s_ep, S_s_ep), (time_s_ep, mstepsize_s_ep, mrhat_s_ep) = (
+                epstan_master.run(
+                    conf.iter, return_analytics=True, save_last_param=pnames)
+            )
         else:
-            m_phi_i, cov_phi_i, info = epstan_master.run(conf.iter)
+            info, (m_s_ep, S_s_ep), (time_s_ep, mstepsize_s_ep, mrhat_s_ep) = (
+                epstan_master.run(conf.iter, return_analytics=True)
+            )
+
+        # cumulate elapsed time in the sampling runtime analysis
+        time_s_ep = time_s_ep.cumsum()
+
         if info:
+
             # Save results until failure
             if conf.save_res:
                 if not os.path.exists(RES_PATH):
@@ -339,9 +348,12 @@ def main(model_name, conf, ret_master=False):
                     filename = 'res_d_{}.npz'.format(model_name)
                 np.savez(
                     os.path.join(RES_PATH, filename),
-                    conf      = conf.__dict__,
-                    m_phi_i   = m_phi_i,
-                    cov_phi_i = cov_phi_i,
+                    conf = conf.__dict__,
+                    m_s_ep = m_s_ep,
+                    S_s_ep = S_s_ep,
+                    time_s_ep = time_s_ep,
+                    mstepsize_s_ep = mstepsize_s_ep,
+                    mrhat_s_ep = mrhat_s_ep,
                     last_iter = epstan_master.iter
                 )
                 print("Uncomplete distributed model results saved.")
@@ -353,7 +365,7 @@ def main(model_name, conf, ret_master=False):
         if conf.mix:
             print("Form the final approximation "
                   "by mixing the last samples from all the sites.")
-            cov_phi, m_phi = epstan_master.mix_phi()
+            S_ep, m_ep = epstan_master.mix_phi()
 
             # Get mean and var of inferred variables
             pms, pvars = epstan_master.mix_pred(pnames, pmaps, pshapes)
@@ -361,8 +373,8 @@ def main(model_name, conf, ret_master=False):
             presults = {}
             for i in range(len(pnames)):
                 pname = pnames[i]
-                presults['m_'+pname] = pms[i]
-                presults['var_'+pname] = pvars[i]
+                presults['m_'+pname+'_ep'] = pms[i]
+                presults['v_'+pname+'_ep'] = pvars[i]
 
         # Save results
         if conf.save_res:
@@ -375,19 +387,25 @@ def main(model_name, conf, ret_master=False):
             if conf.mix:
                 np.savez(
                     os.path.join(RES_PATH, filename),
-                    conf      = conf.__dict__,
-                    m_phi_i   = m_phi_i,
-                    cov_phi_i = cov_phi_i,
-                    m_phi     = m_phi,
-                    cov_phi   = cov_phi,
+                    conf = conf.__dict__,
+                    m_s_ep = m_s_ep,
+                    S_s_ep = S_s_ep,
+                    time_s_ep = time_s_ep,
+                    mstepsize_s_ep = mstepsize_s_ep,
+                    mrhat_s_ep = mrhat_s_ep,
+                    m_phi_ep = m_ep,
+                    S_phi_ep = S_ep,
                     **presults
                 )
             else:
                 np.savez(
                     os.path.join(RES_PATH, filename),
-                    conf      = conf.__dict__,
-                    m_phi_i   = m_phi_i,
-                    cov_phi_i = cov_phi_i,
+                    conf = conf.__dict__,
+                    m_s_ep = m_s_ep,
+                    S_s_ep = S_s_ep,
+                    time_s_ep = time_s_ep,
+                    mstepsize_s_ep = mstepsize_s_ep,
+                    mrhat_s_ep = mrhat_s_ep,
                 )
             print("Distributed model results saved.")
 
@@ -420,11 +438,11 @@ def main(model_name, conf, ret_master=False):
 
         # sample multiple times with different number of iterations
         # preallocate output arrays
-        m_phi_full = np.full((conf.iter, model.dphi), np.nan)
-        cov_phi_full = np.full((conf.iter, model.dphi, model.dphi), np.nan)
-        time_full = np.full(conf.iter, np.nan)
-        mstepsize_full = np.full(conf.iter, np.nan)
-        mrhat_full = np.full(conf.iter, np.nan)
+        m_s_full = np.full((conf.iter, model.dphi), np.nan)
+        S_s_full = np.full((conf.iter, model.dphi, model.dphi), np.nan)
+        time_s_full = np.full(conf.iter, np.nan)
+        mstepsize_s_full = np.full(conf.iter, np.nan)
+        mrhat_s_full = np.full(conf.iter, np.nan)
         for i in range(conf.iter):
 
             print('  iter {}'.format(i))
@@ -441,27 +459,27 @@ def main(model_name, conf, ret_master=False):
                     warmup = None,
                     thin = 1,
                 )
-                time_full[i] = timer() - time_start
-            print('    sampling time {}'.format(time_full[i]))
+                time_s_full[i] = timer() - time_start
+            print('    sampling time {}'.format(time_s_full[i]))
 
             samp = fit.extract(pars='phi')['phi']
 
             # Mean stepsize
-            mstepsize_full[i] = np.mean([
+            mstepsize_s_full[i] = np.mean([
                 np.mean(p['stepsize__'])
                 for p in fit.get_sampler_params()
             ])
-            print('    mean stepsize: {:.4}'.format(mstepsize_full[i]))
+            print('    mean stepsize: {:.4}'.format(mstepsize_s_full[i]))
             # Max Rhat (from all but last row in the last column)
-            mrhat_full[i] = np.max(fit.summary()['summary'][:-1,-1])
-            print('    max Rhat: {:.4}'.format(mrhat_full[i]))
+            mrhat_s_full[i] = np.max(fit.summary()['summary'][:-1,-1])
+            print('    max Rhat: {:.4}'.format(mrhat_s_full[i]))
 
             # Moment estimates
             nsamp = samp.shape[0]
-            samp.mean(axis=0, out=m_phi_full[i])
-            samp -= m_phi_full[i]
-            samp.T.dot(samp, out=cov_phi_full[i])
-            cov_phi_full[i] /= nsamp - 1
+            samp.mean(axis=0, out=m_s_full[i])
+            samp -= m_s_full[i]
+            samp.T.dot(samp, out=S_s_full[i])
+            S_s_full[i] /= nsamp - 1
 
         # Save results
         if conf.save_res:
@@ -473,12 +491,12 @@ def main(model_name, conf, ret_master=False):
                 filename = 'res_f_{}.npz'.format(model_name)
             np.savez(
                 os.path.join(RES_PATH, filename),
-                conf           = conf.__dict__,
-                m_phi_full     = m_phi_full,
-                cov_phi_full   = cov_phi_full,
-                time_full      = time_full,
-                mstepsize_full = mstepsize_full,
-                mrhat_full     = mrhat_full,
+                conf = conf.__dict__,
+                m_s_full = m_s_full,
+                S_s_full = S_s_full,
+                time_s_full = time_s_full,
+                mstepsize_s_full = mstepsize_s_full,
+                mrhat_s_full = mrhat_s_full,
             )
             print("Full model results saved.")
 
@@ -551,11 +569,11 @@ def main(model_name, conf, ret_master=False):
 
         # sample multiple times with different number of iterations
         # preallocate output arrays
-        m_phi_cons = np.full((conf.iter, model.dphi), np.nan)
-        cov_phi_cons = np.full((conf.iter, model.dphi, model.dphi), np.nan)
-        time_cons = np.full(conf.iter, np.nan)
-        mstepsize_cons = np.full(conf.iter, np.nan)
-        mrhat_cons = np.full(conf.iter, np.nan)
+        m_s_cons = np.full((conf.iter, model.dphi), np.nan)
+        S_s_cons = np.full((conf.iter, model.dphi, model.dphi), np.nan)
+        time_s_cons = np.full(conf.iter, np.nan)
+        mstepsize_s_cons = np.full(conf.iter, np.nan)
+        mrhat_s_cons = np.full(conf.iter, np.nan)
         for i in range(conf.iter):
 
             print('  iter {}'.format(i))
@@ -589,15 +607,15 @@ def main(model_name, conf, ret_master=False):
             # TODO make more efficient similar as in Master.mix_phi()
             samp = np.concatenate(samples, axis=0)
             nsamp = samp.shape[0]
-            samp.mean(axis=0, out=m_phi_cons[i])
-            samp -= m_phi_cons[i]
-            samp.T.dot(samp, out=cov_phi_cons[i])
-            cov_phi_cons[i] /= nsamp - 1
+            samp.mean(axis=0, out=m_s_cons[i])
+            samp -= m_s_cons[i]
+            samp.T.dot(samp, out=S_s_cons[i])
+            S_s_cons[i] /= nsamp - 1
 
             # diagnostics
-            time_cons[i] = np.max(times)
-            mstepsize_cons[i] = np.mean(mstepsizes)
-            mrhat_cons[i] = np.max(mrhats)
+            time_s_cons[i] = np.max(times)
+            mstepsize_s_cons[i] = np.mean(mstepsizes)
+            mrhat_s_cons[i] = np.max(mrhats)
 
             # dereference samples
             del samples, samp
@@ -612,12 +630,12 @@ def main(model_name, conf, ret_master=False):
                 filename = 'res_c_{}.npz'.format(model_name)
             np.savez(
                 os.path.join(RES_PATH, filename),
-                conf         = conf.__dict__,
-                m_phi_cons   = m_phi_cons,
-                cov_phi_cons = cov_phi_cons,
-                time_cons      = time_cons,
-                mstepsize_cons = mstepsize_cons,
-                mrhat_cons     = mrhat_cons,
+                conf = conf.__dict__,
+                m_s_cons = m_s_cons,
+                S_s_cons = S_s_cons,
+                time_s_cons = time_s_cons,
+                mstepsize_s_cons = mstepsize_s_cons,
+                mrhat_s_cons = mrhat_s_cons,
             )
             print("Consensus MC results saved.")
 
@@ -680,16 +698,16 @@ def main(model_name, conf, ret_master=False):
             np.savez(
                 os.path.join(RES_PATH, filename),
                 conf = conf.__dict__,
-                samp_phi = samp
+                samp_target = samp
             )
             print("Target approximation samples saved.")
 
         # Moment estimates
         nsamp = samp.shape[0]
-        m_phi_target = samp.mean(axis=0)
-        samp -= m_phi_target
-        cov_phi_target = samp.T.dot(samp)
-        cov_phi_target /= nsamp - 1
+        m_target = samp.mean(axis=0)
+        samp -= m_target
+        S_target = samp.T.dot(samp)
+        S_target /= nsamp - 1
 
         # Save results
         if conf.save_res:
@@ -701,9 +719,9 @@ def main(model_name, conf, ret_master=False):
                 filename = 'target_{}.npz'.format(model_name)
             np.savez(
                 os.path.join(RES_PATH, filename),
-                conf         = conf.__dict__,
-                m_phi_target   = m_phi_target,
-                cov_phi_target = cov_phi_target,
+                conf = conf.__dict__,
+                m_target = m_target,
+                S_target = S_target,
             )
             print("Target results saved.")
 

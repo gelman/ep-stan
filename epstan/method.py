@@ -148,7 +148,7 @@ class Worker(object):
         'init_prev'       : True,
         'prec_estim'      : 'sample',
         'prec_estim_skip' : 0,
-        'verbose'         : True
+        'verbose'         : False
     }
 
     DEFAULT_STAN_PARAMS = {
@@ -161,7 +161,7 @@ class Worker(object):
     }
 
     # Available values for option `prec_estim`
-    PREC_ESTIM_OPTIONS = ('sample', 'olse', 'glassocv')
+    PREC_ESTIM_OPTIONS = ('sample', 'olse')
 
     RESERVED_STAN_PARAMETER_NAMES = ['X', 'y', 'N', 'D', 'mu_phi', 'Omega_phi']
 
@@ -229,10 +229,13 @@ class Worker(object):
         self.dphi = dphi
         self.iteration = 0
 
-        # The samples saved from the last fit
-        self.saved_samples = None
         # The last elapsed time
         self.last_time = None
+        self.last_msteps = None
+        self.last_mrhat = None
+
+        # The samples saved from the last fit
+        self.saved_samples = None
         # The names of the shared parameters in this
         self.fit_pnames = list('phi[{}]'.format(i) for i in range(self.dphi))
 
@@ -255,8 +258,6 @@ class Worker(object):
             self.prec_estim_skip = options['prec_estim_skip']
         else:
             self.prec_estim_skip = 0
-        if self.prec_estim == 'glassocv':
-            self.glassocv = GraphLassoCV(assume_centered=True)
 
         # Verbose option
         self.verbose = options['verbose']
@@ -335,12 +336,11 @@ class Worker(object):
 
         # Sample from the model
         if isinstance(self.stan_model, str):
+            # run in a subprocess
             q = multiprocessing.Queue()
+            args = [q, self.stan_model, self.data, self.stan_params]
             if save_samples:
-                args = (q, self.stan_model, self.data, self.stan_params,
-                        save_samples)
-            else:
-                args = (q, self.stan_model, self.data, self.stan_params)
+                args.append(save_samples)
             p = multiprocessing.Process(target=sample_stan, args=args)
             p.start()
             if save_samples:
@@ -350,13 +350,13 @@ class Worker(object):
                 samp, lastsamp, dur, msteps, mrhat = q.get()
             samp = np.copy(samp, order='F') # Needs to be copied for `owndata`
             p.join()
+            # store info
             self.last_time = dur
-            if self.verbose:
-                # Mean stepsize
-                print('\n    mean stepsize: {:.4}'.format(msteps))
-                # Max Rhat (from all but last row in the last column)
-                print('    max Rhat: {:.4}'.format(mrhat))
+            self.last_msteps = msteps
+            self.last_mrhat = mrhat
+
         else:
+            # run in the same process
             time_start = timer()
             with suppress_stdout():
                 fit = self.stan_model.sampling(
@@ -364,7 +364,18 @@ class Worker(object):
                     **self.stan_params
                 )
             time_end = timer()
+
+            # store info
+            # runtime
             self.last_time = (time_end - time_start)
+            # mean stepsize
+            self.last_msteps = np.mean([
+                np.mean(p['stepsize__'])
+                for p in fit.get_sampler_params()
+            ])
+            # max Rhat (from all but last row in the last column)
+            self.last_mrhat = np.max(fit.summary()['summary'][:-1,-1])
+
             # Extract samples
             samp = copy_fit_samples(fit, self.fit_pnames)
             lastsamp = get_last_fit_sample(fit)
@@ -374,17 +385,14 @@ class Worker(object):
                     par : fit.extract(pars=par)[par]
                     for par in save_samples
                 }
-            if self.verbose:
-                # Mean stepsize
-                steps = [np.mean(p['stepsize__'])
-                         for p in fit.get_sampler_params()]
-                print('\n    mean stepsize: {:.4}'.format(np.mean(steps)))
-                # Max Rhat (from all but last row in the last column)
-                print('    max Rhat: {:.4}'.format(
-                    np.max(fit.summary()['summary'][:-1,-1])
-                ))
+
             # Dereference the fit
             fit = None
+
+        if self.verbose:
+            print('\n   sampling runtime: {:.4}'.format(self.last_time))
+            print('    mean stepsize: {:.4}'.format(self.last_msteps))
+            print('    max Rhat: {:.4}'.format(self.last_mrhat))
 
         if self.init_prev:
             # Store the last sample of each chain
@@ -433,20 +441,6 @@ class Worker(object):
                 np.divide(self.Mat, self.nsamp, out=dQi)
                 # Estimate
                 olse(dQi, self.nsamp, P=self.Q, out='in-place')
-                np.dot(dQi, mt, out=dri)
-
-            # Graphical lasso with cross validation
-            elif self.prec_estim == 'glassocv':
-                # Mean
-                mt = np.mean(samp, axis=0, out=self.vec)
-                # Center samples
-                samp -= mt
-                # Fit
-                self.glassocv.fit(samp)
-                if self.verbose:
-                    print('    glasso alpha: {:.4}'.format(self.glassocv.alpha_))
-                np.copyto(dQi, self.glassocv.precision_.T)
-                # Calculate corresponding r
                 np.dot(dQi, mt, out=dri)
 
             else:
@@ -899,7 +893,8 @@ class Master(object):
         self.iter = 0
 
 
-    def run(self, niter, calc_moments=True, save_last_param=None, verbose=True):
+    def run(self, niter, calc_moments=True, save_last_param=None, verbose=True,
+            return_analytics=False):
         """Run the distributed EP algorithm.
 
         Parameters
@@ -919,14 +914,22 @@ class Master(object):
         verbose : bool, optional
             If true, some progress information is printed. Default is True.
 
+        return_analytics : bool, optional
+            If True, max sampling time, mean stepsize, and max Rhat for each
+            iteration is returned. Default is False.
+
         Returns
         -------
-        m_phi, var_phi : ndarray
-            Mean and variance of the posterior approximation at every iteration.
-            Returned only if `calc_moments` is True.
-
         info : int
             Return code. Zero if all ok. See variables Master.INFO_*.
+
+        (m_phi, cov_phi) : 2-tuple of ndarray
+            Mean and covariance of the posterior approximation at every
+            iteration. Returned only if `calc_moments` is True.
+
+        (times, msteps, mrhats) : 3-tuple of ndarray
+            Max sampling time, mean stepsize, and max Rhat for each iteration.
+            Returned only if `return_analytics` is True.
 
         """
 
@@ -934,10 +937,13 @@ class Master(object):
             if verbose:
                 print("Nothing to do here as provided arg. `niter` is {}" \
                       .format(niter))
+            # return with desired args
+            out = [self.INFO_OK]
             if calc_moments:
-                return None, None, self.INFO_OK
-            else:
-                return self.INFO_OK
+                out.append((None, None))
+            if return_analytics:
+                out.append((None, None, None))
+            return out if len(out) > 1 else out[0]
 
         # Localise some instance variables
         # Mean and cov of the posterior approximation
@@ -964,8 +970,10 @@ class Master(object):
             m_phi_s = np.zeros((niter, self.dphi))
             cov_phi_s = np.zeros((niter, self.dphi, self.dphi))
 
-        # Monitor sampling times
+        # monitor sampling times, mean stepsizes, and max rhats
         stimes = np.zeros(niter)
+        msteps = np.zeros(niter)
+        mrhats = np.zeros(niter)
 
         # Iterate niter rounds
         for cur_iter in range(niter):
@@ -1012,10 +1020,13 @@ class Master(object):
                     if self.iter == 1:
                         if verbose:
                             print("\nInvalid prior.")
+                        # return with desired args
+                        out = [self.INFO_INVALID_PRIOR]
                         if calc_moments:
-                            return m_phi_s, cov_phi_s, self.INFO_INVALID_PRIOR
-                        else:
-                            return self.INFO_INVALID_PRIOR
+                            out.append((m_phi_s, cov_phi_s))
+                        if return_analytics:
+                            out.append((stimes, msteps, mrhats))
+                        return out if len(out) > 1 else out[0]
                     if df < self.df_treshold:
                         if verbose:
                             print("\nDamping factor reached minimum.")
@@ -1025,11 +1036,13 @@ class Master(object):
                         if failed_force_pos_def:
                             if verbose:
                                 print("Failed to force pos_def global.")
+                            # return with desired args
+                            out = [self.INFO_DF_TRESHOLD_REACHED_CAVITY]
                             if calc_moments:
-                                return m_phi_s, cov_phi_s, \
-                                    self.INFO_DF_TRESHOLD_REACHED_CAVITY
-                            else:
-                                return self.INFO_DF_TRESHOLD_REACHED_CAVITY
+                                out.append((m_phi_s, cov_phi_s))
+                            if return_analytics:
+                                out.append((stimes, msteps, mrhats))
+                            return out if len(out) > 1 else out[0]
                         failed_force_pos_def = True
                         # Try to fix by forcing improper sites to proper
                         posdefs.fill(0)
@@ -1097,11 +1110,13 @@ class Master(object):
                         if failed_force_pos_def:
                             if verbose:
                                 print("Failed to force pos_def cavities.")
+                            # return with desired args
+                            out = [self.INFO_DF_TRESHOLD_REACHED_CAVITY]
                             if calc_moments:
-                                return m_phi_s, cov_phi_s, \
-                                    self.INFO_DF_TRESHOLD_REACHED_CAVITY
-                            else:
-                                return self.INFO_DF_TRESHOLD_REACHED_CAVITY
+                                out.append((m_phi_s, cov_phi_s))
+                            if return_analytics:
+                                out.append((stimes, msteps, mrhats))
+                            return out if len(out) > 1 else out[0]
                         failed_force_pos_def = True
                         # Try to fix by forcing improper sites to proper
                         posdefs.fill(0)
@@ -1164,13 +1179,23 @@ class Master(object):
                 else:
                     print("\rEvery site failed")
             if not np.any(posdefs):
+                # return with desired args
+                out = [self.INFO_ALL_SITES_FAIL]
                 if calc_moments:
-                    return m_phi_s, cov_phi_s, self.INFO_ALL_SITES_FAIL
-                else:
-                    return self.INFO_ALL_SITES_FAIL
+                    out.append((m_phi_s, cov_phi_s))
+                if return_analytics:
+                    out.append((stimes, msteps, mrhats))
+                return out if len(out) > 1 else out[0]
 
             # Store max sampling time
             stimes[cur_iter] = max([w.last_time for w in self.workers])
+            msteps[cur_iter] = max([w.last_msteps for w in self.workers])
+            mrhats[cur_iter] = max([w.last_mrhat for w in self.workers])
+
+            # The last elapsed time
+            self.last_time = None
+            self.last_msteps = None
+            self.last_mrhat = None
 
             if verbose and calc_moments:
                 print(("Iter {} done, max sampling time {}"
@@ -1180,10 +1205,13 @@ class Master(object):
             print(("{} iterations done\nTotal limiting sampling time: {}"
                   .format(niter, stimes.sum())))
 
+        # return with desired args
+        out = [self.INFO_OK]
         if calc_moments:
-            return m_phi_s, cov_phi_s, self.INFO_OK
-        else:
-            return self.INFO_OK
+            out.append((m_phi_s, cov_phi_s))
+        if return_analytics:
+            out.append((stimes, msteps, mrhats))
+        return out if len(out) > 1 else out[0]
 
 
     def mix_phi(self, out_S=None, out_m=None):
