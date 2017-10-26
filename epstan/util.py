@@ -13,9 +13,14 @@ https://github.com/gelman/ep-stan
 
 
 import os
+import sys
+import tempfile
 import pickle
+import re
+
 import numpy as np
 from scipy import linalg
+
 from pystan import StanModel
 
 from .cython_util import (
@@ -646,35 +651,68 @@ def distribute_groups(J, K, Nj):
         raise ValueError("K cant be greater than number of samples")
 
 
-# >>> Temp solution to suppres output from STAN model (remove when fixed)
-# This part of the code is by jeremiahbuddha from:
-# http://stackoverflow.com/questions/11130156/suppress-stdout-stderr-print-from-python-functions
-class suppress_stdout(object):
-    '''
-    A context manager for doing a "deep suppression" of stdout and stderr in
-    Python, i.e. will suppress all print, even if the print originates in a
-    compiled C/Fortran sub-function.
-       This will not suppress raised exceptions, since exceptions are printed
-    to stderr just before a script exits, and after the context manager has
-    exited (at least, I think that is why it lets exceptions through).
+class redirect_stdout_stderr(object):
+    """Redirect stdout and or stderr into given file or null device.
 
-    '''
-    def __init__(self):
-        # Open a pair of null files
-        self.null_fds =  [os.open(os.devnull,os.O_RDWR) for x in range(2)]
-        # Save the actual stdout (1) and stderr (2) file descriptors.
-        self.save_fds = (os.dup(1), os.dup(2))
+    If no file are given, the respective stream is suppressed. Reassigns the
+    file descriptors so that also child processes streams are redirected.
+
+    """
+    def __init__(self, file_out=None, file_err=None):
+        self.file_out = file_out
+        self.file_err = file_err
+        # save a copy of the original file descriptors
+        self.orig_stdout = sys.stdout.fileno()
+        self.orig_stderr = sys.stderr.fileno()
+        self.orig_stdout_dup = os.dup(self.orig_stdout)
+        self.orig_stderr_dup = os.dup(self.orig_stderr)
 
     def __enter__(self):
-        # Assign the null pointers to stdout and stderr.
-        os.dup2(self.null_fds[0],1)
-        os.dup2(self.null_fds[1],2)
+        # set new file descriptors
+        if self.file_out:
+            os.dup2(self.file_out.fileno(), self.orig_stdout)
+        else:
+            os.dup2(os.open(os.devnull, os.O_RDWR), self.orig_stdout)
+        if self.file_err:
+            os.dup2(self.file_err.fileno(), self.orig_stderr)
+        else:
+            os.dup2(os.open(os.devnull, os.O_RDWR), self.orig_stderr)
 
-    def __exit__(self, *_):
-        # Re-assign the real stdout/stderr back to (1) and (2)
-        os.dup2(self.save_fds[0],1)
-        os.dup2(self.save_fds[1],2)
-        # Close the null files
-        os.close(self.null_fds[0])
-        os.close(self.null_fds[1])
-# <<< Temp solution to suppres output from STAN model (remove when fixed)
+    def __exit__(self, *args):
+        # assign the original fd(s) back
+        os.dup2(self.orig_stdout_dup, self.orig_stdout)
+        os.dup2(self.orig_stderr_dup, self.orig_stderr)
+
+
+def stan_sample_time(model, **sampling_kwargs):
+    """Perform stan sampling while capturing the sampling time.
+
+    All provided keyword arguments are passed to the model sampling method.
+
+    Parameters
+    ----------
+    model : pystan.StanModel
+        the model to be sampled
+
+    Returns
+    -------
+    fit : pystan fit-object
+        the resulting pystan fit object
+    max_sampling_time : float
+        the maximum of the sampling times of the chains
+
+    """
+    # ensure stan param refresh is -1 to suppress some unnecessary output
+    sampling_kwargs['refresh'] = -1
+    # capture stdout into a temp file
+    with tempfile.TemporaryFile(mode='w+b') as temp_file:
+        with redirect_stdout_stderr(file_out=temp_file):
+            fit = model.sampling(**sampling_kwargs)
+        # read the captured output
+        temp_file.flush()
+        temp_file.seek(0)
+        out = temp_file.read().decode('utf8')
+    # find the maximum total sampling time from the output
+    max_sampling_time = max(
+        map(float, re.findall('[0-9]+\.[0-9]+(?= seconds \(Total\))', out)))
+    return fit, max_sampling_time
