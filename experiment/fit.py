@@ -98,6 +98,9 @@ from timeit import default_timer as timer
 import numpy as np
 from scipy import linalg
 
+import pystan
+
+
 # Add parent dir to sys.path if not present already. This is only done because
 # of easy importing of the package epstan. Adding the parent directory into the
 # PYTHONPATH works as well.
@@ -421,8 +424,6 @@ def main(model_name, conf, ret_master=False):
 
         print("Full model")
 
-        seed = np.random.RandomState(seed=conf.seed_mcmc)
-
         data_full = dict(
             N = data.X.shape[0],
             D = data.X.shape[1],
@@ -446,6 +447,9 @@ def main(model_name, conf, ret_master=False):
         for i in range(conf.iter):
 
             print('  iter {}'.format(i))
+
+            # use same seed for each iteration
+            seed = np.random.RandomState(seed=conf.seed_mcmc)
 
             # Sample and extract samples
             with suppress_stdout():
@@ -568,6 +572,11 @@ def main(model_name, conf, ret_master=False):
             raise ValueError("K cant be greater than number of samples")
 
         # sample multiple times with different number of iterations
+        # determine seeds for each site, constant for each iteration
+        seeds = (
+            np.random.RandomState(seed=conf.seed_mcmc)
+            .randint(0, pystan.constants.MAX_UINT, size=K)
+        )
         # preallocate output arrays
         m_s_cons = np.full((conf.iter, model.dphi), np.nan)
         S_s_cons = np.full((conf.iter, model.dphi, model.dphi), np.nan)
@@ -588,7 +597,7 @@ def main(model_name, conf, ret_master=False):
                     time_start = timer()
                     fit = stan_model.sampling(
                         data = data_k[k],
-                        seed = seed,
+                        seed = seeds[k],
                         pars = 'phi',
                         chains = conf.chains,
                         iter = (i + 1) * conf.siter,
