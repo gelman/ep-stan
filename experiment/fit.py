@@ -3,12 +3,12 @@ algorithm described in an article "Expectation propagation as a way of life"
 (arXiv:1412.4869).
 
 usage:
-$ python fit.py [-h] [--J P] [--D P] [--K P] [--npg P [P ...]] [--iter N]
-                [--cor_input B] [--damp F] [--mix B] [--prec_estim S]
-                [--run_ep B] [--run_full B] [--run_consensus B] [--id S]
-                [--save_full_samp B] [--save_true B] [--save_res B]
-                [--seed_data N] [--seed_mcmc N] [--mc_opt P P P P]
-                [--mc_full_opt P P P P]
+$ python fit.py [-h] [--J P] [--D P] [--npg P [P ...]] [--cor_input B]
+                [--run_all B] [--run_ep B] [--run_full B] [--run_consensus B]
+                [--run_target B] [--iter P] [--siter P] [--target_siter P]
+                [--chains P] [--K P] [--damp F] [--mix B] [--prec_estim S]
+                [--seed_data N] [--seed_mcmc N] [--id S] [--save_true B]
+                [--save_res B] [--save_target_samp B]
                 model_name
 
 positional arguments:
