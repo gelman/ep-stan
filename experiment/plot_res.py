@@ -3,9 +3,11 @@
 Execute with:
     $ python plot_res.py <model_name> [<model_id>, [<dist_id>]]
 
-The optional <dist_id> can be used to select the distributed results from file
+The optional <dist_id> can be used to select the distributed method results
+(EP and consensus) from file
     ..._<model_name>_<model_id>_<dist_id>.npz
-while the true values and the full values are still obtained from
+while the true values, target values, and full method values are still obtained
+from
     ..._<model_name>_<model_id>.npz
 If <dist_id> is omitted, the same file ending is used also for distributed
 results. If also <model_id> is omitted, no file ending are used.
@@ -134,18 +136,37 @@ def plot_results(model_name, model_id=None, dist_id=None):
     true_vals = [true_vals_file[par] for par in pnames]
     true_vals_file.close()
 
-    # Load distributed result file
+    # Load target file
+    target_file = np.load(
+        os.path.join(RES_PATH, 'target_{}.npz'.format(file_ending)))
+    m_target = target_file['m_target']
+    S_target = target_file['S_target']
+    target_file.close()
+    # Load target samples if found
+    # target_samp_file_path = os.path.join(
+    #     RES_PATH, 'target_samp_{}.npz'.format(file_ending))
+    # if os.path.exists(target_samp_file_path):
+    #     target_samp_file = np.load(target_samp_file_path)
+    #     samp_target = target_samp_file['samp_target']
+    #     target_samp_file.close()
+    # else:
+    #     samp_target = None
+
+    # Load EP result file
     res_d_file = np.load(
         os.path.join(RES_PATH, 'res_d_{}.npz'.format(file_ending_dist)))
-    m_phi_i = res_d_file['m_phi_i']
-    cov_phi_i = res_d_file['cov_phi_i']
-    if 'cov_phi' in res_d_file.files:
+    m_s_ep = res_d_file['m_s_ep']
+    S_s_ep = res_d_file['S_s_ep']
+    time_s_ep = res_d_file['time_s_ep']
+    mstepsize_s_ep = res_d_file['mstepsize_s_ep']
+    mrhat_s_ep = res_d_file['mrhat_s_ep']
+    if 'm_phi_ep' in res_d_file.files:
         mix = True
         res_d = [
             (   res_d_file['m_'+par],
-                (   res_d_file['var_'+par]
+                (   res_d_file['v_'+par+'_ep']
                     if par != 'phi' else
-                    np.diag(res_d_file['cov_'+par])
+                    np.diag(res_d_file['S_'+par+'_ep'])
                 )
             )
             for par in pnames
@@ -157,43 +178,29 @@ def plot_results(model_name, model_id=None, dist_id=None):
     # Load full result file
     res_f_file = np.load(
         os.path.join(RES_PATH, 'res_f_{}.npz'.format(file_ending)))
-    m_phi_full = res_f_file['m_phi_full']
-    cov_phi_full = res_f_file['cov_phi_full']
-    if mix:
-        res_f = [
-            (   res_f_file['m_'+par+'_full'],
-                (   res_f_file['var_'+par+'_full']
-                    if par != 'phi' else
-                    np.diag(res_f_file['cov_'+par+'_full'])
-                )
-            )
-            for par in pnames
-        ]
+    m_s_full = res_f_file['m_s_full']
+    S_s_full = res_f_file['S_s_full']
+    time_s_full = res_f_file['time_s_full']
+    mstepsize_s_full = res_f_file['mstepsize_s_full']
+    mrhat_s_full = res_f_file['mrhat_s_full']
     res_f_file.close()
-
-    # Load full samples if found
-    full_samp_file_path = os.path.join(
-        RES_PATH, 'full_samp_{}.npz'.format(file_ending))
-    if os.path.exists(full_samp_file_path):
-        full_samp_file = np.load(full_samp_file_path)
-        full_samp = full_samp_file['samp_phi']
-        full_samp_file.close()
-    else:
-        full_samp = None
 
     # Load consensus result file
     res_c_file = np.load(
         os.path.join(RES_PATH, 'res_c_{}.npz'.format(file_ending_dist)))
-    m_phi_cons = res_c_file['m_phi_cons']
-    cov_phi_cons = res_c_file['cov_phi_cons']
+    m_s_cons = res_c_file['m_s_cons']
+    S_s_cons = res_c_file['S_s_cons']
+    time_s_cons = res_c_file['time_s_cons']
+    mstepsize_s_cons = res_c_file['mstepsize_s_cons']
+    mrhat_s_cons = res_c_file['mrhat_s_cons']
     res_c_file.close()
 
     # ---------
     #   plots
     # ---------
 
-    niter = m_phi_i.shape[0]
-    dphi = m_phi_i.shape[1]
+    niter = m_s_ep.shape[0]
+    dphi = m_s_ep.shape[1]
 
     # Ravel params if necessary
     for pi in range(1,len(pnames)):
@@ -201,111 +208,106 @@ def plot_results(model_name, model_id=None, dist_id=None):
             true_vals[pi] = true_vals[pi].ravel()
             if mix:
                 res_d[pi] = (res_d[pi][0].ravel(), res_d[pi][1].ravel())
-                res_f[pi] = (res_f[pi][0].ravel(), res_f[pi][1].ravel())
 
     # Plot approx KL-divergence and MSE
-    sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(cov_phi_full)[0])))
-    KL_divs = np.empty(niter)
-    mse = np.mean((m_phi_i - m_phi_full)**2, axis=1)
+    sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S_target)[0])))
+    # EP
+    mse_ep = np.mean((m_s_ep - m_target)**2, axis=1)
+    kl_ep = np.empty(niter)
     for i in range(niter):
-        KL_divs[i] = kl_mvn(m_phi_full, cov_phi_full, m_phi_i[i], cov_phi_i[i],
-                            sum_log_diag_cho_S0)
-    fig, ax = plt.subplots(1,1)
-    ax.plot(np.arange(niter), KL_divs, label='KL')
-    ax.plot(np.arange(niter), mse, label='MSE')
-    ax.set_ylabel('Approximated KL divergence and MSE')
-    ax.set_xlabel('Iteration')
-    ax.set_yscale('log')
-    ax.set_xlim([0,niter-1])
-    ax.legend()
+        kl_ep[i] = kl_mvn(
+            m_target, S_target, m_s_ep[i], S_s_ep[i], sum_log_diag_cho_S0)
+    # full
+    mse_full = np.mean((m_s_full - m_target)**2, axis=1)
+    kl_full = np.empty(niter)
+    for i in range(niter):
+        kl_full[i] = kl_mvn(
+            m_target, S_target, m_s_full[i], S_s_full[i], sum_log_diag_cho_S0)
+    # consensus
+    mse_cons = np.mean((m_s_cons - m_target)**2, axis=1)
+    kl_cons = np.empty(niter)
+    for i in range(niter):
+        kl_cons[i] = kl_mvn(
+            m_target, S_target, m_s_cons[i], S_s_cons[i], sum_log_diag_cho_S0)
+    # iteration as x-axis
+    fig, axes = plt.subplots(1, 2)
+    ax = axes[0]
+    ax.plot(np.arange(niter), mse_ep, label='ep')
+    ax.plot(np.arange(niter), mse_full, label='full')
+    ax.plot(np.arange(niter), mse_cons, label='cons')
+    ax.set_xlabel('iter')
+    ax.set_ylabel('MSE')
+    ax = axes[1]
+    ax.plot(np.arange(niter), kl_ep, label='ep')
+    ax.plot(np.arange(niter), kl_full, label='full')
+    ax.plot(np.arange(niter), kl_cons, label='cons')
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    ax.set_xlabel('iter')
+    ax.set_ylabel('KL')
+    fig.tight_layout()
+    fig.subplots_adjust(right=0.85)
 
-    # Plot log-likelihood
-    if full_samp is not None:
-        ll_i = np.zeros(niter)
-        for i in range(niter):
-            ll_i[i] = np.sum(stats.multivariate_normal.logpdf(
-                full_samp, mean=m_phi_i[i], cov=cov_phi_i[i]))
-        fig, ax = plt.subplots(1,1)
-        ax.plot(np.arange(niter), ll_i)
-        ax.set_ylabel('Log-likelihood')
-        ax.set_xlabel('Iteration')
-        ax.set_xlim([0,niter-1])
-        ax.legend()
+    # time as x-axis
+    fig, axes = plt.subplots(1, 2)
+    ax = axes[0]
+    ax.plot(time_s_ep/60, mse_ep, label='ep')
+    ax.plot(time_s_full/60, mse_full, label='full')
+    ax.plot(time_s_cons/60, mse_cons, label='cons')
+    ax.set_xlabel('time (min)')
+    ax.set_ylabel('MSE')
+    ax = axes[1]
+    ax.plot(time_s_ep/60, kl_ep, label='ep')
+    ax.plot(time_s_full/60, kl_full, label='full')
+    ax.plot(time_s_cons/60, kl_cons, label='cons')
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    ax.set_xlabel('time (min)')
+    ax.set_ylabel('KL')
+    fig.tight_layout()
+    fig.subplots_adjust(right=0.85)
 
-    # Plot mean and variance as a function of the iteration
-    fig, axs = plt.subplots(2, 1, sharex=True)
-    axs[0].set_xlim([0,niter-1])
-    fig.subplots_adjust(hspace=0.1)
-    if mix:
-        axs[0].plot(np.arange(niter+1),
-                    np.vstack((m_phi_i, res_d[0][0])))
-        axs[1].plot(
-            np.arange(niter+1),
-            np.sqrt(np.vstack((
-                np.diagonal(cov_phi_i, axis1=1, axis2=2),
-                res_d[0][1]
-            )))
-        )
-    else:
-        axs[0].plot(np.arange(niter), m_phi_i)
-        axs[1].plot(
-            np.arange(niter),
-            np.sqrt(np.diagonal(cov_phi_i, axis1=1, axis2=2))
-        )
-    axs[0].set_ylabel('Mean of $\phi$')
-    axs[1].set_ylabel('Std of $\phi$')
-    axs[1].set_xlabel('Iteration')
-
-    if mix:
-        # Plot compare plots for every variable
-        for pi in range(len(pnames)):
-            par = pnames[pi]
-            t = true_vals[pi]
-            m, var = res_d[pi]
-            m_full, var_full = res_f[pi]
-            fig, axs = plt.subplots(1, 2, figsize=(11, 5))
-            fig.subplots_adjust(left=0.08, right=0.94)
-            fig.suptitle(par)
-
-            # Plot estimates vs true values
-            compare_plot(
-                true_vals[pi], m,
-                b_err=1.96*np.sqrt(var),
-                a_label='True values',
-                b_label='Estimates from epstan ($\pm 1.96 \sigma$)',
-                ax=axs[0]
-            )
-
-            # Plot full vs distributed
-            compare_plot(
-                m_full, m,
-                a_err=1.96*np.sqrt(var_full),
-                b_err=1.96*np.sqrt(var),
-                a_label='Estimased from full ($\pm 1.96 \sigma$)',
-                b_label='Estimased from epstan ($\pm 1.96 \sigma$)',
-                ax=axs[1]
-            )
-    else:
-        # Plot compare plots for phi
-        fig, axs = plt.subplots(1, 2, figsize=(11, 5))
-        fig.subplots_adjust(left=0.08, right=0.94)
-        fig.suptitle('phi')
-        # Mean
-        compare_plot(
-            m_phi_full, m_phi_i[-1],
-            a_label='full',
-            b_label='epstan',
-            ax=axs[0]
-        )
-        axs[0].set_title('mean')
-        # Var
-        compare_plot(
-            np.diag(cov_phi_full), np.diag(cov_phi_i[-1]),
-            a_label='full',
-            b_label='epstan',
-            ax=axs[1]
-        )
-        axs[1].set_title('var')
+    # # Plot mean and variance as a function of the iteration
+    # fig, axs = plt.subplots(2, 1, sharex=True)
+    # axs[0].set_xlim([0,niter-1])
+    # fig.subplots_adjust(hspace=0.1)
+    # if mix:
+    #     # TODO
+    #     pass
+    # else:
+    #     axs[0].plot(np.arange(niter), m_s_ep)
+    #     axs[1].plot(
+    #         np.arange(niter),
+    #         np.sqrt(np.diagonal(S_s_ep, axis1=1, axis2=2))
+    #     )
+    # axs[0].set_ylabel('Mean of $\phi$')
+    # axs[1].set_ylabel('Std of $\phi$')
+    # axs[1].set_xlabel('Iteration')
+    #
+    # if mix:
+    #     # Plot compare plots for every variable
+    #     # TODO
+    #     pass
+    #
+    # else:
+    #     # Plot compare plots for phi
+    #     fig, axs = plt.subplots(1, 2, figsize=(11, 5))
+    #     fig.subplots_adjust(left=0.08, right=0.94)
+    #     fig.suptitle('phi')
+    #     # Mean
+    #     compare_plot(
+    #         m_s_full, m_s_ep[-1],
+    #         a_label='full',
+    #         b_label='epstan',
+    #         ax=axs[0]
+    #     )
+    #     axs[0].set_title('mean')
+    #     # Var
+    #     compare_plot(
+    #         np.diag(S_s_full), np.diag(S_s_ep[-1]),
+    #         a_label='full',
+    #         b_label='epstan',
+    #         ax=axs[1]
+    #     )
+    #     axs[1].set_title('var')
 
     plt.show()
 
