@@ -12,6 +12,13 @@ https://github.com/gelman/ep-stan
 # All rights reserved.
 
 
+__all__ = [
+    'invert_normal_params', 'olse', 'cv_moments', 'copy_fit_samples'
+    'get_last_fit_sample', 'load_stan', 'distribute_groups',
+    'redirect_stdout_stderr', 'stan_sample_time'
+]
+
+
 import os
 import sys
 import tempfile

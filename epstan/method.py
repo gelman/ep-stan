@@ -16,6 +16,9 @@ https://github.com/gelman/ep-stan
 # All rights reserved.
 
 
+__all__ = ['Worker', 'Master']
+
+
 import sys
 import multiprocessing
 import numpy as np
@@ -34,7 +37,7 @@ from .util import (
 )
 
 
-def sample_stan(queue, path, data, stan_params, other_params=None):
+def _sample_stan(queue, path, data, stan_params, other_params=None):
     """Load and fit Stan model in a subprocess.
 
     Implemented for multiprocesing.
@@ -336,7 +339,7 @@ class Worker(object):
             args = [q, self.stan_model, self.data, self.stan_params]
             if save_samples:
                 args.append(save_samples)
-            p = multiprocessing.Process(target=sample_stan, args=args)
+            p = multiprocessing.Process(target=_sample_stan, args=args)
             p.start()
             if save_samples:
                 samp, lastsamp, dur, msteps, mrhat, saved_samp = q.get()
