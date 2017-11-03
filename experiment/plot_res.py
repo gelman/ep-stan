@@ -143,14 +143,14 @@ def plot_results(model_name, model_id=None, dist_id=None):
     S_target = target_file['S_target']
     target_file.close()
     # Load target samples if found
-    # target_samp_file_path = os.path.join(
-    #     RES_PATH, 'target_samp_{}.npz'.format(file_ending))
-    # if os.path.exists(target_samp_file_path):
-    #     target_samp_file = np.load(target_samp_file_path)
-    #     samp_target = target_samp_file['samp_target']
-    #     target_samp_file.close()
-    # else:
-    #     samp_target = None
+    target_samp_file_path = os.path.join(
+        RES_PATH, 'target_samp_{}.npz'.format(file_ending))
+    if os.path.exists(target_samp_file_path):
+        target_samp_file = np.load(target_samp_file_path)
+        samp_target = target_samp_file['samp_target']
+        target_samp_file.close()
+    else:
+        samp_target = None
 
     # Load EP result file
     res_d_file = np.load(
@@ -264,6 +264,32 @@ def plot_results(model_name, model_id=None, dist_id=None):
     ax.set_ylabel('KL')
     fig.tight_layout()
     fig.subplots_adjust(right=0.85)
+
+    # Plot log-likelihood
+    if samp_target is not None:
+        # EP
+        ll_ep = np.zeros(niter)
+        for i in range(niter):
+            ll_ep[i] = np.sum(stats.multivariate_normal.logpdf(
+                samp_target, mean=m_s_ep[i], cov=S_s_ep[i]))
+        # full
+        ll_full = np.zeros(niter)
+        for i in range(niter):
+            ll_full[i] = np.sum(stats.multivariate_normal.logpdf(
+                samp_target, mean=m_s_full[i], cov=S_s_full[i]))
+        # full
+        ll_cons = np.zeros(niter)
+        for i in range(niter):
+            ll_cons[i] = np.sum(stats.multivariate_normal.logpdf(
+                samp_target, mean=m_s_cons[i], cov=S_s_cons[i]))
+        # plot
+        fig, ax = plt.subplots(1, 1)
+        ax.plot(time_s_ep, ll_ep, label='ep')
+        ax.plot(time_s_full, ll_full, label='full')
+        ax.plot(time_s_cons, ll_cons, label='cons')
+        ax.set_ylabel('log-likelihood')
+        ax.set_xlabel('time (min)')
+        ax.legend()
 
     # # Plot mean and variance as a function of the iteration
     # fig, axs = plt.subplots(2, 1, sharex=True)
