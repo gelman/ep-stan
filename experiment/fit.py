@@ -92,8 +92,8 @@ https://github.com/gelman/ep-stan
 # All rights reserved.
 
 
-import os, argparse
-from timeit import default_timer as timer
+import os
+import argparse
 
 import numpy as np
 from scipy import linalg
@@ -114,7 +114,7 @@ if os.path.exists(os.path.join(PARENT_PATH, 'epstan')):
         os.sys.path.insert(0, PARENT_PATH)
 
 from epstan.method import Master
-from epstan.util import load_stan, distribute_groups, suppress_stdout
+from epstan.util import load_stan, distribute_groups, stan_sample_time
 
 
 CONFS = [
@@ -452,18 +452,17 @@ def main(model_name, conf, ret_master=False):
             seed = np.random.RandomState(seed=conf.seed_mcmc)
 
             # Sample and extract samples
-            with suppress_stdout():
-                time_start = timer()
-                fit = stan_model.sampling(
-                    data = data_full,
-                    seed = seed,
-                    pars = 'phi',
-                    chains = conf.chains,
-                    iter = (i + 1) * conf.siter,
-                    warmup = None,
-                    thin = 1,
-                )
-                time_s_full[i] = timer() - time_start
+            fit, max_sampling_time = stan_sample_time(
+                stan_model,
+                data = data_full,
+                seed = seed,
+                pars = 'phi',
+                chains = conf.chains,
+                iter = (i + 1) * conf.siter,
+                warmup = None,
+                thin = 1,
+            )
+            time_s_full[i] = max_sampling_time
             print('    sampling time {}'.format(time_s_full[i]))
 
             samp = fit.extract(pars='phi')['phi']
@@ -593,18 +592,18 @@ def main(model_name, conf, ret_master=False):
             mstepsizes = np.full(K, np.nan)
             mrhats = np.full(K, np.nan)
             for k in range(K):
-                with suppress_stdout():
-                    time_start = timer()
-                    fit = stan_model.sampling(
-                        data = data_k[k],
-                        seed = seeds[k],
-                        pars = 'phi',
-                        chains = conf.chains,
-                        iter = (i + 1) * conf.siter,
-                        warmup = None,
-                        thin = 1,
-                    )
-                    times[k] = timer() - time_start
+
+                fit, max_sampling_time = stan_sample_time(
+                    stan_model,
+                    data = data_k[k],
+                    seed = seeds[k],
+                    pars = 'phi',
+                    chains = conf.chains,
+                    iter = (i + 1) * conf.siter,
+                    warmup = None,
+                    thin = 1,
+                )
+                times[k] = max_sampling_time
                 mstepsizes[k] = np.mean([
                     np.mean(p['stepsize__'])
                     for p in fit.get_sampler_params()
@@ -673,18 +672,16 @@ def main(model_name, conf, ret_master=False):
         stan_model = load_stan(os.path.join(MOD_PATH, model_name))
 
         # Sample and extract samples
-        time_target = timer()
-        with suppress_stdout():
-            fit = stan_model.sampling(
-                data = data_target,
-                seed = seed,
-                pars = 'phi',
-                chains = conf.chains,
-                iter = conf.target_siter,
-                warmup = None,
-                thin = 1,
-            )
-            time_target = (timer() - time_target)
+        fit, time_target = stan_sample_time(
+            stan_model,
+            data = data_target,
+            seed = seed,
+            pars = 'phi',
+            chains = conf.chains,
+            iter = conf.target_siter,
+            warmup = None,
+            thin = 1,
+        )
         samp = fit.extract(pars='phi')['phi']
 
         # Mean stepsize
@@ -731,6 +728,7 @@ def main(model_name, conf, ret_master=False):
                 conf = conf.__dict__,
                 m_target = m_target,
                 S_target = S_target,
+                time_target = time_target,
             )
             print("Target results saved.")
 

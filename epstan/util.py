@@ -651,16 +651,28 @@ def distribute_groups(J, K, Nj):
         raise ValueError("K cant be greater than number of samples")
 
 
-class redirect_stdout_stderr(object):
+# The following contex manager code is made separately by Tuomas Sivula.
+# Copyright (C) 2017 Tuomas Sivula
+# All rights reserved.
+class redirect_stdout_stderr:
     """Redirect stdout and or stderr into given file or null device.
 
     If no file are given, the respective stream is suppressed. Reassigns the
-    file descriptors so that also child processes streams are redirected.
+    file descriptors so that also child processes streams are redirected
+    (compare to the built-in :meth:`contextlib.redirect_stdout()`).
 
     """
     def __init__(self, file_out=None, file_err=None):
-        self.file_out = file_out
-        self.file_err = file_err
+        # check if stdout redirected or suppressed
+        if file_out is not None:
+            self.fd_out = file_out.fileno()
+        else:
+            self.fd_out = os.open(os.devnull, os.O_RDWR)
+        # check if stderr redirected or suppressed
+        if file_err is not None:
+            self.fd_err = file_err.fileno()
+        else:
+            self.fd_err = os.open(os.devnull, os.O_RDWR)
         # save a copy of the original file descriptors
         self.orig_stdout = sys.stdout.fileno()
         self.orig_stderr = sys.stderr.fileno()
@@ -669,14 +681,8 @@ class redirect_stdout_stderr(object):
 
     def __enter__(self):
         # set new file descriptors
-        if self.file_out:
-            os.dup2(self.file_out.fileno(), self.orig_stdout)
-        else:
-            os.dup2(os.open(os.devnull, os.O_RDWR), self.orig_stdout)
-        if self.file_err:
-            os.dup2(self.file_err.fileno(), self.orig_stderr)
-        else:
-            os.dup2(os.open(os.devnull, os.O_RDWR), self.orig_stderr)
+        os.dup2(self.fd_out, self.orig_stdout)
+        os.dup2(self.fd_err, self.orig_stderr)
 
     def __exit__(self, *args):
         # assign the original fd(s) back

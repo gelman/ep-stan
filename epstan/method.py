@@ -17,7 +17,6 @@ https://github.com/gelman/ep-stan
 
 
 import sys
-from timeit import default_timer as timer
 import multiprocessing
 import numpy as np
 from scipy import linalg
@@ -29,9 +28,9 @@ from .util import (
     invert_normal_params,
     olse,
     get_last_fit_sample,
-    suppress_stdout,
     load_stan,
-    copy_fit_samples
+    copy_fit_samples,
+    stan_sample_time
 )
 
 
@@ -81,11 +80,7 @@ def sample_stan(queue, path, data, stan_params, other_params=None):
     """
     # Sample from the model
     sm = load_stan(path)
-    with suppress_stdout():
-        time_start = timer()
-        fit = sm.sampling(data=data, **stan_params)
-        time_end = timer()
-    duration = time_end - time_start
+    fit, duration = stan_sample_time(sm, data=data, **stan_params)
 
     # Extract samples
     dphi = data['mu_phi'].shape[0]
@@ -357,17 +352,13 @@ class Worker(object):
 
         else:
             # run in the same process
+            fit, max_sampling_time = stan_sample_time(
+                self.stan_model, data=self.data, **self.stan_params)
             time_start = timer()
-            with suppress_stdout():
-                fit = self.stan_model.sampling(
-                    data=self.data,
-                    **self.stan_params
-                )
-            time_end = timer()
 
             # store info
             # runtime
-            self.last_time = (time_end - time_start)
+            self.last_time = max_sampling_time
             # mean stepsize
             self.last_msteps = np.mean([
                 np.mean(p['stepsize__'])
