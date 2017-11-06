@@ -199,7 +199,6 @@ def plot_results(model_name, model_id=None, dist_id=None):
     #   plots
     # ---------
 
-    niter = m_s_ep.shape[0]
     dphi = m_s_ep.shape[1]
 
     # Ravel params if necessary
@@ -213,34 +212,34 @@ def plot_results(model_name, model_id=None, dist_id=None):
     sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S_target)[0])))
     # EP
     mse_ep = np.mean((m_s_ep - m_target)**2, axis=1)
-    kl_ep = np.empty(niter)
-    for i in range(niter):
+    kl_ep = np.empty(len(m_s_ep))
+    for i in range(len(m_s_ep)):
         kl_ep[i] = kl_mvn(
             m_target, S_target, m_s_ep[i], S_s_ep[i], sum_log_diag_cho_S0)
     # full
     mse_full = np.mean((m_s_full - m_target)**2, axis=1)
-    kl_full = np.empty(niter)
-    for i in range(niter):
+    kl_full = np.empty(len(m_s_full))
+    for i in range(len(m_s_full)):
         kl_full[i] = kl_mvn(
             m_target, S_target, m_s_full[i], S_s_full[i], sum_log_diag_cho_S0)
     # consensus
     mse_cons = np.mean((m_s_cons - m_target)**2, axis=1)
-    kl_cons = np.empty(niter)
-    for i in range(niter):
+    kl_cons = np.empty(len(m_s_cons))
+    for i in range(len(m_s_cons)):
         kl_cons[i] = kl_mvn(
             m_target, S_target, m_s_cons[i], S_s_cons[i], sum_log_diag_cho_S0)
     # iteration as x-axis
     fig, axes = plt.subplots(1, 2)
     ax = axes[0]
-    ax.plot(np.arange(niter), mse_ep, label='ep')
-    ax.plot(np.arange(niter), mse_full, label='full')
-    ax.plot(np.arange(niter), mse_cons, label='cons')
+    ax.plot(np.arange(len(m_s_ep)), mse_ep, label='ep')
+    ax.plot(np.arange(len(m_s_full)), mse_full, label='full')
+    ax.plot(np.arange(len(m_s_cons)), mse_cons, label='cons')
     ax.set_xlabel('iter')
     ax.set_ylabel('MSE')
     ax = axes[1]
-    ax.plot(np.arange(niter), kl_ep, label='ep')
-    ax.plot(np.arange(niter), kl_full, label='full')
-    ax.plot(np.arange(niter), kl_cons, label='cons')
+    ax.plot(np.arange(len(m_s_ep)), kl_ep, label='ep')
+    ax.plot(np.arange(len(m_s_full)), kl_full, label='full')
+    ax.plot(np.arange(len(m_s_cons)), kl_cons, label='cons')
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     ax.set_xlabel('iter')
     ax.set_ylabel('KL')
@@ -268,18 +267,18 @@ def plot_results(model_name, model_id=None, dist_id=None):
     # Plot log-likelihood
     if samp_target is not None:
         # EP
-        ll_ep = np.zeros(niter)
-        for i in range(niter):
+        ll_ep = np.zeros(len(m_s_ep))
+        for i in range(len(m_s_ep)):
             ll_ep[i] = np.sum(stats.multivariate_normal.logpdf(
                 samp_target, mean=m_s_ep[i], cov=S_s_ep[i]))
         # full
-        ll_full = np.zeros(niter)
-        for i in range(niter):
+        ll_full = np.zeros(len(m_s_full))
+        for i in range(len(m_s_full)):
             ll_full[i] = np.sum(stats.multivariate_normal.logpdf(
                 samp_target, mean=m_s_full[i], cov=S_s_full[i]))
         # full
-        ll_cons = np.zeros(niter)
-        for i in range(niter):
+        ll_cons = np.zeros(len(m_s_cons))
+        for i in range(len(m_s_cons)):
             ll_cons[i] = np.sum(stats.multivariate_normal.logpdf(
                 samp_target, mean=m_s_cons[i], cov=S_s_cons[i]))
         # plot
