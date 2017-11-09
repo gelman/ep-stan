@@ -527,8 +527,6 @@ def main(model_name, conf, ret_master=False):
 
         elif K < J:
             # ------ Many groups per site: combine groups ------
-            # get stan model
-            stan_model = load_stan(os.path.join(MOD_PATH, model_name))
             # generate datas for each site
             Nk, Nj_k, j_ind_k = distribute_groups(J, K, data.Nj)
             k_lim = np.concatenate(([0], np.cumsum(Nk)))
@@ -548,8 +546,6 @@ def main(model_name, conf, ret_master=False):
 
         elif K == J:
             # ------ One group per site ------
-            # get stan model
-            stan_model = load_stan(os.path.join(MOD_PATH, model_name+'_sg'))
             # generate datas for each site
             data_k = tuple(
                 dict(
@@ -593,6 +589,18 @@ def main(model_name, conf, ret_master=False):
             mrhats = np.full(K, np.nan)
             for k in range(K):
 
+                # get stan model
+                # Reload it every iteration in order to avoid opening
+                # too many files.
+                if K < J:
+                    stan_model = load_stan(
+                        os.path.join(MOD_PATH, model_name+'_sg'))
+                elif K == J:
+                    stan_model = load_stan(os.path.join(MOD_PATH, model_name))
+                else:
+                    # should not be reached as checked before
+                    raise ValueError("Invalid number of sites `K`.")
+
                 fit, max_sampling_time = stan_sample_time(
                     stan_model,
                     data = data_k[k],
@@ -610,6 +618,9 @@ def main(model_name, conf, ret_master=False):
                 ])
                 mrhats[k] = np.max(fit.summary()['summary'][:-1,-1])
                 samples.append(fit.extract(pars='phi')['phi'])
+
+                # dereference the stan_model
+                del stan_model
 
             # Moment estimates
             # TODO make more efficient similar as in Master.mix_phi()
