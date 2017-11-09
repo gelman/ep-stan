@@ -593,10 +593,10 @@ def main(model_name, conf, ret_master=False):
                 # Reload it every iteration in order to avoid opening
                 # too many files.
                 if K < J:
+                    stan_model = load_stan(os.path.join(MOD_PATH, model_name))
+                elif K == J:
                     stan_model = load_stan(
                         os.path.join(MOD_PATH, model_name+'_sg'))
-                elif K == J:
-                    stan_model = load_stan(os.path.join(MOD_PATH, model_name))
                 else:
                     # should not be reached as checked before
                     raise ValueError("Invalid number of sites `K`.")
