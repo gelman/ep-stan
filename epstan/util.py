@@ -13,7 +13,7 @@ https://github.com/gelman/ep-stan
 
 
 __all__ = [
-    'invert_normal_params', 'olse', 'cv_moments', 'copy_fit_samples'
+    'invert_normal_params', 'olse', 'cv_moments', 'copy_fit_samples',
     'get_last_fit_sample', 'load_stan', 'distribute_groups',
     'redirect_stdout_stderr', 'stan_sample_time'
 ]
@@ -24,6 +24,7 @@ import sys
 import tempfile
 import pickle
 import re
+import itertools
 
 import numpy as np
 from scipy import linalg
@@ -408,50 +409,78 @@ def cv_moments(samp, lp, Q_tilde, r_tilde, S_tilde=None, m_tilde=None,
         return S_hat, m_hat, True
 
 
-def copy_fit_samples(fit, pnames, out=None):
+def copy_fit_samples(fit, param_name, out=None):
     """Copy the samples from PyStan fit object into F-order array.
 
     Parameters
     ----------
     fit : StanFit4<model_name>
-        Instance containing the fitted results.
+        instance containing the fitted results
 
-    pnames : list of string
-        List containing the names of the parameters in desired order.
+    param_name : string
+        desired parameter name
 
     out : ndarray, optional
-        The output array.
+        F-contiguous output array
 
 	Returns
 	-------
-	ndarray
-        Array of shape (n_samp, len(pnames)) containing the samples from all
-        the chains with burn-in removed.
+	out : ndarray
+        Array of shape ``(n_samp, dim_0, dim_1, ...)`` containing the samples
+        from all the chains with burn-in removed.
 
     """
+    # the following works at least for pystan version 2.17.0.0
 
-    # The following works at least for pystan version 2.5.0.0
-    ndim = len(pnames)
+    # get the parameter dimensions
+    dims = fit.par_dims[fit.model_pars.index(param_name)]
     nchains = fit.sim['chains']
     warmup = fit.sim['warmup2'][0]
-    niter = len(fit.sim['samples'][0]['chains'][pnames[0]])
+    niter = len(fit.sim['samples'][0]['chains']['lp__'])
     nsamp_per_chain = niter - warmup
     nsamp = nchains * nsamp_per_chain
     if out is None:
-        # Initialise output array
-        out = np.empty((nsamp,ndim), order='F')
+        # initialise output array
+        out = np.empty((nsamp, *dims), order='F')
     else:
-        if len(out) != nsamp or (ndim > 1 and out.shape[1] != ndim):
+        if out.shape != (nsamp, *dims) or not out.flags.farray:
             raise ValueError('Invalid output array')
-    # Extract the sample for each parameter and chain
-    for pi in range(len(pnames)):
-        i1 = 0
+
+    # indexes over all the parameter dimension in f-order
+    if dims:
+        # nonscalar parameter
+        idxs_f = map(
+            reversed,
+            itertools.product(*reversed(list(map(range, dims))))
+        )
+    else:
+        # scalar parameter
+        idxs_f = ((),)
+
+    # extract samples for each dimension
+    for idxs_gen in idxs_f:
+        # unpack dimension indexes generator so that it can be accessed twice
+        idxs = tuple(idxs_gen)
+        # form parameter name with dimension indexes
+        if idxs:
+            # nonscalar parameter
+            param_name_d = '{}[{}]'.format(
+                param_name, ','.join(map(str, idxs)))
+        else:
+            # scalar parameter
+            param_name_d = param_name
+        # extract samples for each chain
         for c in range(nchains):
-            i2 = i1 + nsamp_per_chain
-            dst = out[i1:i2,pi]
-            src = fit.sim['samples'][c]['chains'][pnames[pi]][warmup:]
+            if idxs:
+                dst = out[
+                    (slice(c*nsamp_per_chain, (c+1)*nsamp_per_chain),) +
+                    idxs
+                ]
+            else:
+                dst = out[c*nsamp_per_chain:(c+1)*nsamp_per_chain]
+            src = fit.sim['samples'][c]['chains'][param_name_d][warmup:]
             np.copyto(dst, src)
-            i1 = i2
+
     return out
 
 

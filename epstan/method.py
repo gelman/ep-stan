@@ -87,8 +87,7 @@ def _sample_stan(queue, path, data, stan_params, other_params=None):
 
     # Extract samples
     dphi = data['mu_phi'].shape[0]
-    fit_pnames = list('phi[{}]'.format(i) for i in range(dphi))
-    samp = copy_fit_samples(fit, fit_pnames)
+    samp = copy_fit_samples(fit, 'phi')
 
     # Get the last sample of all
     lastsamp = get_last_fit_sample(fit)
@@ -234,8 +233,6 @@ class Worker(object):
 
         # The samples saved from the last fit
         self.saved_samples = None
-        # The names of the shared parameters in this
-        self.fit_pnames = list('phi[{}]'.format(i) for i in range(self.dphi))
 
         # Initialisation
         self.init_prev = options['init_prev']
@@ -371,7 +368,7 @@ class Worker(object):
             self.last_mrhat = np.max(fit.summary()['summary'][:-1,-1])
 
             # Extract samples
-            samp = copy_fit_samples(fit, self.fit_pnames)
+            samp = copy_fit_samples(fit, 'phi')
             lastsamp = get_last_fit_sample(fit)
             if save_samples:
                 # Extract other params
