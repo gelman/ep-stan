@@ -15,7 +15,7 @@ https://github.com/gelman/ep-stan
 __all__ = [
     'invert_normal_params', 'olse', 'cv_moments', 'copy_fit_samples',
     'get_last_fit_sample', 'load_stan', 'distribute_groups',
-    'redirect_stdout_stderr', 'stan_sample_time'
+    'redirect_stdout_stderr_deep', 'stan_sample_time'
 ]
 
 
@@ -25,6 +25,8 @@ import tempfile
 import pickle
 import re
 import itertools
+import multiprocessing
+from contextlib import contextmanager
 
 import numpy as np
 from scipy import linalg
@@ -430,7 +432,7 @@ def copy_fit_samples(fit, param_name, out=None):
         from all the chains with burn-in removed.
 
     """
-    # the following works at least for pystan version 2.17.0.0
+    # tested with pystan version 2.17.0.0
 
     # get the parameter dimensions
     dims = fit.par_dims[fit.model_pars.index(param_name)]
@@ -535,56 +537,6 @@ def get_last_fit_sample(fit, out=None):
     return out
 
 
-def load_stan(filename, overwrite=False):
-    """Load or compile a stan model.
-
-    Parameters
-    ----------
-    filename : string
-        The name of the model file. It may or may not contain path and ending
-        '.stan' or '.pkl'. If a respective file with ending '.pkl' is found,
-        the model is not built but loaded from the pickle file (unless
-        `overwrite` is True). Otherwise the model is compiled from the
-        respective file ending with '.stan' and saved into '.pkl' file.
-
-    overwrite : bool
-        Compile and save a new model even if a pickled model with same name
-        already exists.
-
-    """
-    # Remove '.pkl' or '.stan' endings
-    if filename.endswith('.pkl'):
-        filename = filename[:-4]
-    elif filename.endswith('.stan'):
-        filename = filename[:-5]
-
-    if not overwrite and os.path.isfile(filename+'.pkl'):
-        # Use precompiled model
-        with open(filename+'.pkl', 'rb') as f:
-            sm = pickle.load(f)
-    elif os.path.isfile(filename+'.stan'):
-        # Compiling and save the model
-        if not overwrite:
-            print("Precompiled stan model {} not found.".format(filename+'.pkl'))
-            print("Compiling and saving the model.")
-        else:
-            print("Compiling and saving the model {}.".format(filename+'.pkl'))
-        if '/' in filename:
-            model_name = filename.split('/')[-1]
-        elif '\\' in filename:
-            model_name = filename.split('\\')[-1]
-        else:
-            model_name = filename
-        sm = StanModel(file=filename+'.stan', model_name=model_name)
-        with open(filename+'.pkl', 'wb') as f:
-            pickle.dump(sm, f)
-        print("Compiling and saving done.")
-    else:
-        raise IOError("File {} or {} not found"
-                      .format(filename+'.stan', filename+'.pkl'))
-    return sm
-
-
 def distribute_groups(J, K, Nj):
     """Distribute J groups to K sites.
 
@@ -687,43 +639,54 @@ def distribute_groups(J, K, Nj):
         raise ValueError("K cant be greater than number of samples")
 
 
-# The following contex manager code is made separately by Tuomas Sivula.
-# Copyright (C) 2017 Tuomas Sivula
-# All rights reserved.
-class redirect_stdout_stderr:
-    """Redirect stdout and or stderr into given file or null device.
+def load_stan(filename, overwrite=False):
+    """Load or compile a stan model.
 
-    If no file are given, the respective stream is suppressed. Reassigns the
-    file descriptors so that also child processes streams are redirected
-    (compare to the built-in :meth:`contextlib.redirect_stdout()`).
+    Parameters
+    ----------
+    filename : string
+        The name of the model file. It may or may not contain path and ending
+        '.stan' or '.pkl'. If a respective file with ending '.pkl' is found,
+        the model is not built but loaded from the pickle file (unless
+        `overwrite` is True). Otherwise the model is compiled from the
+        respective file ending with '.stan' and saved into '.pkl' file.
+
+    overwrite : bool
+        Compile and save a new model even if a pickled model with same name
+        already exists.
 
     """
-    def __init__(self, file_out=None, file_err=None):
-        # check if stdout redirected or suppressed
-        if file_out is not None:
-            self.fd_out = file_out.fileno()
-        else:
-            self.fd_out = os.open(os.devnull, os.O_RDWR)
-        # check if stderr redirected or suppressed
-        if file_err is not None:
-            self.fd_err = file_err.fileno()
-        else:
-            self.fd_err = os.open(os.devnull, os.O_RDWR)
-        # save a copy of the original file descriptors
-        self.orig_stdout = sys.stdout.fileno()
-        self.orig_stderr = sys.stderr.fileno()
-        self.orig_stdout_dup = os.dup(self.orig_stdout)
-        self.orig_stderr_dup = os.dup(self.orig_stderr)
+    # Remove '.pkl' or '.stan' endings
+    if filename.endswith('.pkl'):
+        filename = filename[:-4]
+    elif filename.endswith('.stan'):
+        filename = filename[:-5]
 
-    def __enter__(self):
-        # set new file descriptors
-        os.dup2(self.fd_out, self.orig_stdout)
-        os.dup2(self.fd_err, self.orig_stderr)
-
-    def __exit__(self, *args):
-        # assign the original fd(s) back
-        os.dup2(self.orig_stdout_dup, self.orig_stdout)
-        os.dup2(self.orig_stderr_dup, self.orig_stderr)
+    if not overwrite and os.path.isfile(filename+'.pkl'):
+        # Use precompiled model
+        with open(filename+'.pkl', 'rb') as f:
+            sm = pickle.load(f)
+    elif os.path.isfile(filename+'.stan'):
+        # Compiling and save the model
+        if not overwrite:
+            print("Precompiled stan model {} not found.".format(filename+'.pkl'))
+            print("Compiling and saving the model.")
+        else:
+            print("Compiling and saving the model {}.".format(filename+'.pkl'))
+        if '/' in filename:
+            model_name = filename.split('/')[-1]
+        elif '\\' in filename:
+            model_name = filename.split('\\')[-1]
+        else:
+            model_name = filename
+        sm = StanModel(file=filename+'.stan', model_name=model_name)
+        with open(filename+'.pkl', 'wb') as f:
+            pickle.dump(sm, f)
+        print("Compiling and saving done.")
+    else:
+        raise IOError("File {} or {} not found"
+                      .format(filename+'.stan', filename+'.pkl'))
+    return sm
 
 
 def stan_sample_time(model, **sampling_kwargs):
@@ -740,6 +703,7 @@ def stan_sample_time(model, **sampling_kwargs):
     -------
     fit : pystan fit-object
         the resulting pystan fit object
+
     max_sampling_time : float
         the maximum of the sampling times of the chains
 
@@ -748,7 +712,7 @@ def stan_sample_time(model, **sampling_kwargs):
     sampling_kwargs['refresh'] = -1
     # capture stdout into a temp file
     with tempfile.TemporaryFile(mode='w+b') as temp_file:
-        with redirect_stdout_stderr(file_out=temp_file):
+        with redirect_stdout_stderr_deep(file_out=temp_file):
             fit = model.sampling(**sampling_kwargs)
         # read the captured output
         temp_file.flush()
@@ -758,3 +722,171 @@ def stan_sample_time(model, **sampling_kwargs):
     max_sampling_time = max(
         map(float, re.findall('[0-9]+\.[0-9]+(?= seconds \(Total\))', out)))
     return fit, max_sampling_time
+
+
+def stan_sample_subprocess(model, pars, **sampling_kwargs):
+    """Perform stan sampling in a subprocess.
+
+    All provided keyword arguments are passed to the model sampling method.
+    In addition to the samples, some additional information is also returned.
+
+    Parameters
+    ----------
+    model : str
+        Path to the stan model. Provided for :meth:`load_stan()` so that
+        precompiled model is used if found.
+
+    pars : str or sequence of str
+        Parameter names of which samples are returned.
+
+    Returns
+    -------
+    samples : dict
+        The obtained samples for each parameter in `pars`.
+
+    max_sampling_time : float
+        the maximum of the sampling times of the chains
+
+    mean_stepsize : float
+        mean stepsize
+
+    max_rhat : float
+        max Rhat
+
+    lastsamp : dict
+        The last sample of the chains.
+
+    """
+    # set up queue for returning the info
+    queue = multiprocessing.Queue()
+    # set up arguments for the subroutine function
+    args = (queue, model, pars, sampling_kwargs)
+    # set up and start the subprocess
+    proc = multiprocessing.Process(
+        target=_stan_sample_subprocess_routine, args=args)
+    proc.start()
+    # catch the return info
+    samples, max_sampling_time, mean_stepsize, max_rhat, lastsamp = queue.get()
+    # wait for the subprocess to finish
+    proc.join()
+    return samples, max_sampling_time, mean_stepsize, max_rhat, lastsamp
+
+
+def _stan_sample_subprocess_routine(
+        queue, model, pars, sampling_kwargs):
+    """Load and fit a Stan model in a subprocess.
+
+    Implemented for multiprocesing. The routine puts the resulting info listed
+    in the Returns-section packed as a tuple into the provided queue.
+
+    Parameters
+    ----------
+    queue : multiprocessing.Queue
+        Queue into which the results are put (see section Returns).
+
+    model : str
+        Path to the stan model. Provided for :meth:`load_stan()` so that
+        precompiled model is used if found.
+
+    pars : str or sequence of str
+        Samples to be extracted.
+
+    sampling_kwargs : dict
+        Keyword arguments passed to the model :meth:`StanModel.sampling()`.
+
+    Returns
+    -------
+    samples : dict
+        The obtained samples for each parameter in `pars`.
+
+    max_sampling_time : float
+        the maximum of the sampling times of the chains
+
+    mean_stepsize : float
+        mean stepsize
+
+    max_rhat : float
+        max Rhat
+
+    lastsamp : dict
+        The last sample of the chains.
+
+    """
+    # ensure sequence
+    if isinstance(pars, str):
+        pars = (pars,)
+
+    # sample from the model
+    model = load_stan(model)
+    fit, max_sampling_time = stan_sample_time(model, **sampling_kwargs)
+
+    # extract samples
+    samples = {
+        parameter: copy_fit_samples(fit, parameter)
+        for parameter in pars
+    }
+
+    # get the last sample of all
+    lastsamp = get_last_fit_sample(fit)
+
+    # mean stepsize
+    mean_stepsize = np.mean([
+        np.mean(p['stepsize__'])
+        for p in fit.get_sampler_params()
+    ])
+    # max Rhat (from all but last row in the last column)
+    max_rhat = np.max(fit.summary()['summary'][:-1,-1])
+
+    # return info in the queue
+    ret = (samples, max_sampling_time, mean_stepsize, max_rhat, lastsamp)
+    queue.put(ret)
+
+
+# The following contextmanager code is made separately by Tuomas Sivula.
+# Licensed under the terms of the MIT license
+# Copyright (C) 2017 Tuomas Sivula
+@contextmanager
+def redirect_stdout_stderr_deep(file_out=None, file_err=None):
+    """Redirect stdout and or stderr into given file or null device.
+
+    Contextmanager for redirecting stdout and stderr into given files or null
+    devices. Reassigns the file descriptors so that also child processes streams
+    are redirected (compare to the built-in
+    :meth:`contextlib.redirect_stdout()`).
+
+    Parameters
+    ----------
+    file_out : text file, optional
+        The output file where stdout is redirected into. It must use a file
+        descriptor. If not provided, the respective stream is suppressed.
+
+    file_err : text file, optional
+        The output file where stderr is redirected into. It must use a file
+        descriptor. If not provided, the respective stream is suppressed.
+
+    """
+    # check if stdout redirected or suppressed
+    if file_out is not None:
+        fd_out = file_out.fileno()
+    else:
+        fd_out = os.open(os.devnull, os.O_RDWR)
+    # check if stderr redirected or suppressed
+    if file_err is not None:
+        fd_err = file_err.fileno()
+    else:
+        fd_err = os.open(os.devnull, os.O_RDWR)
+    # save a copy of the original file descriptors
+    orig_stdout = sys.stdout.fileno()
+    orig_stderr = sys.stderr.fileno()
+    orig_stdout_dup = os.dup(orig_stdout)
+    orig_stderr_dup = os.dup(orig_stderr)
+    # set new file descriptors
+    os.dup2(fd_out, orig_stdout)
+    os.dup2(fd_err, orig_stderr)
+
+    yield
+
+    # __exit__
+    # assign the original fd(s) back
+    os.dup2(orig_stdout_dup, orig_stdout)
+    os.dup2(orig_stderr_dup, orig_stderr)

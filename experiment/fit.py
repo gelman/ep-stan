@@ -114,7 +114,8 @@ if os.path.exists(os.path.join(PARENT_PATH, 'epstan')):
         os.sys.path.insert(0, PARENT_PATH)
 
 from epstan.method import Master
-from epstan.util import load_stan, distribute_groups, stan_sample_time
+from epstan.util import (
+    load_stan, distribute_groups, stan_sample_time, stan_sample_subprocess)
 
 
 CONFS = [
@@ -434,8 +435,6 @@ def main(model_name, conf, ret_master=False):
             mu_phi = m0,
             Omega_phi = Q0.T    # Q0 transposed in order to get C-contiguous
         )
-        # Load model
-        stan_model = load_stan(os.path.join(MOD_PATH, model_name))
 
         # sample multiple times with different number of iterations
         # preallocate output arrays
@@ -452,36 +451,26 @@ def main(model_name, conf, ret_master=False):
             seed = np.random.RandomState(seed=conf.seed_mcmc)
 
             # Sample and extract samples
-            fit, max_sampling_time = stan_sample_time(
-                stan_model,
+            (samples, max_sampling_time, mean_stepsize, max_rhat, _
+            ) = stan_sample_subprocess(
+                model = os.path.join(MOD_PATH, model_name),
+                pars = 'phi',
                 data = data_full,
                 seed = seed,
-                pars = 'phi',
                 chains = conf.chains,
                 iter = (i + 1) * conf.siter,
-                warmup = None,
-                thin = 1,
+                thin = 1
             )
             time_s_full[i] = max_sampling_time
-            print('    sampling time {}'.format(time_s_full[i]))
-
-            samp = fit.extract(pars='phi')['phi']
-
-            # Mean stepsize
-            mstepsize_s_full[i] = np.mean([
-                np.mean(p['stepsize__'])
-                for p in fit.get_sampler_params()
-            ])
-            print('    mean stepsize: {:.4}'.format(mstepsize_s_full[i]))
-            # Max Rhat (from all but last row in the last column)
-            mrhat_s_full[i] = np.max(fit.summary()['summary'][:-1,-1])
-            print('    max Rhat: {:.4}'.format(mrhat_s_full[i]))
+            mstepsize_s_full[i] = mean_stepsize
+            mrhat_s_full[i] = max_rhat
+            samples = samples['phi']
 
             # Moment estimates
-            nsamp = samp.shape[0]
-            samp.mean(axis=0, out=m_s_full[i])
-            samp -= m_s_full[i]
-            samp.T.dot(samp, out=S_s_full[i])
+            nsamp = samples.shape[0]
+            samples.mean(axis=0, out=m_s_full[i])
+            samples -= m_s_full[i]
+            samples.T.dot(samples, out=S_s_full[i])
             S_s_full[i] /= nsamp - 1
 
         # Save results
@@ -527,6 +516,7 @@ def main(model_name, conf, ret_master=False):
 
         elif K < J:
             # ------ Many groups per site: combine groups ------
+            stan_model_name = os.path.join(MOD_PATH, model_name)
             # generate datas for each site
             Nk, Nj_k, j_ind_k = distribute_groups(J, K, data.Nj)
             k_lim = np.concatenate(([0], np.cumsum(Nk)))
@@ -546,6 +536,7 @@ def main(model_name, conf, ret_master=False):
 
         elif K == J:
             # ------ One group per site ------
+            stan_model_name = os.path.join(MOD_PATH, model_name+'_sg')
             # generate datas for each site
             data_k = tuple(
                 dict(
@@ -589,38 +580,20 @@ def main(model_name, conf, ret_master=False):
             mrhats = np.full(K, np.nan)
             for k in range(K):
 
-                # get stan model
-                # Reload it every iteration in order to avoid opening
-                # too many files.
-                if K < J:
-                    stan_model = load_stan(os.path.join(MOD_PATH, model_name))
-                elif K == J:
-                    stan_model = load_stan(
-                        os.path.join(MOD_PATH, model_name+'_sg'))
-                else:
-                    # should not be reached as checked before
-                    raise ValueError("Invalid number of sites `K`.")
-
-                fit, max_sampling_time = stan_sample_time(
-                    stan_model,
+                (samples_k, max_sampling_time, mean_stepsize, max_rhat, _
+                ) = stan_sample_subprocess(
+                    model = stan_model_name,
+                    pars = 'phi',
                     data = data_k[k],
                     seed = seeds[k],
-                    pars = 'phi',
                     chains = conf.chains,
                     iter = (i + 1) * conf.siter,
-                    warmup = None,
                     thin = 1,
                 )
                 times[k] = max_sampling_time
-                mstepsizes[k] = np.mean([
-                    np.mean(p['stepsize__'])
-                    for p in fit.get_sampler_params()
-                ])
-                mrhats[k] = np.max(fit.summary()['summary'][:-1,-1])
-                samples.append(fit.extract(pars='phi')['phi'])
-
-                # dereference the stan_model
-                del stan_model
+                mstepsizes[k] = mean_stepsize
+                mrhats[k] = max_rhat
+                samples.append(samples_k['phi'])
 
             # Moment estimates
             # TODO make more efficient similar as in Master.mix_phi()
