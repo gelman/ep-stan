@@ -160,6 +160,8 @@ CONF_DEFAULT = dict(
 
 )
 
+FULL_ITERS = [100, 200, 300, 400, 600, 800, 1000, 1500, 2000, 4000]
+
 
 class configurations(object):
     """Configuration container for the function main."""
@@ -438,14 +440,14 @@ def main(model_name, conf, ret_master=False):
 
         # sample multiple times with different number of iterations
         # preallocate output arrays
-        m_s_full = np.full((conf.iter, model.dphi), np.nan)
-        S_s_full = np.full((conf.iter, model.dphi, model.dphi), np.nan)
-        time_s_full = np.full(conf.iter, np.nan)
-        mstepsize_s_full = np.full(conf.iter, np.nan)
-        mrhat_s_full = np.full(conf.iter, np.nan)
-        for i in range(conf.iter):
+        m_s_full = np.full((len(FULL_ITERS), model.dphi), np.nan)
+        S_s_full = np.full((len(FULL_ITERS), model.dphi, model.dphi), np.nan)
+        time_s_full = np.full(len(FULL_ITERS), np.nan)
+        mstepsize_s_full = np.full(len(FULL_ITERS), np.nan)
+        mrhat_s_full = np.full(len(FULL_ITERS), np.nan)
+        for i, iters in enumerate(FULL_ITERS):
 
-            print('  iter {}'.format(i))
+            print('  iter {}: {}'.format(i, iters))
 
             # use same seed for each iteration
             seed = np.random.RandomState(seed=conf.seed_mcmc)
@@ -458,7 +460,7 @@ def main(model_name, conf, ret_master=False):
                 data = data_full,
                 seed = seed,
                 chains = conf.chains,
-                iter = (i + 1) * conf.siter,
+                iter = iters,
                 thin = 1
             )
             time_s_full[i] = max_sampling_time
