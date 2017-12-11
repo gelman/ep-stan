@@ -129,11 +129,11 @@ CONFS = [
 
 CONF_DEFAULT = dict(
 
-    J                = 40,
-    D                = 20,
-    K                = 25,
+    J                = 20,
+    D                = 16,
+    K                = 10,
     npg              = 20,
-    cor_input        = False,
+    cor_input        = True,
 
     run_all          = False,
     run_ep           = False,
@@ -143,10 +143,10 @@ CONF_DEFAULT = dict(
 
     iter             = 6,
     siter            = 400,
-    target_siter     = 20000,
+    target_siter     = 10000,
     chains           = 4,
 
-    damp             = 0.75,
+    damp             = 0.8,
     mix              = False,
     prec_estim       = 'sample',
 
@@ -447,7 +447,7 @@ def main(model_name, conf, ret_master=False):
         mrhat_s_full = np.full(len(FULL_ITERS), np.nan)
         for i, iters in enumerate(FULL_ITERS):
 
-            print('  iter {}: {}'.format(i, iters))
+            print('  iter {}: {}'.format(i+1, iters))
 
             # use same seed for each iteration
             seed = np.random.RandomState(seed=conf.seed_mcmc)
@@ -566,14 +566,14 @@ def main(model_name, conf, ret_master=False):
             .randint(0, pystan.constants.MAX_UINT, size=K)
         )
         # preallocate output arrays
-        m_s_cons = np.full((conf.iter, model.dphi), np.nan)
-        S_s_cons = np.full((conf.iter, model.dphi, model.dphi), np.nan)
-        time_s_cons = np.full(conf.iter, np.nan)
-        mstepsize_s_cons = np.full(conf.iter, np.nan)
-        mrhat_s_cons = np.full(conf.iter, np.nan)
-        for i in range(conf.iter):
+        m_s_cons = np.full((len(CONS_ITERS), model.dphi), np.nan)
+        S_s_cons = np.full((len(CONS_ITERS), model.dphi, model.dphi), np.nan)
+        time_s_cons = np.full(len(CONS_ITERS), np.nan)
+        mstepsize_s_cons = np.full(len(CONS_ITERS), np.nan)
+        mrhat_s_cons = np.full(len(CONS_ITERS), np.nan)
+        for i, iters in enumerate(CONS_ITERS):
 
-            print('  iter {}'.format(i))
+            print('  iter {}: {}'.format(i+1, iters))
 
             # sample for each site
             samples = []
@@ -589,7 +589,7 @@ def main(model_name, conf, ret_master=False):
                     data = data_k[k],
                     seed = seeds[k],
                     chains = conf.chains,
-                    iter = (i + 1) * conf.siter,
+                    iter = iters,
                     thin = 1,
                 )
                 times[k] = max_sampling_time
