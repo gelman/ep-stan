@@ -25,6 +25,8 @@ https://github.com/gelman/ep-stan
 
 
 import os
+import re
+
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
 from scipy import stats
@@ -111,22 +113,35 @@ def compare_plot(a, b, a_err=None, b_err=None, a_label=None, b_label=None,
     return ax
 
 
-def plot_results(model_name, model_id=None, dist_id=None):
+def plot_results(model_name, model_id=None):
     """Plot some results."""
 
     # -------------
     #   load data
     # -------------
 
-    # Handle optional model id and dist id
+    # Handle optional model id
     if model_id:
         file_ending = model_name + '_' + model_id
     else:
         file_ending = model_name
-    if dist_id:
-        file_ending_dist = file_ending + '_' + dist_id
-    else:
-        file_ending_dist = file_ending
+
+    # check all res_d_-files
+    ep_filenames = tuple(filter(
+        lambda filename: re.fullmatch(
+            'res_d_{}.*\.npz'.format(file_ending),
+            filename
+        ),
+        os.listdir('results')
+    ))
+    # check all res_c_-files
+    cons_filenames = tuple(filter(
+        lambda filename: re.fullmatch(
+            'res_c_{}.*\.npz'.format(file_ending),
+            filename
+        ),
+        os.listdir('results')
+    ))
 
     # Load true values
     true_vals_file = np.load(
@@ -153,27 +168,33 @@ def plot_results(model_name, model_id=None, dist_id=None):
         samp_target = None
 
     # Load EP result file
-    res_d_file = np.load(
-        os.path.join(RES_PATH, 'res_d_{}.npz'.format(file_ending_dist)))
-    m_s_ep = res_d_file['m_s_ep']
-    S_s_ep = res_d_file['S_s_ep']
-    time_s_ep = res_d_file['time_s_ep']
-    mstepsize_s_ep = res_d_file['mstepsize_s_ep']
-    mrhat_s_ep = res_d_file['mrhat_s_ep']
-    if 'm_phi_ep' in res_d_file.files:
-        mix = True
-        res_d = [
-            (   res_d_file['m_'+par],
-                (   res_d_file['v_'+par+'_ep']
-                    if par != 'phi' else
-                    np.diag(res_d_file['S_'+par+'_ep'])
+    m_s_ep_s = []
+    S_s_ep_s = []
+    time_s_ep_s = []
+    mstepsize_s_ep_s = []
+    mrhat_s_ep_s = []
+    for res_d_file_name in ep_filenames:
+        res_d_file = np.load(
+            os.path.join(RES_PATH, res_d_file_name))
+        m_s_ep_s.append(res_d_file['m_s_ep'])
+        S_s_ep_s.append(res_d_file['S_s_ep'])
+        time_s_ep_s.append(res_d_file['time_s_ep'])
+        mstepsize_s_ep_s.append(res_d_file['mstepsize_s_ep'])
+        mrhat_s_ep_s.append(res_d_file['mrhat_s_ep'])
+        if 'm_phi_ep' in res_d_file.files:
+            mix = True
+            res_d = [
+                (   res_d_file['m_'+par],
+                    (   res_d_file['v_'+par+'_ep']
+                        if par != 'phi' else
+                        np.diag(res_d_file['S_'+par+'_ep'])
+                    )
                 )
-            )
-            for par in pnames
-        ]
-    else:
-        mix = False
-    res_d_file.close()
+                for par in pnames
+            ]
+        else:
+            mix = False
+        res_d_file.close()
 
     # Load full result file
     res_f_file = np.load(
@@ -186,20 +207,26 @@ def plot_results(model_name, model_id=None, dist_id=None):
     res_f_file.close()
 
     # Load consensus result file
-    res_c_file = np.load(
-        os.path.join(RES_PATH, 'res_c_{}.npz'.format(file_ending_dist)))
-    m_s_cons = res_c_file['m_s_cons']
-    S_s_cons = res_c_file['S_s_cons']
-    time_s_cons = res_c_file['time_s_cons']
-    mstepsize_s_cons = res_c_file['mstepsize_s_cons']
-    mrhat_s_cons = res_c_file['mrhat_s_cons']
-    res_c_file.close()
+    m_s_cons_s = []
+    S_s_cons_s = []
+    time_s_cons_s = []
+    mstepsize_s_cons_s = []
+    mrhat_s_cons_s = []
+    for res_c_file_name in cons_filenames:
+        res_c_file = np.load(
+            os.path.join(RES_PATH, res_c_file_name))
+        m_s_cons_s.append(res_c_file['m_s_cons'])
+        S_s_cons_s.append(res_c_file['S_s_cons'])
+        time_s_cons_s.append(res_c_file['time_s_cons'])
+        mstepsize_s_cons_s.append(res_c_file['mstepsize_s_cons'])
+        mrhat_s_cons_s.append(res_c_file['mrhat_s_cons'])
+        res_c_file.close()
 
     # ---------
     #   plots
     # ---------
 
-    dphi = m_s_ep.shape[1]
+    dphi = m_target.shape[0]
 
     # Ravel params if necessary
     for pi in range(1,len(pnames)):
@@ -211,11 +238,16 @@ def plot_results(model_name, model_id=None, dist_id=None):
     # Plot approx KL-divergence and MSE
     sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S_target)[0])))
     # EP
-    mse_ep = np.mean((m_s_ep - m_target)**2, axis=1)
-    kl_ep = np.empty(len(m_s_ep))
-    for i in range(len(m_s_ep)):
-        kl_ep[i] = kl_mvn(
-            m_target, S_target, m_s_ep[i], S_s_ep[i], sum_log_diag_cho_S0)
+    mse_ep_s = []
+    kl_ep_s = []
+    for m_s_ep, S_s_ep in zip(m_s_ep_s, S_s_ep_s):
+        mse_ep = np.mean((m_s_ep - m_target)**2, axis=1)
+        kl_ep = np.empty(len(m_s_ep))
+        for i in range(len(m_s_ep)):
+            kl_ep[i] = kl_mvn(
+                m_target, S_target, m_s_ep[i], S_s_ep[i], sum_log_diag_cho_S0)
+        mse_ep_s.append(mse_ep)
+        kl_ep_s.append(kl_ep)
     # full
     mse_full = np.mean((m_s_full - m_target)**2, axis=1)
     kl_full = np.empty(len(m_s_full))
@@ -223,23 +255,33 @@ def plot_results(model_name, model_id=None, dist_id=None):
         kl_full[i] = kl_mvn(
             m_target, S_target, m_s_full[i], S_s_full[i], sum_log_diag_cho_S0)
     # consensus
-    mse_cons = np.mean((m_s_cons - m_target)**2, axis=1)
-    kl_cons = np.empty(len(m_s_cons))
-    for i in range(len(m_s_cons)):
-        kl_cons[i] = kl_mvn(
-            m_target, S_target, m_s_cons[i], S_s_cons[i], sum_log_diag_cho_S0)
+    mse_cons_s = []
+    kl_cons_s = []
+    for m_s_cons, S_s_cons in zip(m_s_cons_s, S_s_cons_s):
+        mse_cons = np.mean((m_s_cons - m_target)**2, axis=1)
+        kl_cons = np.empty(len(m_s_cons))
+        for i in range(len(m_s_cons)):
+            kl_cons[i] = kl_mvn(
+                m_target, S_target, m_s_cons[i], S_s_cons[i], sum_log_diag_cho_S0)
+        mse_cons_s.append(mse_cons)
+        kl_cons_s.append(kl_cons)
+
     # iteration as x-axis
     fig, axes = plt.subplots(1, 2)
     ax = axes[0]
-    ax.plot(np.arange(len(m_s_ep)), mse_ep, label='ep')
+    for mse_ep, fname in zip(mse_ep_s, ep_filenames):
+        ax.plot(np.arange(len(mse_ep)), mse_ep, label=fname)
     ax.plot(np.arange(len(m_s_full)), mse_full, label='full')
-    ax.plot(np.arange(len(m_s_cons)), mse_cons, label='cons')
+    for mse_cons, fname in zip(mse_cons_s, cons_filenames):
+        ax.plot(np.arange(len(mse_cons)), mse_cons, label=fname)
     ax.set_xlabel('iter')
     ax.set_ylabel('MSE')
     ax = axes[1]
-    ax.plot(np.arange(len(m_s_ep)), kl_ep, label='ep')
+    for kl_ep, fname in zip(kl_ep_s, ep_filenames):
+        ax.plot(np.arange(len(kl_ep)), kl_ep, label=fname)
     ax.plot(np.arange(len(m_s_full)), kl_full, label='full')
-    ax.plot(np.arange(len(m_s_cons)), kl_cons, label='cons')
+    for kl_cons, fname in zip(kl_cons_s, cons_filenames):
+        ax.plot(np.arange(len(kl_cons)), kl_cons, label=fname)
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     ax.set_xlabel('iter')
     ax.set_ylabel('KL')
@@ -249,46 +291,54 @@ def plot_results(model_name, model_id=None, dist_id=None):
     # time as x-axis
     fig, axes = plt.subplots(1, 2)
     ax = axes[0]
-    ax.plot(time_s_ep/60, mse_ep, label='ep')
+    ax.set_yscale('log')
+    for mse_ep, time_s_ep, fname in zip(mse_ep_s, time_s_ep_s, ep_filenames):
+        ax.plot(time_s_ep/60, mse_ep, label=fname)
     ax.plot(time_s_full/60, mse_full, label='full')
-    ax.plot(time_s_cons/60, mse_cons, label='cons')
+    for mse_cons, time_s_cons, fname in zip(
+            mse_cons_s, time_s_cons_s, cons_filenames):
+        ax.plot(time_s_cons/60, mse_cons, label=fname)
     ax.set_xlabel('time (min)')
     ax.set_ylabel('MSE')
     ax = axes[1]
-    ax.plot(time_s_ep/60, kl_ep, label='ep')
+    ax.set_yscale('log')
+    for kl_ep, time_s_ep, fname in zip(kl_ep_s, time_s_ep_s, ep_filenames):
+        ax.plot(time_s_ep/60, kl_ep, label=fname)
     ax.plot(time_s_full/60, kl_full, label='full')
-    ax.plot(time_s_cons/60, kl_cons, label='cons')
+    for kl_cons, time_s_cons, fname in zip(
+            kl_cons_s, time_s_cons_s, cons_filenames):
+        ax.plot(time_s_cons/60, kl_cons, label=fname)
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     ax.set_xlabel('time (min)')
     ax.set_ylabel('KL')
     fig.tight_layout()
     fig.subplots_adjust(right=0.85)
 
-    # Plot log-likelihood
-    if samp_target is not None:
-        # EP
-        ll_ep = np.zeros(len(m_s_ep))
-        for i in range(len(m_s_ep)):
-            ll_ep[i] = np.sum(stats.multivariate_normal.logpdf(
-                samp_target, mean=m_s_ep[i], cov=S_s_ep[i]))
-        # full
-        ll_full = np.zeros(len(m_s_full))
-        for i in range(len(m_s_full)):
-            ll_full[i] = np.sum(stats.multivariate_normal.logpdf(
-                samp_target, mean=m_s_full[i], cov=S_s_full[i]))
-        # full
-        ll_cons = np.zeros(len(m_s_cons))
-        for i in range(len(m_s_cons)):
-            ll_cons[i] = np.sum(stats.multivariate_normal.logpdf(
-                samp_target, mean=m_s_cons[i], cov=S_s_cons[i]))
-        # plot
-        fig, ax = plt.subplots(1, 1)
-        ax.plot(time_s_ep, ll_ep, label='ep')
-        ax.plot(time_s_full, ll_full, label='full')
-        ax.plot(time_s_cons, ll_cons, label='cons')
-        ax.set_ylabel('log-likelihood')
-        ax.set_xlabel('time (min)')
-        ax.legend()
+    # # Plot log-likelihood
+    # if samp_target is not None:
+    #     # EP
+    #     ll_ep = np.zeros(len(m_s_ep))
+    #     for i in range(len(m_s_ep)):
+    #         ll_ep[i] = np.sum(stats.multivariate_normal.logpdf(
+    #             samp_target, mean=m_s_ep[i], cov=S_s_ep[i]))
+    #     # full
+    #     ll_full = np.zeros(len(m_s_full))
+    #     for i in range(len(m_s_full)):
+    #         ll_full[i] = np.sum(stats.multivariate_normal.logpdf(
+    #             samp_target, mean=m_s_full[i], cov=S_s_full[i]))
+    #     # full
+    #     ll_cons = np.zeros(len(m_s_cons))
+    #     for i in range(len(m_s_cons)):
+    #         ll_cons[i] = np.sum(stats.multivariate_normal.logpdf(
+    #             samp_target, mean=m_s_cons[i], cov=S_s_cons[i]))
+    #     # plot
+    #     fig, ax = plt.subplots(1, 1)
+    #     ax.plot(time_s_ep, ll_ep, label='ep')
+    #     ax.plot(time_s_full, ll_full, label='full')
+    #     ax.plot(time_s_cons, ll_cons, label='cons')
+    #     ax.set_ylabel('log-likelihood')
+    #     ax.set_xlabel('time (min)')
+    #     ax.legend()
 
     # # Plot mean and variance as a function of the iteration
     # fig, axs = plt.subplots(2, 1, sharex=True)

@@ -21,7 +21,7 @@ optional arguments - data:
   --J P                 number of hierarchical groups, default 40
   --D P                 number of inputs, default 20
   --npg P [P ...]       number of observations per group (constant or min
-                        max), default [40, 60]
+                        max), default 20
   --cor_input B         correlated input variable, default False
 
 optional arguments - selected methods:
@@ -40,7 +40,7 @@ optional arguments - iterations:
 
 optional arguments - method options:
   --K P                 number of sites, default 25
-  --damp F              damping factor constant, default None
+  --damp F              damping factor constant, default 0.75
   --mix B               mix last iteration samples, default False
   --prec_estim S        estimate method for tilted distribution precision
                         matrix, currently available options are sample and
@@ -132,7 +132,7 @@ CONF_DEFAULT = dict(
     J                = 40,
     D                = 20,
     K                = 25,
-    npg              = [40,60],
+    npg              = 20,
     cor_input        = False,
 
     run_all          = False,
@@ -143,10 +143,10 @@ CONF_DEFAULT = dict(
 
     iter             = 6,
     siter            = 400,
-    target_siter     = 1000,
+    target_siter     = 20000,
     chains           = 4,
 
-    damp             = None,
+    damp             = 0.75,
     mix              = False,
     prec_estim       = 'sample',
 
@@ -160,7 +160,8 @@ CONF_DEFAULT = dict(
 
 )
 
-FULL_ITERS = [100, 200, 300, 400, 600, 800, 1000, 1500, 2000, 4000]
+FULL_ITERS = [50, 100, 200, 400, 800, 1600, 3200]
+CONS_ITERS = [50, 100, 500, 1000]
 
 
 class configurations(object):
@@ -257,23 +258,12 @@ def main(model_name, conf, ret_master=False):
 
         print("Distributed method")
 
-        # Custom sinusoidal damping factor function
-        if conf.damp is None:
-            df0_start = 0.01
-            df0_end = 0.25
-            df0 = lambda i: (
-                df0_start + (df0_end - df0_start) * 0.5 * (1 + np.sin(
-                np.pi * (max(0,min(i-2,conf.iter-2))/(conf.iter-2) - 0.5)))
-            )
-        else:
-            df0 = conf.damp
-
         # Options for the ep-algorithm see documentation of epstan.method.Master
         epstan_options = dict(
             prior = prior,
             seed = conf.seed_mcmc,
             prec_estim = conf.prec_estim,
-            df0 = df0,
+            df0 = conf.damp,
             init_site = init_site,
             chains = conf.chains,
             iter = conf.siter,
@@ -324,6 +314,9 @@ def main(model_name, conf, ret_master=False):
             print("Returning epstan.Master")
             return epstan_master
 
+        # initial approximation
+        S_ep_init, m_ep_init = epstan_master.cur_approx()
+
         # Run the algorithm for `EP_ITER` iterations
         print(
             "Run distributed EP algorithm for {} iterations."
@@ -342,8 +335,15 @@ def main(model_name, conf, ret_master=False):
         # cumulate elapsed time in the sampling runtime analysis
         time_s_ep = time_s_ep.cumsum()
 
-        if info:
+        # add initial approx info
+        S_s_ep = np.concatenate((S_ep_init[None,:,:], S_s_ep), axis=0)
+        m_s_ep = np.concatenate((m_ep_init[None,:], m_s_ep), axis=0)
+        time_s_ep = np.insert(time_s_ep, 0, 0.0)
+        mstepsize_s_ep = np.insert(mstepsize_s_ep, 0, np.nan)
+        mrhat_s_ep = np.insert(mrhat_s_ep, 0, np.nan)
 
+        # check if run failed
+        if info:
             # Save results until failure
             if conf.save_res:
                 if not os.path.exists(RES_PATH):
@@ -945,7 +945,7 @@ if __name__ == '__main__':
     args = vars(args)
     args.pop('model_name')
 
-    # Process customs
+    # Process custom npg arg
     if isinstance(args['npg'], list):
         if len(args['npg']) == 1:
             args['npg'] = args['npg'][0]

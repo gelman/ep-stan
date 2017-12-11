@@ -883,6 +883,38 @@ class Master(object):
         # Track iterations
         self.iter = 0
 
+        # Initial global approximation
+        np.add(self.Qi.sum(axis=-1, out=self.Q), self.Q0, out=self.Q)
+        np.add(self.ri.sum(axis=-1, out=self.r), self.r0, out=self.r)
+        # ensure the approx is pos.def.
+        np.copyto(self.S, self.Q)
+        try:
+            linalg.cho_factor(self.S, overwrite_a=True)
+        except linalg.LinAlgError as ex:
+            raise ValueError("Initial approximation is not pos.def.") from ex
+
+        # Initial cavities
+        for k, worker in enumerate(self.workers):
+            pos_def = worker.cavity(
+                self.Q, self.r, self.Qi[:,:,k], self.ri[:,k])
+            # Early stopping criterion (when in serial)
+            if not pos_def:
+                raise ValueError("Initial cavity is not pos.def.")
+
+    def cur_approx(self):
+        """Returns the current marginal posterior approximation moments.
+
+        Returns
+        -------
+        S : ndarray
+            current marginal posterior covariance estimate
+
+        m : ndarray
+            current marginal posterior mean estimate
+
+        """
+        return invert_normal_params(self.Q, self.r)
+
 
     def run(self, niter, calc_moments=True, save_last_param=None, verbose=True,
             return_analytics=False):
@@ -969,19 +1001,71 @@ class Master(object):
         # Iterate niter rounds
         for cur_iter in range(niter):
             self.iter += 1
+
+            # Tilted distributions (parallelisable)
+            # -------------------------------------
+            if verbose:
+                    print(
+                        "Iter {} starting. Process tilted distributions"
+                        .format(self.iter)
+                    )
+            for k in range(self.K):
+                if verbose:
+                    sys.stdout.write("\r    site {}".format(k+1)+' '*10+'\b'*9)
+                    # Force flush here as it is not done automatically
+                    sys.stdout.flush()
+                # Process the site
+                if save_last_param:
+                    posdefs[k] = self.workers[k].tilted(
+                        dQi[:,:,k],
+                        dri[:,k],
+                        save_samples = save_last_param
+                    )
+                else:
+                    posdefs[k] = self.workers[k].tilted(
+                        dQi[:,:,k],
+                        dri[:,k]
+                    )
+                if verbose and not posdefs[k]:
+                    sys.stdout.write("fail\n")
+            if verbose:
+                if np.all(posdefs):
+                    print("\rAll sites ok")
+                elif np.any(posdefs):
+                    print("\rSome sites failed and are not updated")
+                else:
+                    print("\rEvery site failed")
+            if not np.any(posdefs):
+                # all sites failed, return with desired args
+                out = [self.INFO_ALL_SITES_FAIL]
+                if calc_moments:
+                    out.append((m_phi_s, cov_phi_s))
+                if return_analytics:
+                    out.append((stimes, msteps, mrhats))
+                return out if len(out) > 1 else out[0]
+
+            # Store max sampling time
+            stimes[cur_iter] = max([w.last_time for w in self.workers])
+            msteps[cur_iter] = max([w.last_msteps for w in self.workers])
+            mrhats[cur_iter] = max([w.last_mrhat for w in self.workers])
+
+            if verbose:
+                print(
+                    "Sampling done, max sampling time {}"
+                    .format(stimes[cur_iter])
+                )
+
+            # Update global approx
+            # --------------------
+
             # Initial dampig factor
-            if self.iter > 1:
-                df = self.df0(self.iter)
-            else:
-                # At the first round (rond zero) there is nothing to damp yet
-                df = 1
+            df = self.df0(self.iter)
             if verbose:
                 print("Iter {}, starting df {:.3g}".format(self.iter, df))
                 fail_printline_pos = False
                 fail_printline_cov = False
             # Fail flag for pos.def enforcing
             failed_force_pos_def = False
-
             while True:
                 # Try to update the global posterior approximation
 
@@ -1139,58 +1223,8 @@ class Master(object):
                           .format(m_phi_s[cur_iter,0],
                                   np.sqrt(cov_phi_s[cur_iter,0,0])))
 
-            # Tilted distributions (parallelisable)
-            # -------------------------------------
             if verbose:
-                    print("Process tilted distributions")
-            for k in range(self.K):
-                if verbose:
-                    sys.stdout.write("\r    site {}".format(k+1)+' '*10+'\b'*9)
-                    # Force flush here as it is not done automatically
-                    sys.stdout.flush()
-                # Process the site
-                if save_last_param:
-                    posdefs[k] = self.workers[k].tilted(
-                        dQi[:,:,k],
-                        dri[:,k],
-                        save_samples = save_last_param
-                    )
-                else:
-                    posdefs[k] = self.workers[k].tilted(
-                        dQi[:,:,k],
-                        dri[:,k]
-                    )
-                if verbose and not posdefs[k]:
-                    sys.stdout.write("fail\n")
-            if verbose:
-                if np.all(posdefs):
-                    print("\rAll sites ok")
-                elif np.any(posdefs):
-                    print("\rSome sites failed and are not updated")
-                else:
-                    print("\rEvery site failed")
-            if not np.any(posdefs):
-                # return with desired args
-                out = [self.INFO_ALL_SITES_FAIL]
-                if calc_moments:
-                    out.append((m_phi_s, cov_phi_s))
-                if return_analytics:
-                    out.append((stimes, msteps, mrhats))
-                return out if len(out) > 1 else out[0]
-
-            # Store max sampling time
-            stimes[cur_iter] = max([w.last_time for w in self.workers])
-            msteps[cur_iter] = max([w.last_msteps for w in self.workers])
-            mrhats[cur_iter] = max([w.last_mrhat for w in self.workers])
-
-            # The last elapsed time
-            self.last_time = None
-            self.last_msteps = None
-            self.last_mrhat = None
-
-            if verbose and calc_moments:
-                print(("Iter {} done, max sampling time {}"
-                      .format(self.iter, stimes[cur_iter])))
+                print("Iter {} done.".format(self.iter))
 
         if verbose:
             print(("{} iterations done\nTotal limiting sampling time: {}"
@@ -1202,7 +1236,7 @@ class Master(object):
             out.append((m_phi_s, cov_phi_s))
         if return_analytics:
             out.append((stimes, msteps, mrhats))
-        return out if len(out) > 1 else out[0]
+        return tuple(out) if len(out) > 1 else out[0]
 
 
     def mix_phi(self, out_S=None, out_m=None):
