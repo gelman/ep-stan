@@ -161,7 +161,7 @@ CONF_DEFAULT = dict(
 )
 
 FULL_ITERS = [50, 100, 200, 400, 800, 1600, 3200]
-CONS_ITERS = [50, 100, 500, 1000]
+CONS_ITERS = [50, 100, 500, 1000, 1500, 2000]
 
 
 class configurations(object):
