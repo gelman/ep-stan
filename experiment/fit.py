@@ -40,7 +40,7 @@ optional arguments - iterations:
 
 optional arguments - method options:
   --K P                 number of sites, default 25
-  --damp F              damping factor constant, default 0.75
+  --damp F              damping factor constant, 1/K by default
   --mix B               mix last iteration samples, default False
   --prec_estim S        estimate method for tilted distribution precision
                         matrix, currently available options are sample and
@@ -129,9 +129,9 @@ CONFS = [
 
 CONF_DEFAULT = dict(
 
-    J                = 20,
+    J                = 64,
     D                = 16,
-    K                = 10,
+    K                = 32,
     npg              = 20,
     cor_input        = True,
 
@@ -141,12 +141,12 @@ CONF_DEFAULT = dict(
     run_consensus    = False,
     run_target       = False,
 
-    iter             = 6,
-    siter            = 400,
+    iter             = 20,
+    siter            = 200,
     target_siter     = 10000,
     chains           = 4,
 
-    damp             = 0.8,
+    damp             = None,
     mix              = False,
     prec_estim       = 'sample',
 
@@ -176,6 +176,9 @@ class configurations(object):
         for k, v in CONF_DEFAULT.items():
             if k not in kwargs:
                 setattr(self, k, v)
+        # set default damp
+        if self.damp is None:
+            self.damp = 1/self.K
     def __str__(self):
         conf_dict = self.__dict__
         opts = ['{!s} = {!r}'.format(opt, conf_dict[opt])
