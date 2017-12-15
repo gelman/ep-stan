@@ -314,31 +314,40 @@ def plot_results(model_name, model_id=None):
     fig.tight_layout()
     fig.subplots_adjust(right=0.85)
 
-    # # Plot log-likelihood
-    # if samp_target is not None:
-    #     # EP
-    #     ll_ep = np.zeros(len(m_s_ep))
-    #     for i in range(len(m_s_ep)):
-    #         ll_ep[i] = np.sum(stats.multivariate_normal.logpdf(
-    #             samp_target, mean=m_s_ep[i], cov=S_s_ep[i]))
-    #     # full
-    #     ll_full = np.zeros(len(m_s_full))
-    #     for i in range(len(m_s_full)):
-    #         ll_full[i] = np.sum(stats.multivariate_normal.logpdf(
-    #             samp_target, mean=m_s_full[i], cov=S_s_full[i]))
-    #     # full
-    #     ll_cons = np.zeros(len(m_s_cons))
-    #     for i in range(len(m_s_cons)):
-    #         ll_cons[i] = np.sum(stats.multivariate_normal.logpdf(
-    #             samp_target, mean=m_s_cons[i], cov=S_s_cons[i]))
-    #     # plot
-    #     fig, ax = plt.subplots(1, 1)
-    #     ax.plot(time_s_ep, ll_ep, label='ep')
-    #     ax.plot(time_s_full, ll_full, label='full')
-    #     ax.plot(time_s_cons, ll_cons, label='cons')
-    #     ax.set_ylabel('log-likelihood')
-    #     ax.set_xlabel('time (min)')
-    #     ax.legend()
+    # Plot log-likelihood
+    if samp_target is not None:
+        # EP
+        ll_ep_s = []
+        for m_s_ep, S_s_ep in zip(m_s_ep_s, S_s_ep_s):
+            ll_ep = np.zeros(len(m_s_ep))
+            ll_ep_s.append(ll_ep)
+            for i in range(len(m_s_ep)):
+                ll_ep[i] = np.sum(stats.multivariate_normal.logpdf(
+                    samp_target, mean=m_s_ep[i], cov=S_s_ep[i]))
+        # full
+        ll_full = np.zeros(len(m_s_full))
+        for i in range(len(m_s_full)):
+            ll_full[i] = np.sum(stats.multivariate_normal.logpdf(
+                samp_target, mean=m_s_full[i], cov=S_s_full[i]))
+        # cons
+        ll_cons_s = []
+        for m_s_cons, S_s_cons in zip(m_s_cons_s, S_s_cons_s):
+            ll_cons = np.zeros(len(m_s_cons))
+            ll_cons_s.append(ll_cons)
+            for i in range(len(m_s_cons)):
+                ll_cons[i] = np.sum(stats.multivariate_normal.logpdf(
+                    samp_target, mean=m_s_cons[i], cov=S_s_cons[i]))
+        # plot
+        fig, ax = plt.subplots(1, 1)
+        for ll_ep, time_s_ep, fname in zip(ll_ep_s, time_s_ep_s, ep_filenames):
+            ax.plot(time_s_ep, ll_ep, label=fname)
+        ax.plot(time_s_full, ll_full, label='full')
+        for ll_cons, time_s_cons, fname in zip(
+                ll_cons_s, time_s_cons_s, cons_filenames):
+            ax.plot(time_s_cons, ll_cons, label=fname)
+        ax.set_ylabel('log-likelihood')
+        ax.set_xlabel('time (min)')
+        ax.legend()
 
     # # Plot mean and variance as a function of the iteration
     # fig, axs = plt.subplots(2, 1, sharex=True)

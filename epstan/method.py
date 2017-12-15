@@ -1074,7 +1074,6 @@ class Master(object):
                 np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
                 np.add(Qi2.sum(2, out=Q), self.Q0, out=Q)
                 np.add(ri2.sum(1, out=r), self.r0, out=r)
-                # N.B. In the first iteration Q=Q0, r=r0 (if zero initialised)
 
                 # Check for positive definiteness
                 cho_Q = S
