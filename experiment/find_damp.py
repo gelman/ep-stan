@@ -220,11 +220,11 @@ np.savez(
 # plt.plot(kls_selected)
 # plt.title('kls')
 #
-fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
-for i, ax in enumerate(axes):
-    ax.plot(damps, mses[i], label=str(i+1))
-fig.legend()
-fig.suptitle('mses')
+# fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
+# for i, ax in enumerate(axes):
+#     ax.plot(damps, mses[i], label=str(i+1))
+# fig.legend()
+# fig.suptitle('mses')
 #
 # fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
 # for i, ax in enumerate(axes):
