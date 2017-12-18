@@ -25,14 +25,14 @@ from epstan.util import invert_normal_params
 
 model_name = 'm4b'
 
-J = 64
-D = 16
-K = 32
-chains = 8
+J = 16
+D = 2
+K = 8
+chains = 4
 siter = 400
 
-iters = 20
-damp_n = 40
+iters = 5
+damp_n = 20
 
 
 def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
@@ -111,13 +111,14 @@ kls_selected = np.full(iters, np.nan)
 
 # iters
 for iter_ind in range(iters):
+    print("Iteration {}/{}".format(iter_ind+1, iters))
 
     for k, worker in enumerate(master.workers):
-        print("Tilted for site {}/{}".format(k+1, master.K))
+        print("    Tilted for site {}/{}".format(k+1, master.K))
         sys.stdout.flush()
         posdefs[k] = worker.tilted(dQi[:,:,k], dri[:,k])
     if not np.all(posdefs):
-        print("Tilted fails at {}".format(k+1))
+        print("    Tilted fails at {}".format(k+1))
         break
 
     for di, df in enumerate(damps):
@@ -141,7 +142,7 @@ for iter_ind in range(iters):
             if np.all(posdefs):
                 # selection criteria
                 # mse
-                mses[iter_ind, di] = np.mean((m - m_target)**2, axis=1)
+                mses[iter_ind, di] = np.mean((m - m_target)**2)
                 # likelihood
                 lls[iter_ind, di] = np.sum(stats.multivariate_normal.logpdf(
                     samp_target, mean=m, cov=S.T))
@@ -175,11 +176,41 @@ for iter_ind in range(iters):
     ri = ri2
     ri2 = temp
 
+# save
+np.savez(
+    os.path.join(RES_PATH, 'find_damp.npz'),
+    damps = damps,
+    mses = mses,
+    lls = lls,
+    kls = kls,
+    damps_selected = damps_selected,
+    mses_selected = mses_selected,
+    lls_selected = lls_selected,
+    kls_selected = kls_selected,
+)
 
-# plot
+## load
+# res_file = np.load('find_damp.npz')
+# damps = res_file['damps']
+# mses = res_file['mses']
+# lls = res_file['lls']
+# kls = res_file['kls']
+# damps_selected = res_file['damps_selected']
+# lls_selected = res_file['lls_selected']
+# mses_selected = res_file['mses_selected']
+# kls_selected = res_file['kls_selected']
+# res_file.close()
+# iters, damp_n = kls.shape
+
+
+## plot
 # plt.figure()
 # plt.plot(damps_selected)
 # plt.title('damps')
+#
+# plt.figure()
+# plt.plot(mses_selected)
+# plt.title('mses')
 #
 # plt.figure()
 # plt.plot(lls_selected)
@@ -188,6 +219,12 @@ for iter_ind in range(iters):
 # plt.figure()
 # plt.plot(kls_selected)
 # plt.title('kls')
+#
+fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
+for i, ax in enumerate(axes):
+    ax.plot(damps, mses[i], label=str(i+1))
+fig.legend()
+fig.suptitle('mses')
 #
 # fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
 # for i, ax in enumerate(axes):
@@ -200,15 +237,3 @@ for iter_ind in range(iters):
 #     ax.plot(damps, kls[i], label=str(i+1))
 # fig.legend()
 # fig.suptitle('kls')
-
-
-# save
-np.savez(
-    os.path.join(RES_PATH, 'find_damp.npz'),
-    damps = damps,
-    lls = lls,
-    kls = kls,
-    damps_selected = damps_selected,
-    lls_selected = lls_selected,
-    kls_selected = kls_selected,
-)
