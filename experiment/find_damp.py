@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt
 # Add parent dir to sys.path if not present already. This is only done because
 # of easy importing of the package epstan. Adding the parent directory into the
 # PYTHONPATH works as well.
-CUR_PATH = "/u/73/tsivula/unix/aalto/ep-stan/experiment"
-# CUR_PATH = os.path.dirname(os.path.abspath(__file__))
+# CUR_PATH = "/u/73/tsivula/unix/aalto/ep-stan/experiment"
+CUR_PATH = os.path.dirname(os.path.abspath(__file__))
 PARENT_PATH = os.path.abspath(os.path.join(CUR_PATH, os.pardir))
 RES_PATH = os.path.join(CUR_PATH, 'results')
 MOD_PATH = os.path.join(CUR_PATH, 'models')
@@ -23,6 +23,7 @@ import fit
 from epstan.util import invert_normal_params
 
 
+model_name = 'm4b'
 
 J = 64
 D = 16
@@ -55,10 +56,6 @@ def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
     )
     return KL_div
 
-
-
-
-model_name = 'm4b'
 conf = fit.configurations(J=J, D=D, K=K, chains=chains, siter=siter)
 master = fit.main(model_name, conf, ret_master=True)
 
