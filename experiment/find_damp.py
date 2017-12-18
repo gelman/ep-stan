@@ -101,9 +101,11 @@ dri = master.dri
 posdefs = np.zeros(master.K, dtype=bool)
 
 damps = np.linspace(0, 1, damp_n+2)[1:-1]
+mses = np.full((iters, damp_n), np.nan)
 lls = np.full((iters, damp_n), np.nan)
 kls = np.full((iters, damp_n), np.nan)
 damps_selected = np.full(iters, np.nan)
+mses_selected = np.full(iters, np.nan)
 lls_selected = np.full(iters, np.nan)
 kls_selected = np.full(iters, np.nan)
 
@@ -138,6 +140,8 @@ for iter_ind in range(iters):
 
             if np.all(posdefs):
                 # selection criteria
+                # mse
+                mses[iter_ind, di] = np.mean((m - m_target)**2, axis=1)
                 # likelihood
                 lls[iter_ind, di] = np.sum(stats.multivariate_normal.logpdf(
                     samp_target, mean=m, cov=S.T))
@@ -153,6 +157,7 @@ for iter_ind in range(iters):
     best_idx = np.nanargmin(kls[iter_ind])
     df = damps[best_idx]
     damps_selected[iter_ind] = df
+    mses_selected[iter_ind] = mses[iter_ind, best_idx]
     lls_selected[iter_ind] = lls[iter_ind, best_idx]
     kls_selected[iter_ind] = kls[iter_ind, best_idx]
     # apply damp
@@ -162,6 +167,13 @@ for iter_ind in range(iters):
     np.add(ri2.sum(1, out=r), master.r0, out=r)
     for k, worker in enumerate(master.workers):
         worker.cavity(Q, r, Qi2[:,:,k], ri2[:,k])
+    # switch Qi <> Qi2, ri <> ri2
+    temp = Qi
+    Qi = Qi2
+    Qi2 = temp
+    temp = ri
+    ri = ri2
+    ri2 = temp
 
 
 # plot
