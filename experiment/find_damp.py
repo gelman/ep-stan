@@ -25,10 +25,27 @@ from epstan.util import invert_normal_params
 
 model_name = 'm4b'
 
-J = 16
-D = 2
-K = 8
-chains = 4
+# Load target file
+target_file = np.load(
+    os.path.join(RES_PATH, 'target_{}.npz'.format(model_name)))
+m_target = target_file['m_target']
+S_target = target_file['S_target']
+conf = target_file['conf'][()]
+target_file.close()
+# Load target samples if found
+target_samp_file_path = os.path.join(
+    RES_PATH, 'target_samp_{}.npz'.format(model_name))
+if os.path.exists(target_samp_file_path):
+    target_samp_file = np.load(target_samp_file_path)
+    samp_target = target_samp_file['samp_target']
+    target_samp_file.close()
+else:
+    samp_target = None
+
+J = conf['J']
+D = conf['D']
+K = conf['J']
+chains = 8
 siter = 400
 
 iters = 5
@@ -58,23 +75,6 @@ def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
 
 conf = fit.configurations(J=J, D=D, K=K, chains=chains, siter=siter)
 master = fit.main(model_name, conf, ret_master=True)
-
-
-# Load target file
-target_file = np.load(
-    os.path.join(RES_PATH, 'target_{}.npz'.format(model_name)))
-m_target = target_file['m_target']
-S_target = target_file['S_target']
-target_file.close()
-# Load target samples if found
-target_samp_file_path = os.path.join(
-    RES_PATH, 'target_samp_{}.npz'.format(model_name))
-if os.path.exists(target_samp_file_path):
-    target_samp_file = np.load(target_samp_file_path)
-    samp_target = target_samp_file['samp_target']
-    target_samp_file.close()
-else:
-    samp_target = None
 
 sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S_target)[0])))
 
