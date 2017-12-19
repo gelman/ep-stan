@@ -587,8 +587,7 @@ class Master(object):
         range (0,1]. If a number is given, a constant initial damping factor for
         each iteration is used. If a function is given, it must return the
         desired initial damping factor when called with the iteration number.
-        If not provided, damping factor of sqrt(1/K) is used for the first
-        iteration and ratio of 1/K for the rest iterations.
+        If not provided, damping factor of 1/K is used.
 
     df_decay : float, optional
         The decay multiplier for the damping factor used if the resulting
@@ -790,11 +789,8 @@ class Master(object):
         self.df_treshold = kwargs['df_treshold']
         if kwargs['df0'] is None:
             # Default: no damp for first iter, 1/K otherwise
-            self.df0 = lambda curiter: (
-                1/self.K
-                if curiter > 1
-                else np.sqrt(1/self.K)
-            )
+            default_df = 1/self.K
+            self.df0 = lambda i: default_df
         elif isinstance(kwargs['df0'], (float, int)):
             # Use constant initial damping factor
             if kwargs['df0'] <= 0 or kwargs['df0'] > 1:
