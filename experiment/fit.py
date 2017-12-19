@@ -142,7 +142,7 @@ CONF_DEFAULT = dict(
     run_target       = False,
 
     iter             = 20,
-    siter            = 200,
+    siter            = 400,
     target_siter     = 10000,
     chains           = 4,
 
@@ -176,9 +176,6 @@ class configurations(object):
         for k, v in CONF_DEFAULT.items():
             if k not in kwargs:
                 setattr(self, k, v)
-        # set default damp
-        if self.damp is None:
-            self.damp = 1/self.K
     def __str__(self):
         conf_dict = self.__dict__
         opts = ['{!s} = {!r}'.format(opt, conf_dict[opt])

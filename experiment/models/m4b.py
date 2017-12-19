@@ -40,28 +40,25 @@ from .common import data, calc_input_param_classification, rand_corr_vine
 # ------------------------------------------------------------------------------
 
 # ====== Model parameters ======================================================
-# If MU_A is None, it is sampled from N(0,SIGMA_MA)
-MU_A = 0.1
-SIGMA_MA = None
-# If SIGMA_A is None, it is sampled from log-N(0,SIGMA_SA)
-SIGMA_A = 1
-SIGMA_SA = None
-SIGMA_MB = 1
-SIGMA_SB = 1
+# 2-tuple specifies the range from which they are randomed
+MU_A = 1.0
+MU_B = (-1.5, 1.5)
+LOG_SIGMA_A = -0.2
+LOG_SIGMA_B = (-0.3, 0.3)
 
 # ====== Prior =================================================================
 # Prior for mu_a
 M0_MA = 0
-V0_MA = 1.5**2
+V0_MA = 4**2
 # Prior for log(sigma_a)
 M0_SA = 0
-V0_SA = 1.5**2
+V0_SA = 4**2
 # Prior for mu_b
 M0_MB = 0
-V0_MB = 1.5**2
+V0_MB = 4**2
 # Prior for log(sigma_b)
 M0_SB = 0
-V0_SB = 1.5**2
+V0_SB = 4**2
 
 # ====== Regulation ============================================================
 # Min for abs(sum(beta))
@@ -139,19 +136,15 @@ class model(object):
         for j in range(J):
             j_ind[j_lim[j]:j_lim[j+1]] = j
 
-        # Assign parameters
-        if SIGMA_A is None:
-            sigma_a = np.exp(rng.randn()*SIGMA_SA)
-        else:
-            sigma_a = SIGMA_A
-        if MU_A is None:
-            mu_a = rng.randn()*SIGMA_MA
-        else:
-            mu_a = MU_A
-        sigma_b = np.exp(rng.randn(D)*SIGMA_SB)
-        mu_b = rng.randn(D)*SIGMA_MB
+        # assign hyperparameters
+        mu_a = MU_A
+        mu_b = rng.rand(D) * (MU_B[1] - MU_B[0]) + MU_B[0]
+        sigma_a = np.exp(LOG_SIGMA_A)
+        sigma_b = np.exp(
+            rng.rand(D) * (LOG_SIGMA_B[1] - LOG_SIGMA_B[0]) + LOG_SIGMA_B[0])
+        # assign parameters
         alpha_j = mu_a + rng.randn(J)*sigma_a
-        beta_j = mu_b + rng.randn(J,D)*sigma_b
+        beta_j = mu_b + rng.randn(J, D)*sigma_b
 
         # Regulate beta
         for j in range(J):

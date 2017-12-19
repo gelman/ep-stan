@@ -587,16 +587,8 @@ class Master(object):
         range (0,1]. If a number is given, a constant initial damping factor for
         each iteration is used. If a function is given, it must return the
         desired initial damping factor when called with the iteration number.
-        If not provided, sinusoidal transition from `df0_start` to `df0_end` is
-        used (see the respective parameters).
-
-    df0_start, df0_end, df0_iter: float, optional
-        The parameters for the default sinusoidally transitioning damping
-        factor (see `df0`). Transitions from `df0_start` to `df0_end` in
-        `df0_iter` iterations. Default None applies
-            df0_start = 1/K,
-            df0_end = 1/K + (1 - 1/K) / 2,
-            df0_iter = 20.
+        If not provided, damping factor of sqrt(1/K) is used for the first
+        iteration and ratio of 1/K for the rest iterations.
 
     df_decay : float, optional
         The decay multiplier for the damping factor used if the resulting
@@ -636,9 +628,6 @@ class Master(object):
         'prior'             : None,
         'init_site'         : None,
         'df0'               : None,
-        'df0_start'         : None,
-        'df0_end'           : None,
-        'df0_iter'          : 20,
         'df_decay'          : 0.8,
         'df_treshold'       : 1e-6,
         'overwrite_model'   : False
@@ -800,23 +789,11 @@ class Master(object):
         self.df_decay = kwargs['df_decay']
         self.df_treshold = kwargs['df_treshold']
         if kwargs['df0'] is None:
-            # Use default sinusoidal function
-            df0_start = kwargs['df0_start']
-            if df0_start is None:
-                df0_start = 1.0 / self.K
-            df0_end = kwargs['df0_end']
-            if df0_end is None:
-                df0_end = ((self.K - 1) * 0.5 + 1) / self.K
-            df0_iter = kwargs['df0_iter']
-            self.df0 = lambda i: (
-                df0_start + (df0_end - df0_start) * 0.5 * (
-                    1 + np.sin(
-                        np.pi * (
-                            max(0, min(i-2, df0_iter-1))
-                            / (df0_iter - 1) - 0.5
-                        )
-                    )
-                )
+            # Default: no damp for first iter, 1/K otherwise
+            self.df0 = lambda curiter: (
+                1/self.K
+                if curiter > 1
+                else np.sqrt(1/self.K)
             )
         elif isinstance(kwargs['df0'], (float, int)):
             # Use constant initial damping factor
