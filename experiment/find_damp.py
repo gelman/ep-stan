@@ -25,7 +25,7 @@ from epstan.util import invert_normal_params
 
 CHAINS = 8
 SITER = 600
-N_DAMP = 20
+N_DAMP = 31
 
 
 def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
@@ -154,7 +154,11 @@ def main(model_name, K=None, iters=5):
 
         # select the best
         # best_idx = np.nanargmax(lls[iter_ind])
-        best_idx = np.nanargmin(kls[iter_ind])
+        # best_idx = np.nanargmin(kls[iter_ind])
+        if iter_ind <= iters / 2:
+            best_idx = np.nanargmin(mses[iter_ind])
+        else:
+            best_idx = np.nanargmin(kls[iter_ind])
         df = damps[best_idx]
         damps_selected[iter_ind] = df
         mses_selected[iter_ind] = mses[iter_ind, best_idx]
@@ -188,54 +192,55 @@ def main(model_name, K=None, iters=5):
         kls_selected = kls_selected,
     )
 
-## load
-# res_file = np.load('find_damp_K2.npz')
-# damps = res_file['damps']
-# mses = res_file['mses']
-# lls = res_file['lls']
-# kls = res_file['kls']
-# damps_selected = res_file['damps_selected']
-# lls_selected = res_file['lls_selected']
-# mses_selected = res_file['mses_selected']
-# kls_selected = res_file['kls_selected']
-# res_file.close()
-# iters, N_DAMP = kls.shape
+# load
+K = 2
+res_file = np.load('find_damp_K{}.npz'.format(K))
+damps = res_file['damps']
+mses = res_file['mses']
+lls = res_file['lls']
+kls = res_file['kls']
+damps_selected = res_file['damps_selected']
+lls_selected = res_file['lls_selected']
+mses_selected = res_file['mses_selected']
+kls_selected = res_file['kls_selected']
+res_file.close()
+iters, N_DAMP = kls.shape
 
 
-## plot
-# plt.figure()
-# plt.plot(damps_selected)
-# plt.title('damps')
-#
-# plt.figure()
-# plt.plot(mses_selected)
-# plt.title('mses')
-#
-# plt.figure()
-# plt.plot(lls_selected)
-# plt.title('lls')
-#
-# plt.figure()
-# plt.plot(kls_selected)
-# plt.title('kls')
-#
-# fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
-# for i, ax in enumerate(axes):
-#     ax.plot(damps, mses[i], label=str(i+1))
-# fig.legend()
-# fig.suptitle('mses')
-#
-# fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
-# for i, ax in enumerate(axes):
-#     ax.plot(damps, lls[i], label=str(i+1))
-# fig.legend()
-# fig.suptitle('lls')
-#
-# fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
-# for i, ax in enumerate(axes):
-#     ax.plot(damps, kls[i], label=str(i+1))
-# fig.legend()
-# fig.suptitle('kls')
+# plot
+plt.figure()
+plt.plot(damps_selected)
+plt.title('damps')
+
+plt.figure()
+plt.plot(mses_selected)
+plt.title('mses')
+
+plt.figure()
+plt.plot(lls_selected)
+plt.title('lls')
+
+plt.figure()
+plt.plot(kls_selected)
+plt.title('kls')
+
+fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
+for i, ax in enumerate(axes):
+    ax.plot(damps, mses[i], label=str(i+1))
+fig.legend()
+fig.suptitle('mses')
+
+fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
+for i, ax in enumerate(axes):
+    ax.plot(damps, lls[i], label=str(i+1))
+fig.legend()
+fig.suptitle('lls')
+
+fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
+for i, ax in enumerate(axes):
+    ax.plot(damps, kls[i], label=str(i+1))
+fig.legend()
+fig.suptitle('kls')
 
 
 if __name__ == '__main__':
