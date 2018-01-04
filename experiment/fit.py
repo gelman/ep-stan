@@ -258,12 +258,19 @@ def main(model_name, conf, ret_master=False):
 
         print("Distributed method")
 
+        # default damp
+        if conf.damp is None:
+            damp_1pK = 1/K
+            df0 = lambda curiter: damp_1pK if curiter > 1 else 0.5
+        else:
+            df0 = conf.damp
+
         # Options for the ep-algorithm see documentation of epstan.method.Master
         epstan_options = dict(
             prior = prior,
             seed = conf.seed_mcmc,
             prec_estim = conf.prec_estim,
-            df0 = conf.damp,
+            df0 = df0,
             init_site = init_site,
             chains = conf.chains,
             iter = conf.siter,

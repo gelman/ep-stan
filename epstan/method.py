@@ -788,7 +788,7 @@ class Master(object):
         self.df_decay = kwargs['df_decay']
         self.df_treshold = kwargs['df_treshold']
         if kwargs['df0'] is None:
-            # Default: no damp for first iter, 1/K otherwise
+            # Default damp 1/K
             default_df = 1/self.K
             self.df0 = lambda i: default_df
         elif isinstance(kwargs['df0'], (float, int)):
