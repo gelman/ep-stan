@@ -32,7 +32,8 @@ optional arguments - selected methods:
   --run_target B        run target approximation, default False
 
 optional arguments - iterations:
-  --iter P              number of distributed EP iterations, default 6
+  --iter P              number of distributed EP iterations, default
+                        max(1.2*K, 10)
   --siter P             Stan iterations in each major iteration, default 400
   --target_siter P      Stan iterations for the target approximation, default
                         1000
@@ -141,7 +142,7 @@ CONF_DEFAULT = dict(
     run_consensus    = False,
     run_target       = False,
 
-    iter             = 20,
+    iter             = None,
     siter            = 400,
     target_siter     = 10000,
     chains           = 4,
@@ -162,6 +163,8 @@ CONF_DEFAULT = dict(
 
 FULL_ITERS = [50, 100, 200, 400, 800, 1600, 3200]
 CONS_ITERS = [50, 100, 500, 1000, 1500, 2000]
+DAMP_START = 0.5
+DAMP_END = 0.01
 
 
 class configurations(object):
@@ -258,10 +261,17 @@ def main(model_name, conf, ret_master=False):
 
         print("Distributed method")
 
+        # default iterations
+        if conf.iter is None:
+            iters_to_run = max(int(np.ceil(1.2*K)), 10)
+        else:
+            iters_to_run = conf.iter
+
         # default damp
+        # exponential decay
         if conf.damp is None:
-            damp_1pK = 1/K
-            df0 = lambda curiter: damp_1pK if curiter > 1 else 0.5
+            t = -np.log(DAMP_END/DAMP_START)/(iters_to_run-1)
+            df0 = lambda curiter: DAMP_START*np.exp(-t*(curiter-1))
         else:
             df0 = conf.damp
 
@@ -327,16 +337,16 @@ def main(model_name, conf, ret_master=False):
         # Run the algorithm for `EP_ITER` iterations
         print(
             "Run distributed EP algorithm for {} iterations."
-            .format(conf.iter)
+            .format(iters_to_run)
         )
         if conf.mix:
             info, (m_s_ep, S_s_ep), (time_s_ep, mstepsize_s_ep, mrhat_s_ep) = (
                 epstan_master.run(
-                    conf.iter, return_analytics=True, save_last_param=pnames)
+                    iters_to_run, return_analytics=True, save_last_param=pnames)
             )
         else:
             info, (m_s_ep, S_s_ep), (time_s_ep, mstepsize_s_ep, mrhat_s_ep) = (
-                epstan_master.run(conf.iter, return_analytics=True)
+                epstan_master.run(iters_to_run, return_analytics=True)
             )
 
         # cumulate elapsed time in the sampling runtime analysis
