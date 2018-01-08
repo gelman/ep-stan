@@ -24,8 +24,13 @@ from epstan.util import invert_normal_params
 
 
 CHAINS = 8
-SITER = 600
+SITER = 400
 N_DAMP = 31
+
+DAMPS = [0.05, 0.1, 0.2, 0.5, 0.9]
+
+DAMP_START = 0.5
+DAMP_END = 0.01
 
 
 def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
@@ -50,7 +55,7 @@ def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
     return KL_div
 
 
-def main(model_name, K=None, iters=5):
+def main(model_name, K=None, iters=None):
 
     # Load target file
     target_file = np.load(
@@ -75,6 +80,9 @@ def main(model_name, K=None, iters=5):
     if K is None:
         K = J
 
+    if iters is None:
+        iters = max(int(np.ceil(1.2*K)), 10)
+
     conf = fit.configurations(J=J, D=D, K=K, chains=CHAINS, siter=SITER)
     master = fit.main(model_name, conf, ret_master=True)
 
@@ -97,7 +105,8 @@ def main(model_name, K=None, iters=5):
     dQi = master.dQi
     dri = master.dri
 
-    posdefs = np.zeros(master.K, dtype=bool)
+    t = -np.log(DAMP_END/DAMP_START)/(iters-1)
+    df0 = lambda curiter: DAMP_START*np.exp(-t*(curiter-1))
 
     damps = np.linspace(0, 1, N_DAMP+2)[1:-1]
     mses = np.full((iters, N_DAMP), np.nan)
@@ -108,9 +117,12 @@ def main(model_name, K=None, iters=5):
     lls_selected = np.full(iters, np.nan)
     kls_selected = np.full(iters, np.nan)
 
+    posdefs = np.zeros(master.K, dtype=bool)
+
     # iters
     for iter_ind in range(iters):
-        print("Iteration {}/{}".format(iter_ind+1, iters))
+        curiter = iter_ind + 1
+        print("Iteration {}/{}".format(curiter, iters))
 
         for k, worker in enumerate(master.workers):
             print("    Tilted for site {}/{}".format(k+1, master.K))
@@ -155,22 +167,46 @@ def main(model_name, K=None, iters=5):
         # select the best
         # best_idx = np.nanargmax(lls[iter_ind])
         # best_idx = np.nanargmin(kls[iter_ind])
-        if iter_ind <= iters / 2:
-            best_idx = np.nanargmin(mses[iter_ind])
-        else:
-            best_idx = np.nanargmin(kls[iter_ind])
-        df = damps[best_idx]
-        damps_selected[iter_ind] = df
-        mses_selected[iter_ind] = mses[iter_ind, best_idx]
-        lls_selected[iter_ind] = lls[iter_ind, best_idx]
-        kls_selected[iter_ind] = kls[iter_ind, best_idx]
+        # if iter_ind <= iters / 2:
+        #     best_idx = np.nanargmin(mses[iter_ind])
+        # else:
+        #     best_idx = np.nanargmin(kls[iter_ind])
+        # df = damps[best_idx]
+
+        # preselected
+        df = df0(curiter)
+
         # apply damp
+        damps_selected[iter_ind] = df
         np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
         np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
         np.add(Qi2.sum(2, out=Q), master.Q0, out=Q)
         np.add(ri2.sum(1, out=r), master.r0, out=r)
-        for k, worker in enumerate(master.workers):
-            worker.cavity(Q, r, Qi2[:,:,k], ri2[:,k])
+        try:
+            cho_Q = S
+            np.copyto(cho_Q, Q)
+            linalg.cho_factor(cho_Q, overwrite_a=True)
+            invert_normal_params(
+                cho_Q, r, out_A='in-place', out_b=m, cho_form=True)
+            # cavity
+            for k, worker in enumerate(master.workers):
+                posdefs[k] = worker.cavity(Q, r, Qi2[:,:,k], ri2[:,k])
+            if np.all(posdefs):
+                # selection criteria
+                # mse
+                mses_selected[iter_ind] = np.mean((m - m_target)**2)
+                # likelihood
+                lls_selected[iter_ind] = np.sum(stats.multivariate_normal.logpdf(
+                    samp_target, mean=m, cov=S.T))
+                # approximate KL
+                kls_selected[iter_ind] = kl_mvn(
+                    m_target, S_target, m, S.T, sum_log_diag_cho_S0)
+            else:
+                break
+
+        except linalg.LinAlgError:
+            break
+
         # switch Qi <> Qi2, ri <> ri2
         temp = Qi
         Qi = Qi2
@@ -192,8 +228,8 @@ def main(model_name, K=None, iters=5):
         kls_selected = kls_selected,
     )
 
-# # load
-# K = 8
+# load
+# K = 2
 # res_file = np.load('find_damp_K{}.npz'.format(K))
 # damps = res_file['damps']
 # mses = res_file['mses']
