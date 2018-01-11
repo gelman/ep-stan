@@ -143,7 +143,7 @@ CONF_DEFAULT = dict(
     run_target       = False,
 
     iter             = None,
-    siter            = 400,
+    siter            = 200,
     target_siter     = 10000,
     chains           = 4,
 
@@ -163,8 +163,24 @@ CONF_DEFAULT = dict(
 
 FULL_ITERS = [50, 100, 200, 400, 800, 1600, 3200]
 CONS_ITERS = [50, 100, 500, 1000, 1500, 2000]
-DAMP_START = 0.5
-DAMP_END = 0.01
+
+DEFAULT_ITERS_TO_RUN = lambda K: int(max(2*K, 20))
+
+DAMP_DECAY_PERIOD = 0.5
+DAMP_START = lambda K: 0.5
+DAMP_END = lambda K: 1/K
+
+def default_df0(K, iters):
+    """Returns default damping factor function."""
+    # exponential decay
+    decay_iters = int(DAMP_DECAY_PERIOD * iters)
+    t = -np.log(DAMP_END(K)/DAMP_START(K))/(decay_iters-1)
+    return (
+        lambda curiter:
+        DAMP_START(K)*np.exp(-t*(curiter-1))
+        if curiter < decay_iters else
+        DAMP_END(K)
+    )
 
 
 class configurations(object):
@@ -263,15 +279,13 @@ def main(model_name, conf, ret_master=False):
 
         # default iterations
         if conf.iter is None:
-            iters_to_run = max(int(np.ceil(1.2*K)), 10)
+            iters_to_run = DEFAULT_ITERS_TO_RUN(K)
         else:
             iters_to_run = conf.iter
 
-        # default damp
-        # exponential decay
         if conf.damp is None:
-            t = -np.log(DAMP_END/DAMP_START)/(iters_to_run-1)
-            df0 = lambda curiter: DAMP_START*np.exp(-t*(curiter-1))
+            # default damp
+            df0 = default_df0(K, iters_to_run)
         else:
             df0 = conf.damp
 

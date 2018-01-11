@@ -20,17 +20,13 @@ if os.path.exists(os.path.join(PARENT_PATH, 'epstan')):
         os.sys.path.insert(0, PARENT_PATH)
 
 import fit
+import epstan
 from epstan.util import invert_normal_params
 
 
-CHAINS = 8
+CHAINS = 4
 SITER = 400
 N_DAMP = 31
-
-DAMPS = [0.05, 0.1, 0.2, 0.5, 0.9]
-
-DAMP_START = 0.5
-DAMP_END = 0.01
 
 
 def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
@@ -81,7 +77,7 @@ def main(model_name, K=None, iters=None):
         K = J
 
     if iters is None:
-        iters = max(int(np.ceil(1.2*K)), 10)
+        iters = fit.DEFAULT_ITERS_TO_RUN(K)
 
     conf = fit.configurations(J=J, D=D, K=K, chains=CHAINS, siter=SITER)
     master = fit.main(model_name, conf, ret_master=True)
@@ -105,17 +101,29 @@ def main(model_name, K=None, iters=None):
     dQi = master.dQi
     dri = master.dri
 
-    t = -np.log(DAMP_END/DAMP_START)/(iters-1)
-    df0 = lambda curiter: DAMP_START*np.exp(-t*(curiter-1))
+    # selected damps
+    df0 = fit.default_df0(K, iters)
 
     damps = np.linspace(0, 1, N_DAMP+2)[1:-1]
     mses = np.full((iters, N_DAMP), np.nan)
     lls = np.full((iters, N_DAMP), np.nan)
     kls = np.full((iters, N_DAMP), np.nan)
     damps_selected = np.full(iters, np.nan)
-    mses_selected = np.full(iters, np.nan)
-    lls_selected = np.full(iters, np.nan)
-    kls_selected = np.full(iters, np.nan)
+    mses_selected = np.full(iters+1, np.nan)
+    lls_selected = np.full(iters+1, np.nan)
+    kls_selected = np.full(iters+1, np.nan)
+
+    # initial selection criteria
+    init_S, init_m = master.cur_approx()
+    # mse
+    mses_selected[0] = np.mean((init_m - m_target)**2)
+    # likelihood
+    lls_selected[0] = np.sum(stats.multivariate_normal.logpdf(
+        samp_target, mean=init_m, cov=init_S.T))
+    # approximate KL
+    kls_selected[0] = kl_mvn(
+        m_target, S_target, init_m, init_S.T, sum_log_diag_cho_S0)
+
 
     posdefs = np.zeros(master.K, dtype=bool)
 
@@ -175,36 +183,53 @@ def main(model_name, K=None, iters=None):
 
         # preselected
         df = df0(curiter)
+        # check it was proper
 
-        # apply damp
-        damps_selected[iter_ind] = df
-        np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
-        np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
-        np.add(Qi2.sum(2, out=Q), master.Q0, out=Q)
-        np.add(ri2.sum(1, out=r), master.r0, out=r)
-        try:
-            cho_Q = S
-            np.copyto(cho_Q, Q)
-            linalg.cho_factor(cho_Q, overwrite_a=True)
-            invert_normal_params(
-                cho_Q, r, out_A='in-place', out_b=m, cho_form=True)
-            # cavity
-            for k, worker in enumerate(master.workers):
-                posdefs[k] = worker.cavity(Q, r, Qi2[:,:,k], ri2[:,k])
-            if np.all(posdefs):
-                # selection criteria
-                # mse
-                mses_selected[iter_ind] = np.mean((m - m_target)**2)
-                # likelihood
-                lls_selected[iter_ind] = np.sum(stats.multivariate_normal.logpdf(
-                    samp_target, mean=m, cov=S.T))
-                # approximate KL
-                kls_selected[iter_ind] = kl_mvn(
-                    m_target, S_target, m, S.T, sum_log_diag_cho_S0)
-            else:
-                break
+        while True:
+            # apply damp
+            damps_selected[iter_ind] = df
+            np.add(Qi, np.multiply(df, dQi, out=Qi2), out=Qi2)
+            np.add(ri, np.multiply(df, dri, out=ri2), out=ri2)
+            np.add(Qi2.sum(2, out=Q), master.Q0, out=Q)
+            np.add(ri2.sum(1, out=r), master.r0, out=r)
+            try:
+                cho_Q = S
+                np.copyto(cho_Q, Q)
+                linalg.cho_factor(cho_Q, overwrite_a=True)
+                invert_normal_params(
+                    cho_Q, r, out_A='in-place', out_b=m, cho_form=True)
+                # cavity
+                for k, worker in enumerate(master.workers):
+                    posdefs[k] = worker.cavity(Q, r, Qi2[:,:,k], ri2[:,k])
+                if np.all(posdefs):
+                    # selection criteria
+                    # mse
+                    mses_selected[iter_ind+1] = np.mean((m - m_target)**2)
+                    # likelihood
+                    lls_selected[iter_ind+1] = np.sum(stats.multivariate_normal.logpdf(
+                        samp_target, mean=m, cov=S.T))
+                    # approximate KL
+                    kls_selected[iter_ind+1] = kl_mvn(
+                        m_target, S_target, m, S.T, sum_log_diag_cho_S0)
+                else:
+                    # decay damp
+                    print('    lowering-df-1')
+                    df *= epstan.method.Master.DEFAULT_KWARGS['df_decay']
+                    if df < epstan.method.Master.DEFAULT_KWARGS['df_treshold']:
+                        print('    df_threshold reached')
+                        break
+                    continue
 
-        except linalg.LinAlgError:
+            except linalg.LinAlgError:
+                # decay damp
+                print('    lowering-df-2')
+                df *= epstan.method.Master.DEFAULT_KWARGS['df_decay']
+                if df < epstan.method.Master.DEFAULT_KWARGS['df_treshold']:
+                    print('    df_threshold reached')
+                    break
+                continue
+
+            # all ok
             break
 
         # switch Qi <> Qi2, ri <> ri2
@@ -227,56 +252,6 @@ def main(model_name, K=None, iters=None):
         lls_selected = lls_selected,
         kls_selected = kls_selected,
     )
-
-# load
-# K = 2
-# res_file = np.load('find_damp_K{}.npz'.format(K))
-# damps = res_file['damps']
-# mses = res_file['mses']
-# lls = res_file['lls']
-# kls = res_file['kls']
-# damps_selected = res_file['damps_selected']
-# lls_selected = res_file['lls_selected']
-# mses_selected = res_file['mses_selected']
-# kls_selected = res_file['kls_selected']
-# res_file.close()
-# iters, N_DAMP = kls.shape
-#
-#
-# # plot
-# plt.figure()
-# plt.plot(damps_selected)
-# plt.title('damps')
-#
-# plt.figure()
-# plt.plot(mses_selected)
-# plt.title('mses')
-#
-# plt.figure()
-# plt.plot(lls_selected)
-# plt.title('lls')
-#
-# plt.figure()
-# plt.plot(kls_selected)
-# plt.title('kls')
-#
-# fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
-# for i, ax in enumerate(axes):
-#     ax.plot(damps, mses[i], label=str(i+1))
-# fig.legend()
-# fig.suptitle('mses')
-#
-# fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
-# for i, ax in enumerate(axes):
-#     ax.plot(damps, lls[i], label=str(i+1))
-# fig.legend()
-# fig.suptitle('lls')
-#
-# fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
-# for i, ax in enumerate(axes):
-#     ax.plot(damps, kls[i], label=str(i+1))
-# fig.legend()
-# fig.suptitle('kls')
 
 
 if __name__ == '__main__':
