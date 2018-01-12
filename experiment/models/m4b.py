@@ -41,10 +41,10 @@ from .common import data, calc_input_param_classification, rand_corr_vine
 
 # ====== Model parameters ======================================================
 # 2-tuple specifies the range from which they are randomed
-MU_A = 1.0
-MU_B = (-1.5, 1.5)
-LOG_SIGMA_A = -0.2
-LOG_SIGMA_B = (-0.3, 0.3)
+MU_A = 1.5
+MU_B = (-2.0, 2.0)
+LOG_SIGMA_A = 0.4
+LOG_SIGMA_B = (-0.5, 0.5)
 
 # ====== Prior =================================================================
 # Prior for mu_a
@@ -52,13 +52,13 @@ M0_MA = 0
 V0_MA = 4**2
 # Prior for log(sigma_a)
 M0_SA = 0
-V0_SA = 4**2
+V0_SA = 2**2
 # Prior for mu_b
 M0_MB = 0
 V0_MB = 4**2
 # Prior for log(sigma_b)
 M0_SB = 0
-V0_SB = 4**2
+V0_SB = 2**2
 
 # ====== Regulation ============================================================
 # Min for abs(sum(beta))

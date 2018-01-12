@@ -36,7 +36,7 @@ from .util import (
     stan_sample_time
 )
 
-from pystan.constants.MAX_UINT as pystan_max_uint
+from pystan.constants import MAX_UINT as pystan_max_uint
 
 
 def _sample_stan(queue, path, data, stan_params, other_params=None):
