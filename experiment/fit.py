@@ -172,9 +172,9 @@ CONS_ITERS = [50, 100, 500, 1000, 2000, 4000]
 
 DEFAULT_ITERS_TO_RUN = lambda K: int(max(4*K, 20))
 
-DAMP_DECAY_PERIOD = 0.5
+DAMP_DECAY_PERIOD = 0.25
 DAMP_START = lambda K: 0.5
-DAMP_END = lambda K: 1/K
+DAMP_END = lambda K: min(1/K, 0.25)
 
 def default_df0(K, iters):
     """Returns default damping factor function."""

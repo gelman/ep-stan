@@ -1,5 +1,5 @@
 # load
-K = 2
+K = 64
 res_file = np.load('find_damp_K{}.npz'.format(K))
 damps = res_file['damps']
 mses = res_file['mses']
@@ -22,28 +22,32 @@ plt.figure()
 plt.plot(mses_selected)
 plt.title('mses')
 
-plt.figure()
-plt.plot(lls_selected)
-plt.title('lls')
+# plt.figure()
+# plt.plot(lls_selected)
+# plt.title('lls')
 
 plt.figure()
 plt.plot(kls_selected)
 plt.title('kls')
 
-fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
+iters_to_plot = range(15)
+
+fig, axes = plt.subplots(1, len(iters_to_plot), sharex=True, sharey=True)
 for i, ax in enumerate(axes):
-    ax.plot(damps, mses[i], label=str(i+1))
+    ax.plot(damps, mses[iters_to_plot[i]], label=str(i+1))
+    ax.set_xlabel(iters_to_plot[i])
 fig.legend()
 fig.suptitle('mses')
 
-fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
-for i, ax in enumerate(axes):
-    ax.plot(damps, lls[i], label=str(i+1))
-fig.legend()
-fig.suptitle('lls')
+# fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
+# for i, ax in enumerate(axes):
+#     ax.plot(damps, lls[i], label=str(i+1))
+# fig.legend()
+# fig.suptitle('lls')
 
-fig, axes = plt.subplots(1, iters, sharex=True, sharey=True)
+fig, axes = plt.subplots(1, len(iters_to_plot), sharex=True, sharey=True)
 for i, ax in enumerate(axes):
-    ax.plot(damps, kls[i], label=str(i+1))
+    ax.plot(damps, kls[iters_to_plot[i]], label=str(i+1))
+    ax.set_xlabel(iters_to_plot[i])
 fig.legend()
 fig.suptitle('kls')
