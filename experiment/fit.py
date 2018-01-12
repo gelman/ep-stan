@@ -2,14 +2,14 @@
 algorithm described in an article "Expectation propagation as a way of life"
 (arXiv:1412.4869).
 
-usage:
-$ python fit.py [-h] [--J P] [--D P] [--npg P [P ...]] [--cor_input B]
-                [--run_all B] [--run_ep B] [--run_full B] [--run_consensus B]
-                [--run_target B] [--iter P] [--siter P] [--target_siter P]
-                [--chains P] [--K P] [--damp F] [--mix B] [--prec_estim S]
-                [--seed_data N] [--seed_mcmc N] [--id S] [--save_true B]
-                [--save_res B] [--save_target_samp B]
-                model_name
+usage: fit.py [-h] [--J P] [--D P] [--npg P [P ...]] [--cor_input B]
+              [--run_all B] [--run_ep B] [--run_full B] [--run_consensus B]
+              [--run_target B] [--iter P] [--siter P] [--target_siter P]
+              [--chains P] [--K P] [--damp F] [--mix B] [--prec_estim S]
+              [--seed_data N] [--seed_ep N] [--seed_full N] [--seed_cons N]
+              [--seed_target N] [--id S] [--save_true B] [--save_res B]
+              [--save_target_samp B]
+              model_name
 
 positional arguments:
   model_name            name of the model
@@ -48,8 +48,11 @@ optional arguments - method options:
                         olse (see epstan.method.Master), default sample
 
 optional arguments - seeds for randomisation:
-  --seed_data N         seed for data simulation, default 0
-  --seed_mcmc N         seed for sampling, default 0
+  --seed_data N         seed for data simulation, default 100
+  --seed_ep N           seed for distributed EP sampling, default 1
+  --seed_full N         seed for full sampling, default 2
+  --seed_cons N         seed for consensus sampling, default 3
+  --seed_target N       seed for target sampling, default 4
 
 optional arguments - saving options:
   --id S                optional id appended to the end of the result files,
@@ -124,7 +127,7 @@ CONFS = [
     'run_all', 'run_ep', 'run_full', 'run_consensus', 'run_target',
     'iter', 'siter', 'target_siter', 'chains',
     'K', 'damp', 'mix', 'prec_estim',
-    'seed_data', 'seed_mcmc',
+    'seed_data', 'seed_ep', 'seed_full', 'seed_cons', 'seed_target',
     'id', 'save_true', 'save_res', 'save_target_samp',
 ]
 
@@ -151,8 +154,11 @@ CONF_DEFAULT = dict(
     mix              = False,
     prec_estim       = 'sample',
 
-    seed_data        = 0,
-    seed_mcmc        = 0,
+    seed_data        = 100,
+    seed_ep          = 1,
+    seed_full        = 2,
+    seed_cons        = 3,
+    seed_target      = 4,
 
     id               = None,
     save_true        = True,
@@ -162,9 +168,9 @@ CONF_DEFAULT = dict(
 )
 
 FULL_ITERS = [50, 100, 200, 400, 800, 1600, 3200]
-CONS_ITERS = [50, 100, 500, 1000, 1500, 2000]
+CONS_ITERS = [50, 100, 500, 1000, 2000, 4000]
 
-DEFAULT_ITERS_TO_RUN = lambda K: int(max(2*K, 20))
+DEFAULT_ITERS_TO_RUN = lambda K: int(max(4*K, 20))
 
 DAMP_DECAY_PERIOD = 0.5
 DAMP_START = lambda K: 0.5
@@ -292,7 +298,7 @@ def main(model_name, conf, ret_master=False):
         # Options for the ep-algorithm see documentation of epstan.method.Master
         epstan_options = dict(
             prior = prior,
-            seed = conf.seed_mcmc,
+            seed = conf.seed_ep,
             prec_estim = conf.prec_estim,
             df0 = df0,
             init_site = init_site,
@@ -481,7 +487,7 @@ def main(model_name, conf, ret_master=False):
             print('  iter {}: {}'.format(i+1, iters))
 
             # use same seed for each iteration
-            seed = np.random.RandomState(seed=conf.seed_mcmc)
+            seed = np.random.RandomState(seed=conf.seed_full)
 
             # Sample and extract samples
             (samples, max_sampling_time, mean_stepsize, max_rhat, _
@@ -533,8 +539,6 @@ def main(model_name, conf, ret_master=False):
     if conf.run_consensus or conf.run_all:
 
         print("Consensus MC")
-
-        seed = np.random.RandomState(seed=conf.seed_mcmc)
 
         # prior for each consensus site
         cons_prior_k_Q = Q0 / K
@@ -593,7 +597,7 @@ def main(model_name, conf, ret_master=False):
         # sample multiple times with different number of iterations
         # determine seeds for each site, constant for each iteration
         seeds = (
-            np.random.RandomState(seed=conf.seed_mcmc)
+            np.random.RandomState(seed=conf.seed_cons)
             .randint(0, pystan.constants.MAX_UINT, size=K)
         )
         # preallocate output arrays
@@ -673,7 +677,7 @@ def main(model_name, conf, ret_master=False):
 
         print("Target approximation")
 
-        seed = np.random.RandomState(seed=conf.seed_mcmc)
+        seed = np.random.RandomState(seed=conf.seed_target)
 
         data_target = dict(
             N = data.X.shape[0],
@@ -900,7 +904,10 @@ CONF_HELP = dict(
     ),
 
     seed_data        = 'seed for data simulation',
-    seed_mcmc        = 'seed for sampling',
+    seed_ep          = 'seed for distributed EP sampling',
+    seed_full        = 'seed for full sampling',
+    seed_cons        = 'seed for consensus sampling',
+    seed_target      = 'seed for target sampling',
 
     id               = 'optional id appended to the end of the result files',
     save_true        = 'save true values',
@@ -945,7 +952,10 @@ CONF_CUSTOMS = dict(
     prec_estim       = dict(metavar='S'),
 
     seed_data        = dict(type=_parse_nonnegative_int, metavar='N'),
-    seed_mcmc        = dict(type=_parse_nonnegative_int, metavar='N'),
+    seed_ep          = dict(type=_parse_nonnegative_int, metavar='N'),
+    seed_full        = dict(type=_parse_nonnegative_int, metavar='N'),
+    seed_cons        = dict(type=_parse_nonnegative_int, metavar='N'),
+    seed_target      = dict(type=_parse_nonnegative_int, metavar='N'),
 
     id               = dict(metavar='S'),
     save_true        = dict(type=_parse_bool, metavar='B'),

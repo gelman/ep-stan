@@ -36,6 +36,8 @@ from .util import (
     stan_sample_time
 )
 
+from pystan.constants.MAX_UINT as pystan_max_uint
+
 
 def _sample_stan(queue, path, data, stan_params, other_params=None):
     """Load and fit Stan model in a subprocess.
@@ -135,6 +137,9 @@ class Worker(object):
     A : dict, optional
         Additional data included in this site.
 
+    seed : np.random.RandomState or int
+        Seed for the Stan sampling
+
     Other parameters
     ----------------
     See the class DistributedEP
@@ -153,8 +158,7 @@ class Worker(object):
         'iter'            : 1000,
         'warmup'          : None,
         'thin'            : 1,
-        'init'            : 'random',
-        'seed'            : None
+        'init'            : 'random'
     }
 
     # Available values for option `prec_estim`
@@ -162,7 +166,8 @@ class Worker(object):
 
     RESERVED_STAN_PARAMETER_NAMES = ['X', 'y', 'N', 'D', 'mu_phi', 'Omega_phi']
 
-    def __init__(self, index, stan_model, dphi, X, y, A={}, **options):
+    def __init__(
+            self, index, stan_model, dphi, X, y, A=None, seed=None, **options):
 
         # Parse options
         # Set missing options to defaults
@@ -180,6 +185,13 @@ class Worker(object):
             elif kw not in self.DEFAULT_OPTIONS:
                 # Unrecognised option
                 raise TypeError("Unexpected option '{}'".format(kw))
+
+        if A is None:
+            A = {}
+        if isinstance(seed, np.random.RandomState):
+            self.rng = seed
+        else:
+            self.rng = np.random.RandomState(seed)
 
         # Allocate space for calculations
         # After calling the method cavity, self.Mat holds the precision matrix
@@ -328,6 +340,9 @@ class Worker(object):
 
         if self.phase != 1:
             raise RuntimeError('Cavity has to be calculated before tilted.')
+
+        # get next seed for the sampling
+        self.stan_params['seed'] = self.rng.randint(0, pystan_max_uint)
 
         # Sample from the model
         if isinstance(self.stan_model, str):
@@ -616,21 +631,22 @@ class Master(object):
     MIN_EIG = 0.5
 
     # List of constructor default keyword arguments
-    DEFAULT_KWARGS = {
-        'A'                 : {},
-        'A_n'               : {},
-        'A_k'               : {},
-        'site_ind'          : None,
-        'site_ind_ord'      : None,
-        'site_sizes'        : None,
-        'dphi'              : None,
-        'prior'             : None,
-        'init_site'         : None,
-        'df0'               : None,
-        'df_decay'          : 0.8,
-        'df_treshold'       : 1e-6,
-        'overwrite_model'   : False
-    }
+    DEFAULT_KWARGS = dict(
+        A                 = {},
+        A_n               = {},
+        A_k               = {},
+        site_ind          = None,
+        site_ind_ord      = None,
+        site_sizes        = None,
+        dphi              = None,
+        prior             = None,
+        init_site         = None,
+        df0               = None,
+        df_decay          = 0.8,
+        df_treshold       = 1e-6,
+        overwrite_model   = False,
+        seed              = None
+    )
 
     def __init__(self, site_model, X, y, **kwargs):
 
@@ -801,10 +817,11 @@ class Master(object):
             # Use provided initial damping factor function
             self.df0 = kwargs['df0']
 
-        # Process seed in worker options
-        if not isinstance(self.worker_options['seed'], np.random.RandomState):
-            self.worker_options['seed'] = \
-                np.random.RandomState(seed=self.worker_options['seed'])
+        # Process seed for sampling in workers
+        if isinstance(kwargs['seed'], np.random.RandomState):
+            rng = kwargs['seed']
+        else:
+            rng = np.random.RandomState(seed=kwargs['seed'])
 
         # Initialise the workers
         self.workers = []
@@ -822,6 +839,7 @@ class Master(object):
                     X[self.k_lim[k]:self.k_lim[k+1]],
                     y[self.k_lim[k]:self.k_lim[k+1]],
                     A=A,
+                    seed=rng,
                     **self.worker_options
                 )
             )

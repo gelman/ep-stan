@@ -24,7 +24,7 @@ import epstan
 from epstan.util import invert_normal_params
 
 
-CHAINS = 4
+CHAINS = 8
 SITER = 400
 N_DAMP = 31
 
