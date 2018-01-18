@@ -25,7 +25,7 @@ from epstan.util import invert_normal_params
 
 
 CHAINS = 8
-SITER = 400
+SITER = 200
 N_DAMP = 31
 
 
@@ -79,7 +79,8 @@ def main(model_name, K=None, iters=None):
     if iters is None:
         iters = fit.DEFAULT_ITERS_TO_RUN(K)
 
-    conf = fit.configurations(J=J, D=D, K=K, chains=CHAINS, siter=SITER)
+    conf = fit.configurations(
+        J=J, D=D, K=K, chains=CHAINS, siter=SITER, save_true=False)
     master = fit.main(model_name, conf, ret_master=True)
 
     sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S_target)[0])))
@@ -102,7 +103,7 @@ def main(model_name, K=None, iters=None):
     dri = master.dri
 
     # selected damps
-    df0 = fit.default_df0(K, iters)
+    df0 = fit.default_df0(K)
 
     damps = np.linspace(0, 1, N_DAMP+2)[1:-1]
     mses = np.full((iters, N_DAMP), np.nan)

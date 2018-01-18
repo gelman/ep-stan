@@ -33,7 +33,7 @@ optional arguments - selected methods:
 
 optional arguments - iterations:
   --iter P              number of distributed EP iterations, default
-                        max(1.2*K, 10)
+                        max(4*K, 20)
   --siter P             Stan iterations in each major iteration, default 400
   --target_siter P      Stan iterations for the target approximation, default
                         1000
@@ -170,23 +170,20 @@ CONF_DEFAULT = dict(
 FULL_ITERS = [50, 100, 200, 400, 800, 1600, 3200]
 CONS_ITERS = [50, 100, 500, 1000, 2000, 4000]
 
-DEFAULT_ITERS_TO_RUN = lambda K: int(max(4*K, 20))
 
-DAMP_DECAY_PERIOD = 0.25
+EP_DEFAULT_ITERS_TO_RUN = lambda K: int(max(4*K, 20))
+
 DAMP_START = lambda K: 0.5
 DAMP_END = lambda K: min(1/K, 0.25)
+DAMP_DECAY_AT_K = 0.9
 
-def default_df0(K, iters):
+def default_df0(K):
     """Returns default damping factor function."""
-    # exponential decay
-    decay_iters = int(DAMP_DECAY_PERIOD * iters)
-    t = -np.log(DAMP_END(K)/DAMP_START(K))/(decay_iters-1)
-    return (
-        lambda curiter:
-        DAMP_START(K)*np.exp(-t*(curiter-1))
-        if curiter < decay_iters else
-        DAMP_END(K)
-    )
+    # exponential decay: a*e^(-t*(curiter-1))+b
+    t = -np.log(1-DAMP_DECAY_AT_K)/(K-1)
+    a = DAMP_START(K) - DAMP_END(K)
+    b = DAMP_END(K)
+    return lambda curiter: a*np.exp(-t*(curiter-1)) + b
 
 
 class configurations(object):
@@ -285,13 +282,13 @@ def main(model_name, conf, ret_master=False):
 
         # default iterations
         if conf.iter is None:
-            iters_to_run = DEFAULT_ITERS_TO_RUN(K)
+            iters_to_run = EP_DEFAULT_ITERS_TO_RUN(K)
         else:
             iters_to_run = conf.iter
 
         if conf.damp is None:
             # default damp
-            df0 = default_df0(K, iters_to_run)
+            df0 = default_df0(K)
         else:
             df0 = conf.damp
 

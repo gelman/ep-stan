@@ -73,7 +73,7 @@ plt.style.use(gray_background)
 
 MODEL_NAME = 'm4b'
 KS = (2, 4, 8, 16, 32, 64)
-EP_ID = 'siter400'
+EP_ID = 'siter200'
 CONS_ID = ''
 FULL_N = 6
 
