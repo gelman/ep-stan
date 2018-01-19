@@ -77,7 +77,7 @@ def main(model_name, K=None, iters=None):
         K = J
 
     if iters is None:
-        iters = fit.DEFAULT_ITERS_TO_RUN(K)
+        iters = fit.EP_DEFAULT_ITERS_TO_RUN(K)
 
     conf = fit.configurations(
         J=J, D=D, K=K, chains=CHAINS, siter=SITER, save_true=False)

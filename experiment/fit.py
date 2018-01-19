@@ -569,6 +569,9 @@ def main(model_name, conf, ret_master=False):
             )
 
         elif K == J:
+            # run additionally a bit longer
+            CONS_ITERS.append(CONS_ITERS[-1]*1.7)
+
             # ------ One group per site ------
             stan_model_name = os.path.join(MOD_PATH, model_name+'_sg')
             # generate datas for each site

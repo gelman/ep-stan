@@ -64,7 +64,10 @@ gray_background = {
     'xtick.bottom': False,
     'ytick.left': False,
     'ytick.right': False,
-    'legend.facecolor': 'white'
+    'legend.facecolor': 'white',
+    'legend.framealpha': None,
+    'legend.fancybox': False,
+    'legend.edgecolor': 'white'
 }
 plt.style.use(gray_background)
 # plt.style.use('seaborn')
@@ -73,9 +76,9 @@ plt.style.use(gray_background)
 
 MODEL_NAME = 'm4b'
 KS = (2, 4, 8, 16, 32, 64)
-EP_ID = 'siter200'
+EP_ID = ''
 CONS_ID = ''
-FULL_N = 6
+FULL_N = 11
 
 
 
@@ -281,7 +284,10 @@ legend_style_lines = (
     mlines.Line2D([], [], color='gray', ls=':', label='cons.', lw=lw)
 )
 legend_full_lines = (mlines.Line2D([], [], color='k', label='full', lw=lw),)
-axes[0].legend(handles=legend_k_lines+legend_style_lines+legend_full_lines)
+axes[0].legend(
+    handles = legend_k_lines+legend_style_lines+legend_full_lines,
+    ncol = 2
+)
 
 fig.subplots_adjust(
     top=0.97,
@@ -291,6 +297,9 @@ fig.subplots_adjust(
     hspace=0.08,
     wspace=0.3
 )
+
+# limit x-axis
+axes[0].set_xlim([0, 100])
 
 plt.savefig("fig_ex1_timex.pdf")
 plt.savefig("fig_ex1_timex.pgf")
