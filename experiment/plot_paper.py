@@ -216,7 +216,7 @@ for i in range(len(m_s_full)):
 K_colors = plt.get_cmap('tab10').colors[:len(KS)]
 
 # --------- time as x-axis
-fig, axes = plt.subplots(2, 1, sharex=True, figsize=figsize4latex(0.99, 1.4))
+fig, axes = plt.subplots(2, 1, sharex=True, figsize=figsize4latex(0.95, 1.4))
 
 lw = 1.0
 
@@ -233,7 +233,8 @@ for mse_cons, time_s_cons, k, color in zip(
         mse_cons_s, time_s_cons_s, KS, K_colors):
     ax.plot(time_s_cons/60, mse_cons, color=color, ls=':', label=str(k), lw=lw)
 # prior label
-ax.axhline(mse_ep_s[0][0], lw=0.5, color='0.65', zorder=1)
+ax.axhline(
+    mse_ep_s[0][0], lw=plt.rcParams['grid.linewidth'], color='0.65', zorder=1)
 ax.text(
     x = -0.022,
     y = mse_ep_s[0][0],
@@ -260,7 +261,8 @@ for kl_cons, time_s_cons, k, color in zip(
         kl_cons_s, time_s_cons_s, KS, K_colors):
     ax.plot(time_s_cons/60, kl_cons, color=color, ls=':', label=str(k), lw=lw)
 # prior label
-ax.axhline(kl_ep_s[0][0], lw=0.5, color='0.65', zorder=1)
+ax.axhline(
+    kl_ep_s[0][0], lw=plt.rcParams['grid.linewidth'], color='0.65', zorder=1)
 ax.text(
     x = -0.022,
     y = kl_ep_s[0][0],
@@ -284,22 +286,33 @@ legend_style_lines = (
     mlines.Line2D([], [], color='gray', ls=':', label='cons.', lw=lw)
 )
 legend_full_lines = (mlines.Line2D([], [], color='k', label='full', lw=lw),)
+legend_dummys = tuple(
+    mlines.Line2D([0], [0], color="white")
+    for _ in range(3)
+)
 axes[0].legend(
-    handles = legend_k_lines+legend_style_lines+legend_full_lines,
+    handles = (
+        legend_style_lines + legend_full_lines + legend_dummys +
+        legend_k_lines
+    ),
     ncol = 2
 )
 
 fig.subplots_adjust(
     top=0.97,
-    bottom=0.05,
-    left=0.11,
+    bottom=0.07,
+    left=0.12,
     right=0.96,
     hspace=0.08,
-    wspace=0.3
+    wspace=0.2
 )
 
 # limit x-axis
 axes[0].set_xlim([0, 100])
+# limit y-axis in axes[0]
+axes[0].set_ylim(bottom=0.01)
+# limit y-axis in axes[1]
+axes[1].set_ylim(bottom=1.0)
 
 plt.savefig("fig_ex1_timex.pdf")
 plt.savefig("fig_ex1_timex.pgf")

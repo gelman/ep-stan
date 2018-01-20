@@ -1,5 +1,5 @@
 # load
-K = 64
+K = 2
 res_file = np.load('find_damp_K{}.npz'.format(K))
 damps = res_file['damps']
 mses = res_file['mses']
@@ -19,7 +19,7 @@ plt.plot(damps_selected)
 plt.title('damps')
 
 plt.figure()
-plt.plot(mses_selected)
+plt.semilogy(mses_selected)
 plt.title('mses')
 
 # plt.figure()
@@ -27,7 +27,7 @@ plt.title('mses')
 # plt.title('lls')
 
 plt.figure()
-plt.plot(kls_selected)
+plt.semilogy(kls_selected)
 plt.title('kls')
 
 iters_to_plot = range(15)

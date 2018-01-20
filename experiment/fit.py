@@ -174,7 +174,7 @@ CONS_ITERS = [50, 100, 500, 1000, 2000, 4000]
 EP_DEFAULT_ITERS_TO_RUN = lambda K: int(max(4*K, 20))
 
 DAMP_START = lambda K: 0.5
-DAMP_END = lambda K: min(1/K, 0.25)
+DAMP_END = lambda K: 1/K
 DAMP_DECAY_AT_K = 0.9
 
 def default_df0(K):
