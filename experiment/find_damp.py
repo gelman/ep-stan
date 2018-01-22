@@ -216,6 +216,7 @@ def main(model_name, K=None, iters=None):
                     # decay damp
                     print('    lowering-df-1')
                     df *= epstan.method.Master.DEFAULT_KWARGS['df_decay']
+                    damps_selected[iter_ind] = df
                     if df < epstan.method.Master.DEFAULT_KWARGS['df_treshold']:
                         print('    df_threshold reached')
                         break
@@ -225,6 +226,7 @@ def main(model_name, K=None, iters=None):
                 # decay damp
                 print('    lowering-df-2')
                 df *= epstan.method.Master.DEFAULT_KWARGS['df_decay']
+                damps_selected[iter_ind] = df
                 if df < epstan.method.Master.DEFAULT_KWARGS['df_treshold']:
                     print('    df_threshold reached')
                     break

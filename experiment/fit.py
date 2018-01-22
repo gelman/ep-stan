@@ -295,7 +295,6 @@ def main(model_name, conf, ret_master=False):
         # Options for the ep-algorithm see documentation of epstan.method.Master
         epstan_options = dict(
             prior = prior,
-            seed = conf.seed_ep,
             prec_estim = conf.prec_estim,
             df0 = df0,
             init_site = init_site,
@@ -359,11 +358,19 @@ def main(model_name, conf, ret_master=False):
         if conf.mix:
             info, (m_s_ep, S_s_ep), (time_s_ep, mstepsize_s_ep, mrhat_s_ep) = (
                 epstan_master.run(
-                    iters_to_run, return_analytics=True, save_last_param=pnames)
+                    iters_to_run,
+                    return_analytics = True,
+                    save_last_param = pnames,
+                    seed = conf.seed_ep
+                )
             )
         else:
             info, (m_s_ep, S_s_ep), (time_s_ep, mstepsize_s_ep, mrhat_s_ep) = (
-                epstan_master.run(iters_to_run, return_analytics=True)
+                epstan_master.run(
+                    iters_to_run,
+                    return_analytics = True,
+                    seed = conf.seed_ep
+                )
             )
 
         # cumulate elapsed time in the sampling runtime analysis

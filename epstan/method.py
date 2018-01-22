@@ -137,9 +137,6 @@ class Worker(object):
     A : dict, optional
         Additional data included in this site.
 
-    seed : np.random.RandomState or int
-        Seed for the Stan sampling
-
     Other parameters
     ----------------
     See the class DistributedEP
@@ -167,7 +164,7 @@ class Worker(object):
     RESERVED_STAN_PARAMETER_NAMES = ['X', 'y', 'N', 'D', 'mu_phi', 'Omega_phi']
 
     def __init__(
-            self, index, stan_model, dphi, X, y, A=None, seed=None, **options):
+            self, index, stan_model, dphi, X, y, A=None, **options):
 
         # Parse options
         # Set missing options to defaults
@@ -188,10 +185,6 @@ class Worker(object):
 
         if A is None:
             A = {}
-        if isinstance(seed, np.random.RandomState):
-            self.rng = seed
-        else:
-            self.rng = np.random.RandomState(seed)
 
         # Allocate space for calculations
         # After calling the method cavity, self.Mat holds the precision matrix
@@ -308,7 +301,7 @@ class Worker(object):
             return True
 
 
-    def tilted(self, dQi, dri, save_samples=None):
+    def tilted(self, dQi, dri, save_samples=None, seed=None):
         """Estimate the tilted distribution parameters.
 
         This method estimates the tilted distribution parameters and calculates
@@ -330,6 +323,9 @@ class Worker(object):
             Additional parameter names, whose samples are to be saved in
             instance variable `saved_samples` (dict with {pname:samples}).
 
+        seed : np.random.RandomState or int, optional
+            Seed for the Stan sampling
+
         Returns
         -------
         pos_def
@@ -341,8 +337,12 @@ class Worker(object):
         if self.phase != 1:
             raise RuntimeError('Cavity has to be calculated before tilted.')
 
-        # get next seed for the sampling
-        self.stan_params['seed'] = self.rng.randint(0, pystan_max_uint)
+        # set next seed for the sampling
+        if isinstance(seed, np.random.RandomState):
+            rng = seed
+        else:
+            rng = np.random.RandomState(seed)
+        self.stan_params['seed'] = rng.randint(0, pystan_max_uint)
 
         # Sample from the model
         if isinstance(self.stan_model, str):
@@ -547,10 +547,6 @@ class Master(object):
 
     Other parameters
     ----------------
-    seed : {None, int, RandomState}, optional
-        The random seed used in the sampling. If not provided, a random seed is
-        used.
-
     init_site : scalar or ndarray, optional
         The initial site precision matrix. If not provided, improper uniform
         N(0,inf I), i.e. Q is allzeroes, is used. If scalar, N(0,A^2/K I),
@@ -644,8 +640,7 @@ class Master(object):
         df0               = None,
         df_decay          = 0.8,
         df_treshold       = 1e-6,
-        overwrite_model   = False,
-        seed              = None
+        overwrite_model   = False
     )
 
     def __init__(self, site_model, X, y, **kwargs):
@@ -817,12 +812,6 @@ class Master(object):
             # Use provided initial damping factor function
             self.df0 = kwargs['df0']
 
-        # Process seed for sampling in workers
-        if isinstance(kwargs['seed'], np.random.RandomState):
-            rng = kwargs['seed']
-        else:
-            rng = np.random.RandomState(seed=kwargs['seed'])
-
         # Initialise the workers
         self.workers = []
         for k in range(self.K):
@@ -839,7 +828,6 @@ class Master(object):
                     X[self.k_lim[k]:self.k_lim[k+1]],
                     y[self.k_lim[k]:self.k_lim[k+1]],
                     A=A,
-                    seed=rng,
                     **self.worker_options
                 )
             )
@@ -908,7 +896,7 @@ class Master(object):
 
 
     def run(self, niter, calc_moments=True, save_last_param=None, verbose=True,
-            return_analytics=False):
+            return_analytics=False, seed=None):
         """Run the distributed EP algorithm.
 
         Parameters
@@ -931,6 +919,10 @@ class Master(object):
         return_analytics : bool, optional
             If True, max sampling time, mean stepsize, and max Rhat for each
             iteration is returned. Default is False.
+
+        seed : {None, int, RandomState}, optional
+            The random seed used in the sampling. If not provided, a random seed
+            is used.
 
         Returns
         -------
@@ -958,6 +950,13 @@ class Master(object):
             if return_analytics:
                 out.append((None, None, None))
             return out if len(out) > 1 else out[0]
+
+        # Get seeds for sampling in workers for each iteration
+        if isinstance(seed, np.random.RandomState):
+            rng = seed
+        else:
+            rng = np.random.RandomState(seed=seed)
+        seeds = rng.randint(0, pystan_max_uint, size=(niter, self.K))
 
         # Localise some instance variables
         # Mean and cov of the posterior approximation
@@ -1010,12 +1009,14 @@ class Master(object):
                     posdefs[k] = self.workers[k].tilted(
                         dQi[:,:,k],
                         dri[:,k],
-                        save_samples = save_last_param
+                        save_samples = save_last_param,
+                        seed = seeds[cur_iter, k]
                     )
                 else:
                     posdefs[k] = self.workers[k].tilted(
                         dQi[:,:,k],
-                        dri[:,k]
+                        dri[:,k],
+                        seed = seeds[cur_iter, k]
                     )
                 if verbose and not posdefs[k]:
                     sys.stdout.write("fail\n")
