@@ -310,7 +310,7 @@ fig.subplots_adjust(
 # limit x-axis
 axes[0].set_xlim([0, 100])
 # limit y-axis in axes[0]
-axes[0].set_ylim(bottom=0.01)
+axes[0].set_ylim(bottom=0.005)
 # limit y-axis in axes[1]
 axes[1].set_ylim(bottom=1.0)
 
