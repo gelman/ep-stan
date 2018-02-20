@@ -368,12 +368,6 @@ def main(model_name, conf, ret_master=False):
             )
         )
 
-        print("Finished")
-        print(
-            "Time spent in other than tilted distribution sampling:\n{}"
-            .format(othertimes)
-        )
-
         # cumulate elapsed time in the sampling runtime analysis
         time_s_ep = time_s_ep.cumsum()
 
