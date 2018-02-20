@@ -355,23 +355,24 @@ def main(model_name, conf, ret_master=False):
             "Run distributed EP algorithm for {} iterations."
             .format(iters_to_run)
         )
-        if conf.mix:
-            info, (m_s_ep, S_s_ep), (time_s_ep, mstepsize_s_ep, mrhat_s_ep) = (
-                epstan_master.run(
-                    iters_to_run,
-                    return_analytics = True,
-                    save_last_param = pnames,
-                    seed = conf.seed_ep
-                )
+        (
+            info,
+            (m_s_ep, S_s_ep),
+            (time_s_ep, mstepsize_s_ep, mrhat_s_ep, othertimes)
+        ) = (
+            epstan_master.run(
+                iters_to_run,
+                return_analytics = True,
+                save_last_param = pnames if conf.mix else None,
+                seed = conf.seed_ep
             )
-        else:
-            info, (m_s_ep, S_s_ep), (time_s_ep, mstepsize_s_ep, mrhat_s_ep) = (
-                epstan_master.run(
-                    iters_to_run,
-                    return_analytics = True,
-                    seed = conf.seed_ep
-                )
-            )
+        )
+
+        print("Finished")
+        print(
+            "Time spent in other than tilted distribution sampling:\n{}"
+            .format(othertimes)
+        )
 
         # cumulate elapsed time in the sampling runtime analysis
         time_s_ep = time_s_ep.cumsum()
@@ -401,6 +402,7 @@ def main(model_name, conf, ret_master=False):
                     time_s_ep = time_s_ep,
                     mstepsize_s_ep = mstepsize_s_ep,
                     mrhat_s_ep = mrhat_s_ep,
+                    othertimes = othertimes,
                     last_iter = epstan_master.iter
                 )
                 print("Uncomplete distributed model results saved.")
@@ -440,6 +442,7 @@ def main(model_name, conf, ret_master=False):
                     time_s_ep = time_s_ep,
                     mstepsize_s_ep = mstepsize_s_ep,
                     mrhat_s_ep = mrhat_s_ep,
+                    othertimes = othertimes,
                     m_phi_ep = m_ep,
                     S_phi_ep = S_ep,
                     **presults

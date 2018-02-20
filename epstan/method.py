@@ -20,6 +20,7 @@ __all__ = ['Worker', 'Master']
 
 
 import sys
+import time
 import multiprocessing
 import numpy as np
 from scipy import linalg
@@ -933,12 +934,12 @@ class Master(object):
             Mean and covariance of the posterior approximation at every
             iteration. Returned only if `calc_moments` is True.
 
-        (times, msteps, mrhats) : 3-tuple of ndarray
-            Max sampling time, mean stepsize, and max Rhat for each iteration.
-            Returned only if `return_analytics` is True.
+        (times, msteps, mrhats, othertimes) : 4-tuple of ndarray
+            Max sampling time, mean stepsize, max Rhat, and time used for
+            non-sampling for each iteration. Returned only if
+            `return_analytics` is True.
 
         """
-
         if niter < 1:
             if verbose:
                 print("Nothing to do here as provided arg. `niter` is {}" \
@@ -983,10 +984,11 @@ class Master(object):
             m_phi_s = np.zeros((niter, self.dphi))
             cov_phi_s = np.zeros((niter, self.dphi, self.dphi))
 
-        # monitor sampling times, mean stepsizes, and max rhats
+        # monitor sampling times, mean stepsizes, and max rhats, and other times
         stimes = np.zeros(niter)
         msteps = np.zeros(niter)
         mrhats = np.zeros(niter)
+        othertimes = np.zeros(niter)
 
         # Iterate niter rounds
         for cur_iter in range(niter):
@@ -994,6 +996,7 @@ class Master(object):
 
             # Tilted distributions (parallelisable)
             # -------------------------------------
+
             if verbose:
                     print(
                         "Iter {} starting. Process tilted distributions"
@@ -1033,7 +1036,7 @@ class Master(object):
                 if calc_moments:
                     out.append((m_phi_s, cov_phi_s))
                 if return_analytics:
-                    out.append((stimes, msteps, mrhats))
+                    out.append((stimes, msteps, mrhats, othertimes))
                 return out if len(out) > 1 else out[0]
 
             # Store max sampling time
@@ -1046,6 +1049,9 @@ class Master(object):
                     "Sampling done, max sampling time {}"
                     .format(stimes[cur_iter])
                 )
+
+            # measure elapsed time for othertimes
+            start_othertime = time.time()
 
             # Update global approx
             # --------------------
@@ -1091,7 +1097,7 @@ class Master(object):
                         if calc_moments:
                             out.append((m_phi_s, cov_phi_s))
                         if return_analytics:
-                            out.append((stimes, msteps, mrhats))
+                            out.append((stimes, msteps, mrhats, othertimes))
                         return out if len(out) > 1 else out[0]
                     if df < self.df_treshold:
                         if verbose:
@@ -1107,7 +1113,7 @@ class Master(object):
                             if calc_moments:
                                 out.append((m_phi_s, cov_phi_s))
                             if return_analytics:
-                                out.append((stimes, msteps, mrhats))
+                                out.append((stimes, msteps, mrhats, othertimes))
                             return out if len(out) > 1 else out[0]
                         failed_force_pos_def = True
                         # Try to fix by forcing improper sites to proper
@@ -1118,7 +1124,8 @@ class Master(object):
                             min_eig = linalg.eigvalsh(
                                 Qi2[:,:,k], eigvals=(0,0))[0]
                             if min_eig < self.MIN_EIG_TRESHOLD:
-                                Qi[:,:,k].flat[::self.dphi+1] += self.MIN_EIG - min_eig
+                                Qi[:,:,k].flat[::self.dphi+1] += (
+                                    self.MIN_EIG - min_eig)
                                 posdefs[k] = 1
                         if verbose:
                             print("Force sites {} pos_def.".format(
@@ -1181,7 +1188,7 @@ class Master(object):
                             if calc_moments:
                                 out.append((m_phi_s, cov_phi_s))
                             if return_analytics:
-                                out.append((stimes, msteps, mrhats))
+                                out.append((stimes, msteps, mrhats, othertimes))
                             return out if len(out) > 1 else out[0]
                         failed_force_pos_def = True
                         # Try to fix by forcing improper sites to proper
@@ -1192,7 +1199,8 @@ class Master(object):
                             min_eig = linalg.eigvalsh(
                                 Qi2[:,:,k], eigvals=(0,0))[0]
                             if min_eig < self.MIN_EIG_TRESHOLD:
-                                Qi[:,:,k].flat[::self.dphi+1] += self.MIN_EIG - min_eig
+                                Qi[:,:,k].flat[::self.dphi+1] += (
+                                    self.MIN_EIG - min_eig)
                                 posdefs[k] = 1
                         if verbose:
                             print("Force sites {} pos_def.".format(
@@ -1210,23 +1218,32 @@ class Master(object):
                 np.copyto(m_phi_s[cur_iter], m)
                 np.copyto(cov_phi_s[cur_iter], S.T)
                 if verbose:
-                    print("Mean and std of phi[0]: {:.3}, {:.3}" \
-                          .format(m_phi_s[cur_iter,0],
-                                  np.sqrt(cov_phi_s[cur_iter,0,0])))
+                    print(
+                        "Mean and std of phi[0]: {:.3}, {:.3}"
+                        .format(
+                            m_phi_s[cur_iter,0],
+                            np.sqrt(cov_phi_s[cur_iter,0,0])
+                        )
+                    )
+
+            # measure total time - tilted time
+            othertimes[cur_iter] = time.time() - start_othertime
 
             if verbose:
                 print("Iter {} done.".format(self.iter))
 
         if verbose:
-            print(("{} iterations done\nTotal limiting sampling time: {}"
-                  .format(niter, stimes.sum())))
+            print(
+                "{} iterations done\nTotal limiting sampling time: {}"
+                .format(niter, stimes.sum())
+            )
 
         # return with desired args
         out = [self.INFO_OK]
         if calc_moments:
             out.append((m_phi_s, cov_phi_s))
         if return_analytics:
-            out.append((stimes, msteps, mrhats))
+            out.append((stimes, msteps, mrhats, othertimes))
         return tuple(out) if len(out) > 1 else out[0]
 
 
