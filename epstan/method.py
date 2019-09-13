@@ -430,7 +430,8 @@ class Worker(object):
                     cho_form=True
                 )
                 # Unbiased (for normal distr.) natural parameter estimates
-                unbias_k = (self.nsamp - self.dphi - 2)
+                # unbias_k = (self.nsamp - self.dphi - 2)
+                unbias_k = self.nsamp - 1
                 dQi *= unbias_k
                 dri *= unbias_k
                 if self.prec_estim_skip > 0:
