@@ -52,9 +52,10 @@ n_dim = 16
 seed = 11
 n_samp = 200
 n_trial = 8000
-df = 4
-use_precalculated = False  # loads precalculated results
 use_t_instead_of_n = False
+df = 4
+
+use_precalculated = False  # loads precalculated results
 
 
 # LAPACK positive definite inverse routine
@@ -233,7 +234,7 @@ if not use_precalculated:
         )
     # save
     np.savez(
-        'kltest_res.npz',
+        'kl_test_res.npz',
         kl_moment=kl_moment,
         kl_natural=kl_natural,
         n_dim=n_dim,
@@ -244,15 +245,15 @@ if not use_precalculated:
     )
 else:
     # load results
-    res_file = np.load('kltest_res.npz')
+    res_file = np.load('kl_test_res.npz')
     kl_moment = res_file['kl_moment']
     kl_natural = res_file['kl_natural']
     res_file.close()
 
 
-fig, axes = plt.subplots(2, 1, sharex=True, figsize=figsize4latex(0.9, 0.65))
+fig, axes = plt.subplots(2, 1, sharex=True, figsize=figsize4latex(0.98, 0.65))
 for ax, data, name in zip(
-        axes, (kl_moment, kl_natural), ('unbiased', 'biased')):
+        axes, (kl_moment, kl_natural), ('naive moment', 'normal precision')):
     # ax.set_xscale('log')
     ax.hist(data, 30, color='C0')
     low, high = np.percentile(data, (2.5, 97.5))
@@ -267,5 +268,5 @@ axes[-1].set_xlabel(r'$\mathrm{KL}(g_{\backslash k}(\theta)||g(\theta))$')
 plt.tight_layout()
 # plt.subplots_adjust(top=0.95, bottom=0.15, hspace=0.15)
 
-plt.savefig("fig_kltest.pdf")
-plt.savefig("fig_kltest.pgf")
+plt.savefig("fig_kl_test.pdf")
+plt.savefig("fig_kl_test.pgf")
