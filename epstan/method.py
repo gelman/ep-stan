@@ -213,6 +213,10 @@ class Worker(object):
         self.temp_M = np.empty((dphi,dphi), order='F')
         self.temp_v = np.empty(dphi)
 
+        # for SNEP
+        self.Q_cav = np.empty((dphi,dphi), order='F')
+        self.r_cav = np.empty(dphi)
+
         # Data for stan model in method tilted
         self.data = dict(
             N=X.shape[0],
@@ -287,6 +291,9 @@ class Worker(object):
         self.r = r
         np.subtract(self.Q, Qi, out=self.Mat)
         np.subtract(self.r, ri, out=self.vec)
+
+        np.copyto(self.Q_cav, self.Mat)
+        np.copyto(self.r_cav, self.vec)
 
         # Check if positive definite and solve the mean
         try:
@@ -474,6 +481,192 @@ class Worker(object):
 
         self.iteration += 1
         return pos_def
+
+    def tilted_snep(
+            self, Qi, ri, dQi, dri, save_samples=None, seed=None, N_inner=4,
+            N_outer=2, damp=1.0):
+        """Estimate the tilted distribution parameters. SNEP
+
+        """
+
+        if self.phase != 1:
+            raise RuntimeError('Cavity has to be calculated before tilted.')
+
+        # set next seed for the sampling
+        if isinstance(seed, np.random.RandomState):
+            rng = seed
+        else:
+            rng = np.random.RandomState(seed)
+        self.stan_params['seed'] = rng.randint(0, pystan_max_uint)
+
+        Q_aux = self.Q.copy(order='F')
+        r_aux = self.r.copy()
+
+        Q_cav = self.Q_cav
+        r_cav = self.r_cav
+
+        Qi_old = Qi
+        ri_old = ri
+        Qi = np.copy(Qi_old, order='F')
+        ri = np.copy(ri_old)
+        Si, mi = invert_normal_params(Qi, ri)
+
+        tot_time = 0
+
+        cur_data = self.data.copy()
+
+        for inner_i in range(N_inner):
+
+            if inner_i > 0:
+                Q_cur_cav = Q_aux - Qi
+                r_cur_cav = r_aux - ri
+                # check if positive definite and solve the mean
+                try:
+                    np.copyto(self.temp_M, Q_cur_cav)
+                    cho = linalg.cho_factor(self.temp_M, overwrite_a=True)
+                    m_cur_cav = linalg.cho_solve(
+                        cho, r_cur_cav, overwrite_b=True)
+                except linalg.LinAlgError:
+                    # iteration failed
+                    self.phase = 0
+                    dQi.fill(0)
+                    dri.fill(0)
+                    if self.init_prev:
+                        # Reset initialisation method
+                        self.init = self.init_orig
+                    self.iteration += 1
+                    return False
+                cur_data['mu_phi'] = m_cur_cav
+                cur_data['Omega_phi'] = Q_cur_cav.T  # T for C-order
+
+            # Sample from the model
+            if isinstance(self.stan_model, str):
+                # run in a subprocess
+                q = multiprocessing.Queue()
+                args = [q, self.stan_model, self.data, self.stan_params]
+                if save_samples:
+                    args.append(save_samples)
+                p = multiprocessing.Process(target=_sample_stan, args=args)
+                p.start()
+                if save_samples:
+                    samp, lastsamp, dur, msteps, mrhat, saved_samp = q.get()
+                    self.saved_samp = saved_samp
+                else:
+                    samp, lastsamp, dur, msteps, mrhat = q.get()
+                samp = np.copy(samp, order='F') # Needs to be copied for `owndata`
+                p.join()
+                # store info
+                # self.last_time = dur
+                tot_time += dur
+                self.last_msteps = msteps
+                self.last_mrhat = mrhat
+
+            else:
+                # run in the same process
+                fit, max_sampling_time = stan_sample_time(
+                    self.stan_model, data=self.data, **self.stan_params)
+                time_start = timer()
+
+                # store info
+                # runtime
+                # self.last_time = max_sampling_time
+                tot_time += max_sampling_time
+                # mean stepsize
+                self.last_msteps = np.mean([
+                    np.mean(p['stepsize__'])
+                    for p in fit.get_sampler_params()
+                ])
+                # max Rhat (from all but last row in the last column)
+                self.last_mrhat = np.max(fit.summary()['summary'][:-1,-1])
+
+                # Extract samples
+                samp = copy_fit_samples(fit, 'phi')
+                lastsamp = get_last_fit_sample(fit)
+                if save_samples:
+                    # Extract other params
+                    self.saved_samp = {
+                        par : fit.extract(pars=par)[par]
+                        for par in save_samples
+                    }
+
+                # Dereference the fit
+                fit = None
+
+            if self.init_prev:
+                # Store the last sample of each chain
+                self.stan_params['init'] = lastsamp
+
+            self.nsamp = samp.shape[0]
+
+            # Estimate moments
+            # Mean
+            m_t = np.mean(samp, axis=0, out=self.vec)
+            # Center samples
+            samp -= m_t
+            S_t = samp.T.dot(samp).T
+            S_t /= (self.nsamp - 1)
+
+            np.add(Q_cav, Qi, out=self.temp_M)
+            np.add(r_cav, ri, out=self.temp_v)
+            try:
+                S_g, m_g = invert_normal_params(
+                    self.temp_M, self.temp_v,
+                    out_A='in-place', out_b='in-place'
+                )
+            except linalg.LinAlgError:
+                # iteration failed
+                self.phase = 0
+                dQi.fill(0)
+                dri.fill(0)
+                if self.init_prev:
+                    # Reset initialisation method
+                    self.init = self.init_orig
+                self.iteration += 1
+                return False
+
+            S_t -= S_g
+            m_t -= m_g
+            S_t *= damp
+            m_t *= damp
+            Si += S_t
+            mi += m_t
+
+            try:
+                invert_normal_params(
+                    Si, mi, out_A=Qi, out_b=ri)
+            except linalg.LinAlgError:
+                # iteration failed
+                self.phase = 0
+                dQi.fill(0)
+                dri.fill(0)
+                if self.init_prev:
+                    # Reset initialisation method
+                    self.init = self.init_orig
+                self.iteration += 1
+                return False
+
+            if (inner_i + 1) % N_outer == 0 and inner_i + 1 < N_inner:
+                # update aux parameter
+                np.add(Q_cav, Qi, out=Q_aux)
+                np.add(r_cav, ri, out=r_aux)
+
+
+        self.last_time = tot_time
+
+        # calc diff in out arrays
+        np.subtract(Qi, Qi_old, out=dQi)
+        np.subtract(ri, ri_old, out=dri)
+
+        if self.verbose:
+            print('\n   sampling runtime: {:.4}'.format(self.last_time))
+            print('    mean stepsize: {:.4}'.format(self.last_msteps))
+            print('    max Rhat: {:.4}'.format(self.last_mrhat))
+
+        # Set phase flag
+        self.phase = 2
+
+        self.iteration += 1
+        return True
 
 
 class Master(object):
@@ -898,7 +1091,7 @@ class Master(object):
 
 
     def run(self, niter, calc_moments=True, save_last_param=None, verbose=True,
-            return_analytics=False, seed=None):
+            return_analytics=False, snep=False, snep_conf=None, seed=None):
         """Run the distributed EP algorithm.
 
         Parameters
@@ -921,6 +1114,12 @@ class Master(object):
         return_analytics : bool, optional
             If True, max sampling time, mean stepsize, and max Rhat for each
             iteration is returned. Default is False.
+
+        snep : bool
+            use SNEP
+
+        snep_conf : dict
+            kwargs for `tilted_snep`
 
         seed : {None, int, RandomState}, optional
             The random seed used in the sampling. If not provided, a random seed
@@ -991,6 +1190,9 @@ class Master(object):
         mrhats = np.zeros(niter)
         othertimes = np.zeros(niter)
 
+        if snep_conf is None:
+            snep_conf = dict()
+
         # Iterate niter rounds
         for cur_iter in range(niter):
             self.iter += 1
@@ -1009,17 +1211,22 @@ class Master(object):
                     # Force flush here as it is not done automatically
                     sys.stdout.flush()
                 # Process the site
-                if save_last_param:
-                    posdefs[k] = self.workers[k].tilted(
+                if snep:
+                    posdefs[k] = self.workers[k].tilted_snep(
+                        Qi[:,:,k],
+                        ri[:,k],
                         dQi[:,:,k],
                         dri[:,k],
                         save_samples = save_last_param,
-                        seed = seeds[cur_iter, k]
+                        seed = seeds[cur_iter, k],
+                        damp=self.df0(self.iter),
+                        **snep_conf
                     )
                 else:
                     posdefs[k] = self.workers[k].tilted(
                         dQi[:,:,k],
                         dri[:,k],
+                        save_samples = save_last_param,
                         seed = seeds[cur_iter, k]
                     )
                 if verbose and not posdefs[k]:
@@ -1058,7 +1265,10 @@ class Master(object):
             # --------------------
 
             # Initial dampig factor
-            df = self.df0(self.iter)
+            if snep:
+                df = 1.0
+            else:
+                df = self.df0(self.iter)
             if verbose:
                 print("Iter {}, starting df {:.3g}".format(self.iter, df))
                 fail_printline_pos = False

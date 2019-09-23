@@ -26,6 +26,7 @@ optional arguments - data:
 
 optional arguments - selected methods:
   --run_all B           run all the methods, default False
+  --run_snep B          run the distributed EP method, default False
   --run_ep B            run the distributed EP method, default False
   --run_full B          run the full model method, default False
   --run_consensus B     run consensus MC method, default False
@@ -124,7 +125,7 @@ from epstan.util import (
 
 CONFS = [
     'J', 'D', 'npg', 'cor_input',
-    'run_all', 'run_ep', 'run_full', 'run_consensus', 'run_target',
+    'run_all', 'run_ep', 'run_snep', 'run_full', 'run_consensus', 'run_target',
     'iter', 'siter', 'target_siter', 'chains',
     'K', 'damp', 'mix', 'prec_estim',
     'seed_data', 'seed_ep', 'seed_full', 'seed_cons', 'seed_target',
@@ -141,6 +142,7 @@ CONF_DEFAULT = dict(
 
     run_all          = False,
     run_ep           = False,
+    run_snep         = False,
     run_full         = False,
     run_consensus    = False,
     run_target       = False,
@@ -244,9 +246,10 @@ def main(model_name, conf, ret_master=False):
     S0, m0, Q0, r0 = model.get_prior()
     prior = {'Q':Q0, 'r':r0}
 
-    #~ # Set init_site to N(0,A**2/K I), where A = 10 * max(diag(S0))
-    #~ init_site = 10 * np.max(np.diag(S0))
-    init_site = None # Zero initialise the sites
+    # Set EP init_site to N(0,A**2/K I), where A = 10 * max(diag(S0))
+    init_site = 100 * np.max(np.diag(S0))
+
+    # init_site = None # Zero initialise the sites
 
     # Get parameter information
     pnames, pshapes, phiers = model.get_param_definitions()
@@ -274,11 +277,11 @@ def main(model_name, conf, ret_master=False):
         print("True values saved into results")
 
     # --------------------------------------------------------------------------
-    #   Distributed method
+    #   Distributed EP method
     # --------------------------------------------------------------------------
     if conf.run_ep or conf.run_all or ret_master:
 
-        print("Distributed method")
+        print("Distributed EP method")
 
         # default iterations
         if conf.iter is None:
@@ -451,12 +454,198 @@ def main(model_name, conf, ret_master=False):
                     mstepsize_s_ep = mstepsize_s_ep,
                     mrhat_s_ep = mrhat_s_ep,
                 )
-            print("Distributed model results saved.")
+            print("Distributed EP model results saved.")
 
         # Release master object
         del epstan_master
 
-        print("Done with distributed method")
+        print("Done with distributed EP method")
+
+    # --------------------------------------------------------------------------
+    #   Distributed SNEP method
+    # --------------------------------------------------------------------------
+    if conf.run_snep or conf.run_all or ret_master:
+
+        print("Distributed SNEP method")
+
+        # default iterations
+        if conf.iter is None:
+            iters_to_run = EP_DEFAULT_ITERS_TO_RUN(K)
+        else:
+            iters_to_run = conf.iter
+
+        if conf.damp is None:
+            # default damp
+            df0 = default_df0(K)
+        else:
+            df0 = conf.damp
+
+        # Options for the ep-algorithm see documentation of epstan.method.Master
+        epstan_options = dict(
+            prior = prior,
+            prec_estim = conf.prec_estim,
+            df0 = df0,
+            init_site = init_site,
+            chains = conf.chains,
+            iter = conf.siter,
+            warmup = None,
+            thin = 1,
+        )
+
+        if K < 2:
+            raise ValueError("K should be at least 2.")
+
+        elif K < J:
+            # ------ Many groups per site: combine groups ------
+            Nk, Nj_k, j_ind_k = distribute_groups(J, K, data.Nj)
+            # Create the Master instance
+            epstan_master = Master(
+                os.path.join(MOD_PATH, model_name),
+                data.X,
+                data.y,
+                A_k = {'J':Nj_k},
+                A_n = {'j_ind':j_ind_k+1},
+                site_sizes = Nk,
+                **epstan_options
+            )
+            # Construct the map: which site contribute to which parameter
+            pmaps = _create_pmaps(phiers, J, K, Nj_k)
+
+        elif K == J:
+            # ------ One group per site ------
+            # Create the Master instance
+            epstan_master = Master(
+                os.path.join(MOD_PATH, model_name+'_sg'),
+                data.X,
+                data.y,
+                site_sizes=data.Nj,
+                **epstan_options
+            )
+            # Construct the map: which site contribute to which parameter
+            pmaps = _create_pmaps(phiers, J, K, None)
+
+        elif K <= data.N:
+            # ------ Multiple sites per group: split groups ------
+            raise NotImplementedError("Splitting the groups not implemented.")
+
+        else:
+            raise ValueError("K cant be greater than number of samples")
+
+        if ret_master:
+            print("Returning epstan.Master")
+            return epstan_master
+
+        # initial approximation
+        S_snep_init, m_snep_init = epstan_master.cur_approx()
+
+        # Run the algorithm for `EP_ITER` iterations
+        print(
+            "Run distributed SNEP algorithm for {} iterations."
+            .format(iters_to_run)
+        )
+        (
+            info,
+            (m_s_snep, S_s_snep),
+            (time_s_snep, mstepsize_s_snep, mrhat_s_snep, othertimes)
+        ) = (
+            epstan_master.run(
+                iters_to_run,
+                return_analytics = True,
+                save_last_param = pnames if conf.mix else None,
+                seed = conf.seed_ep,
+                snep=True
+            )
+        )
+
+        # cumulate elapsed time in the sampling runtime analysis
+        time_s_snep = time_s_snep.cumsum()
+
+        # add initial approx info
+        S_s_snep = np.concatenate((S_snep_init[None,:,:], S_s_snep), axis=0)
+        m_s_snep = np.concatenate((m_snep_init[None,:], m_s_snep), axis=0)
+        time_s_snep = np.insert(time_s_snep, 0, 0.0)
+        mstepsize_s_snep = np.insert(mstepsize_s_snep, 0, np.nan)
+        mrhat_s_snep = np.insert(mrhat_s_snep, 0, np.nan)
+
+        # check if run failed
+        if info:
+            # Save results until failure
+            if conf.save_res:
+                if not os.path.exists(RES_PATH):
+                    os.makedirs(RES_PATH)
+                if conf.id:
+                    filename = 'res_s_{}_{}.npz'.format(model_name, conf.id)
+                else:
+                    filename = 'res_s_{}.npz'.format(model_name)
+                np.savez(
+                    os.path.join(RES_PATH, filename),
+                    conf = conf.__dict__,
+                    m_s_snep = m_s_snep,
+                    S_s_snep = S_s_snep,
+                    time_s_snep = time_s_snep,
+                    mstepsize_s_snep = mstepsize_s_snep,
+                    mrhat_s_snep = mrhat_s_snep,
+                    othertimes = othertimes,
+                    last_iter = epstan_master.iter
+                )
+                print("Uncomplete distributed model results saved.")
+            raise RuntimeError(
+                'epstan algorithm failed with error code: {}'
+                .format(info)
+            )
+
+        if conf.mix:
+            print("Form the final approximation "
+                  "by mixing the last samples from all the sites.")
+            S_snep, m_snep = epstan_master.mix_phi()
+
+            # Get mean and var of inferred variables
+            pms, pvars = epstan_master.mix_pred(pnames, pmaps, pshapes)
+            # Construct a dict of from these results
+            presults = {}
+            for i in range(len(pnames)):
+                pname = pnames[i]
+                presults['m_'+pname+'_snep'] = pms[i]
+                presults['v_'+pname+'_snep'] = pvars[i]
+
+        # Save results
+        if conf.save_res:
+            if not os.path.exists(RES_PATH):
+                os.makedirs(RES_PATH)
+            if conf.id:
+                filename = 'res_s_{}_{}.npz'.format(model_name, conf.id)
+            else:
+                filename = 'res_s_{}.npz'.format(model_name)
+            if conf.mix:
+                np.savez(
+                    os.path.join(RES_PATH, filename),
+                    conf = conf.__dict__,
+                    m_s_snep = m_s_snep,
+                    S_s_snep = S_s_snep,
+                    time_s_snep = time_s_snep,
+                    mstepsize_s_snep = mstepsize_s_snep,
+                    mrhat_s_snep = mrhat_s_snep,
+                    othertimes = othertimes,
+                    m_phi_snep = m_snep,
+                    S_phi_snep = S_snep,
+                    **presults
+                )
+            else:
+                np.savez(
+                    os.path.join(RES_PATH, filename),
+                    conf = conf.__dict__,
+                    m_s_snep = m_s_snep,
+                    S_s_snep = S_s_snep,
+                    time_s_snep = time_s_snep,
+                    mstepsize_s_snep = mstepsize_s_snep,
+                    mrhat_s_snep = mrhat_s_snep,
+                )
+            print("Distributed SNEP model results saved.")
+
+        # Release master object
+        del epstan_master
+
+        print("Done with distributed SNEP method")
 
     # --------------------------------------------------------------------------
     #   Full model sampling
@@ -890,6 +1079,7 @@ CONF_HELP = dict(
 
     run_all          = 'run all the methods',
     run_ep           = 'run the distributed EP method',
+    run_snep         = 'run the distributed SNEP method',
     run_full         = 'run the full model method',
     run_consensus    = 'run consensus MC method',
     run_target       = 'run target approximation',
@@ -942,6 +1132,7 @@ CONF_CUSTOMS = dict(
 
     run_all          = dict(type=_parse_bool, metavar='B'),
     run_ep           = dict(type=_parse_bool, metavar='B'),
+    run_snep         = dict(type=_parse_bool, metavar='B'),
     run_full         = dict(type=_parse_bool, metavar='B'),
     run_consensus    = dict(type=_parse_bool, metavar='B'),
     run_target       = dict(type=_parse_bool, metavar='B'),
