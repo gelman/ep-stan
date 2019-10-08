@@ -475,8 +475,8 @@ def main(model_name, conf, ret_master=False):
             iters_to_run = conf.iter
 
         if conf.damp is None:
-            # default damp
-            df0 = default_df0(K)
+            # default damp ... no damp
+            df0 = 1.0
         else:
             df0 = conf.damp
 
