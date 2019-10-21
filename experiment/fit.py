@@ -475,8 +475,8 @@ def main(model_name, conf, ret_master=False):
             iters_to_run = conf.iter
 
         if conf.damp is None:
-            # default damp ... no damp
-            df0 = 1.0
+            # default damp
+            df0 = default_df0(K)
         else:
             df0 = conf.damp
 
@@ -553,7 +553,8 @@ def main(model_name, conf, ret_master=False):
                 return_analytics = True,
                 save_last_param = pnames if conf.mix else None,
                 seed = conf.seed_ep,
-                snep=True
+                snep=True,
+                snep_conf=dict(N_inner=1)
             )
         )
 
