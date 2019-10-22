@@ -553,8 +553,7 @@ def main(model_name, conf, ret_master=False):
                 return_analytics = True,
                 save_last_param = pnames if conf.mix else None,
                 seed = conf.seed_ep,
-                snep=True,
-                snep_conf=dict(N_inner=1)
+                snep=True
             )
         )
 

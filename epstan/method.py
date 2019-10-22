@@ -1197,13 +1197,16 @@ class Master(object):
         for cur_iter in range(niter):
             self.iter += 1
 
+            cur_damp = self.df0(self.iter)
+
             # Tilted distributions (parallelisable)
             # -------------------------------------
 
             if verbose:
                     print(
-                        "Iter {} starting. Process tilted distributions"
-                        .format(self.iter)
+                        "Iter {} starting, df: {:.3g} \n"
+                        "Process tilted distributions"
+                        .format(cur_damp, self.iter)
                     )
             for k in range(self.K):
                 if verbose:
@@ -1219,7 +1222,7 @@ class Master(object):
                         dri[:,k],
                         save_samples = save_last_param,
                         seed = seeds[cur_iter, k],
-                        damp=self.df0(self.iter),
+                        damp=cur_damp,
                         **snep_conf
                     )
                 else:
@@ -1268,9 +1271,9 @@ class Master(object):
             if snep:
                 df = 1.0
             else:
-                df = self.df0(self.iter)
+                df = cur_damp
             if verbose:
-                print("Iter {}, starting df {:.3g}".format(self.iter, df))
+                print("combine...")
                 fail_printline_pos = False
                 fail_printline_cov = False
             # Fail flag for pos.def enforcing
