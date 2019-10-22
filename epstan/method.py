@@ -543,7 +543,7 @@ class Worker(object):
             if isinstance(self.stan_model, str):
                 # run in a subprocess
                 q = multiprocessing.Queue()
-                args = [q, self.stan_model, self.data, self.stan_params]
+                args = [q, self.stan_model, cur_data, self.stan_params]
                 if save_samples:
                     args.append(save_samples)
                 p = multiprocessing.Process(target=_sample_stan, args=args)
@@ -564,7 +564,7 @@ class Worker(object):
             else:
                 # run in the same process
                 fit, max_sampling_time = stan_sample_time(
-                    self.stan_model, data=self.data, **self.stan_params)
+                    self.stan_model, data=cur_data, **self.stan_params)
                 time_start = timer()
 
                 # store info
