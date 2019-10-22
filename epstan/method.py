@@ -744,8 +744,8 @@ class Master(object):
     ----------------
     init_site : scalar or ndarray, optional
         The initial site precision matrix. If not provided, improper uniform
-        N(0,inf I), i.e. Q is allzeroes, is used. If scalar, N(0,A^2/K I),
-        where A = `init_site`, is used.
+        N(0, inf I), i.e. Q is allzeroes, is used. If scalar,
+        ``N(0, init_site * I)`` is used.
 
     overwrite_model : bool, optional
         If a string for `site_model` is provided, the model is compiled even
@@ -1050,7 +1050,7 @@ class Master(object):
                 for k in range(self.K):
                     np.copyto(self.Qi[:,:,k], kwargs['init_site'])
             else:
-                diag_elem = self.K / (kwargs['init_site']**2)
+                diag_elem = 1/kwargs['init_site']
                 for k in range(self.K):
                     self.Qi[:,:,k].flat[::self.dphi+1] = diag_elem
 

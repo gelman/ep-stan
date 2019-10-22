@@ -246,9 +246,8 @@ def main(model_name, conf, ret_master=False):
     S0, m0, Q0, r0 = model.get_prior()
     prior = {'Q':Q0, 'r':r0}
 
-    # Set EP init_site to N(0,A**2/K I), where A = 10 * max(diag(S0))
-    init_site = 100 * np.max(np.diag(S0))
-
+    # Set EP init_site
+    init_site = 2*K*np.max(np.diag(S0))  # diagonal value
     # init_site = None # Zero initialise the sites
 
     # Get parameter information
