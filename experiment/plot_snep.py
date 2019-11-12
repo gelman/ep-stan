@@ -16,9 +16,9 @@ import matplotlib.lines as mlines
 
 
 MODEL_NAME = 'm4b'
-# KS = (2, 4, 8, 16)
-KS = (4, 8, 16)
-EP_ID = 'd25'
+KS = (2, 4, 8, 16)
+# KS = (4, 8, 16)
+EP_ID = 'd50'
 SNEP_ID = ''
 CONS_ID = ''
 FULL_N = 11
@@ -86,6 +86,7 @@ S_s_snep_s = []
 time_s_snep_s = []
 mstepsize_s_snep_s = []
 mrhat_s_snep_s = []
+snep_last_iter_s = []
 for k in KS:
     if SNEP_ID:
         res_s_file = np.load(
@@ -102,6 +103,16 @@ for k in KS:
     time_s_snep_s.append(res_s_file['time_s_snep'])
     mstepsize_s_snep_s.append(res_s_file['mstepsize_s_snep'])
     mrhat_s_snep_s.append(res_s_file['mrhat_s_snep'])
+    if 'last_iter' in res_s_file.files:
+        snep_last_iter = res_s_file['last_iter'][()]
+        m_s_snep_s[-1][snep_last_iter:,:] = np.nan
+        S_s_snep_s[-1][snep_last_iter:,:,:] = np.nan
+        time_s_snep_s[-1][snep_last_iter:] = np.nan
+        mstepsize_s_snep_s[-1][snep_last_iter:] = np.nan
+        mrhat_s_snep_s[-1][snep_last_iter:] = np.nan
+    else:
+        snep_last_iter = len(time_s_snep_s[-1])
+    snep_last_iter_s.append(snep_last_iter)
     res_s_file.close()
 
 
@@ -161,10 +172,11 @@ for m_s_ep, S_s_ep in zip(m_s_ep_s, S_s_ep_s):
 # SNEP
 mse_snep_s = []
 kl_snep_s = []
-for m_s_snep, S_s_snep in zip(m_s_snep_s, S_s_snep_s):
+for m_s_snep, S_s_snep, snep_last_iter in zip(
+        m_s_snep_s, S_s_snep_s, snep_last_iter_s):
     mse_snep = np.mean((m_s_snep - m_target)**2, axis=1)
-    kl_snep = np.empty(len(m_s_snep))
-    for i in range(len(m_s_snep)):
+    kl_snep = np.full(len(m_s_snep), np.nan)
+    for i in range(snep_last_iter):
         kl_snep[i] = kl_mvn(
             m_target, S_target, m_s_snep[i], S_s_snep[i], sum_log_diag_cho_S0)
     mse_snep_s.append(mse_snep)
@@ -200,33 +212,33 @@ K_colors = plt.get_cmap('tab10').colors[:len(KS)]
 
 
 
-# ----------- just snep
-plt.figure()
-for mse_snep, time_s_snep, k, color in zip(
-        mse_snep_s, time_s_snep_s, KS, K_colors):
-    plt.plot(time_s_snep/60, mse_snep, color=color, label=str(k))
-plt.legend()
-
-
-# ----------- one snep vs one ep
-fig, axes = plt.subplots(2, 1, sharex=True, figsize=(10, 8))
-cur_k_i = 2
-
-ax = axes[0]
-ax.set_title('MSE')
-ax.semilogy(time_s_ep_s[cur_k_i]/60, mse_ep_s[cur_k_i], label='ep')
-ax.semilogy(time_s_snep_s[cur_k_i]/60, mse_snep_s[cur_k_i], label='snep')
-
-ax = axes[1]
-ax.set_title('KL')
-ax.semilogy(time_s_ep_s[cur_k_i]/60, kl_ep_s[cur_k_i], label='ep')
-ax.semilogy(time_s_snep_s[cur_k_i]/60, kl_snep_s[cur_k_i], label='snep')
-ax.legend()
+# # ----------- just snep
+# plt.figure()
+# for mse_snep, time_s_snep, k, color in zip(
+#         mse_snep_s, time_s_snep_s, KS, K_colors):
+#     plt.plot(time_s_snep/60, mse_snep, color=color, label=str(k))
+# plt.legend()
+#
+#
+# # ----------- one snep vs one ep
+# fig, axes = plt.subplots(2, 1, sharex=True, figsize=(10, 8))
+# cur_k_i = 2
+#
+# ax = axes[0]
+# ax.set_title('MSE')
+# ax.semilogy(time_s_ep_s[cur_k_i]/60, mse_ep_s[cur_k_i], label='ep')
+# ax.semilogy(time_s_snep_s[cur_k_i]/60, mse_snep_s[cur_k_i], label='snep')
+#
+# ax = axes[1]
+# ax.set_title('KL')
+# ax.semilogy(time_s_ep_s[cur_k_i]/60, kl_ep_s[cur_k_i], label='ep')
+# ax.semilogy(time_s_snep_s[cur_k_i]/60, kl_snep_s[cur_k_i], label='snep')
+# ax.legend()
 
 # ----------- all snep vs ep
 last_iters_prc = 0.1
 
-fig, axes = plt.subplots(2, len(KS), sharex=False, figsize=(8, 6))
+fig, axes = plt.subplots(2, len(KS), sharex='col', sharey='row', figsize=(8, 5))
 
 for cur_k_i in range(len(KS)):
     ax = axes[0, cur_k_i]
