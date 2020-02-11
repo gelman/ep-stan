@@ -83,16 +83,16 @@ FULL_N = 11
 
 
 
-def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
-    """Calculate KL-divergence for multiv normal distributions
+def kl_mvn(m0, S0, m1, S1):
+    """Calculate marginal KL-divergence for normal distributions
 
-    Calculates KL(p||q), where p ~ N(m0,S0) and q ~ N(m1,S1). Optional argument
-    sum_log_diag_cho_S0 is precomputed sum(log(diag(cho(S0))).
+    Calculates KL(p||q), where p ~ N(m0,s0) and q ~ N(m1,s1).
 
     """
+    S0 = np.diag(np.diag(S0))
+    S1 = np.diag(np.diag(S1))
     choS1 = cho_factor(S1)
-    if sum_log_diag_cho_S0 is None:
-        sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S0)[0])))
+    sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S0)[0])))
     dm = m1-m0
     KL_div = (
         0.5*(
@@ -177,7 +177,6 @@ res_f_file.close()
 # -------------------
 
 dphi = m_target.shape[0]
-sum_log_diag_cho_S0 = np.sum(np.log(np.diag(cho_factor(S_target)[0])))
 
 # EP
 mse_ep_s = []
@@ -187,7 +186,7 @@ for m_s_ep, S_s_ep in zip(m_s_ep_s, S_s_ep_s):
     kl_ep = np.empty(len(m_s_ep))
     for i in range(len(m_s_ep)):
         kl_ep[i] = kl_mvn(
-            m_target, S_target, m_s_ep[i], S_s_ep[i], sum_log_diag_cho_S0)
+            m_target, S_target, m_s_ep[i], S_s_ep[i])
     mse_ep_s.append(mse_ep)
     kl_ep_s.append(kl_ep)
 # consensus
@@ -198,7 +197,7 @@ for m_s_cons, S_s_cons in zip(m_s_cons_s, S_s_cons_s):
     kl_cons = np.empty(len(m_s_cons))
     for i in range(len(m_s_cons)):
         kl_cons[i] = kl_mvn(
-            m_target, S_target, m_s_cons[i], S_s_cons[i], sum_log_diag_cho_S0)
+            m_target, S_target, m_s_cons[i], S_s_cons[i])
     mse_cons_s.append(mse_cons)
     kl_cons_s.append(kl_cons)
 # full
@@ -206,7 +205,7 @@ mse_full = np.mean((m_s_full - m_target)**2, axis=1)
 kl_full = np.full(len(m_s_full), np.nan)
 for i in range(len(m_s_full)):
     kl_full[i] = kl_mvn(
-        m_target, S_target, m_s_full[i], S_s_full[i], sum_log_diag_cho_S0)
+        m_target, S_target, m_s_full[i], S_s_full[i])
 
 
 # ---------
@@ -217,45 +216,14 @@ for i in range(len(m_s_full)):
 K_colors = plt.get_cmap('tab10').colors[:len(KS)]
 
 # --------- time as x-axis
-fig, axes = plt.subplots(2, 1, sharex=True, figsize=figsize4latex(0.95, 1.04))
+fig, ax = plt.subplots(1, 1, figsize=figsize4latex(0.95, 0.5))
 
 lw = 1.0
 
-# MSE
-ax = axes[0]
-ax.set_yscale('log')
-# full
-ax.plot(time_s_full[:FULL_N]/60, mse_full[:FULL_N], 'k', label='full', lw=lw+0.5)
-# ep
-for mse_ep, time_s_ep, k, color in zip(mse_ep_s, time_s_ep_s, KS, K_colors):
-    ax.plot(time_s_ep[1:]/60, mse_ep[1:], color=color, label=str(k), lw=lw)
-# cons
-for mse_cons, time_s_cons, k, color in zip(
-        mse_cons_s, time_s_cons_s, KS, K_colors):
-    ax.plot(time_s_cons/60, mse_cons, color=color, ls=':', label=str(k), lw=lw)
-# prior label
-ax.axhline(
-    mse_ep_s[0][0], lw=plt.rcParams['grid.linewidth'], color='0.65', zorder=1)
-ax.text(
-    x = -0.022,
-    y = mse_ep_s[0][0],
-    s = 'prior',
-    transform = ax.get_yaxis_transform(),
-    ha = 'right',
-    va = 'center'
-)
-# cosmetics
-ax.minorticks_off()
-# ax.set_xlabel('time (min)')
-ax.set_ylabel('MSE')
-ax.spines['right'].set_visible(False)
-ax.spines['top'].set_visible(False)
-
 # KL
-ax = axes[1]
 ax.set_yscale('log')
 # full
-ax.plot(time_s_full[:FULL_N]/60, kl_full[:FULL_N], 'k', label='full', lw=lw+0.5)
+ax.plot(time_s_full[:FULL_N]/60, kl_full[:FULL_N], 'k', label='full', lw=1.5)
 # ep
 for kl_ep, time_s_ep, k, color in zip(kl_ep_s, time_s_ep_s, KS, K_colors):
     ax.plot(time_s_ep[1:]/60, kl_ep[1:], color=color, label=str(k), lw=lw)
@@ -274,6 +242,7 @@ ax.text(
     ha = 'right',
     va = 'center'
 )
+ax.set_xlim([0, 100])
 # cosmetics
 ax.minorticks_off()
 ax.set_xlabel('time (min)')
@@ -290,226 +259,44 @@ legend_style_lines = (
     mlines.Line2D([], [], color='gray', label='EP', lw=lw),
     mlines.Line2D([], [], color='gray', ls=':', label='cons.', lw=lw)
 )
-legend_full_lines = (mlines.Line2D([], [], color='k', label='full', lw=lw+0.5),)
+legend_full_lines = (mlines.Line2D([], [], color='k', label='full', lw=1.5),)
 legend_dummys = tuple(
     mlines.Line2D([0], [0], color="white")
     for _ in range(3)
 )
-axes[0].legend(
+fig.tight_layout()
+
+box = ax.get_position()
+ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+
+ax.legend(
     handles = (
         legend_style_lines + legend_full_lines + legend_dummys +
         legend_k_lines
     ),
-    ncol = 2,
+    ncol = 1,
     framealpha=1.0,
     fancybox=False,
+    loc='center left',
+    bbox_to_anchor=(1.05, 0.5),
+    frameon=False,
 )
 
-fig.subplots_adjust(
-    top=0.97,
-    bottom=0.07,
-    left=0.12,
-    right=0.96,
-    hspace=0.08,
-    wspace=0.2
-)
+# fig.subplots_adjust(
+#     top=0.97,
+#     bottom=0.07,
+#     left=0.12,
+#     right=0.96,
+#     hspace=0.08,
+#     wspace=0.2
+# )
 
 # limit x-axis
-axes[0].set_xlim([0, 100])
-# limit y-axis in axes[0]
-axes[0].set_ylim(bottom=0.005)
-# limit y-axis in axes[1]
-axes[1].set_ylim(bottom=1.0)
 
-plt.savefig("fig_ex1_timex.pdf")
-plt.savefig("fig_ex1_timex.pgf")
+# limit y-axis in ax
+# ax.set_ylim(bottom=0.005)
+# limit y-axis in ax
+# ax.set_ylim(bottom=1.0)
 
-
-# ------ as a function of K
-fig, axes = plt.subplots(1, 2, figsize=figsize4latex(0.9, 0.5))
-# mse
-ax = axes[0]
-ax.set_yscale('log')
-ax.set_xscale('log')
-ax.plot(
-    KS,
-    tuple(mse_ep[-1] for mse_ep in mse_ep_s),
-    label='EP',
-    color=K_colors[0]
-)
-ax.plot(
-    KS,
-    tuple(mse_cons[-1] for mse_cons in mse_cons_s),
-    label='cons.',
-    color=K_colors[1]
-)
-ax.set_xticks(KS)
-ax.set_xticklabels(map(str, KS))
-ax.set_xlabel('$K$')
-ax.set_ylabel('MSE')
-ax.minorticks_off()
-ax.spines['right'].set_visible(False)
-ax.spines['top'].set_visible(False)
-# kl
-ax = axes[1]
-ax.set_yscale('log')
-ax.set_xscale('log')
-ax.plot(
-    KS,
-    tuple(kl_ep[-1] for kl_ep in kl_ep_s),
-    label='EP',
-    color=K_colors[0]
-)
-ax.plot(
-    KS,
-    tuple(kl_cons[-1] for kl_cons in kl_cons_s),
-    label='cons.',
-    color=K_colors[1]
-)
-ax.set_xticks(KS)
-ax.set_xticklabels(map(str, KS))
-ax.set_xlabel('$K$')
-ax.set_ylabel('KL')
-ax.set_yticks((1,10,100))  # manual
-ax.set_ylim((1,100))
-ax.minorticks_off()
-ax.spines['right'].set_visible(False)
-ax.spines['top'].set_visible(False)
-# legend
-axes[1].legend(
-    framealpha=1.0,
-    fancybox=False,
-)
-fig.tight_layout()
-
-plt.savefig("fig_ex1_kx.pdf")
-plt.savefig("fig_ex1_kx.pgf")
-
-# ------ pointwise compare plot EP and target
-fig, axes = plt.subplots(2, 2, figsize=figsize4latex(0.9, 0.7))
-fig.subplots_adjust(
-top=0.91,
-bottom=0.085,
-left=0.09,
-right=1.0,
-hspace=0.3,
-wspace=0.0
-)
-
-scatterkwargs = dict(s=8, alpha=None, zorder=4)
-diagcolor = (1.0, 0.6, 0.6)
-
-# K=2
-
-# mean
-ax = axes[0, 0]
-# diagonal line
-ax.plot([0, 1], [0, 1], lw=1, color=diagcolor, transform=ax.transAxes)
-# data
-ax.scatter(m_target, m_s_ep_s[0][-1], **scatterkwargs)
-# limits
-limits = (
-    min(ax.get_xlim()[0], ax.get_ylim()[0]),
-    max(ax.get_xlim()[1], ax.get_ylim()[1])
-)
-ax.set_xlim(limits)
-ax.set_ylim(limits)
-ax.set_aspect('equal', 'box')
-ax.set_xticks((-2, 0, 2))
-ax.set_yticks((-2, 0, 2))
-ax.spines['right'].set_visible(False)
-ax.spines['top'].set_visible(False)
-# titles
-ax.set_title('mean', y=1.1, family='serif')
-ax.text(
-    -0.75, 0.5, '$K=2$',
-    transform=ax.transAxes, rotation=0, ha='left'
-)
-ax.set_xlabel('target', family='serif')
-ax.set_ylabel('EP', family='serif')
-
-# std
-ax = axes[0, 1]
-# diagonal line
-ax.plot([0, 1], [0, 1], lw=1, color=diagcolor, transform=ax.transAxes)
-# data
-ax.scatter(
-    np.sqrt(np.diag(S_target)),
-    np.sqrt(np.diag(S_s_ep_s[0][-1])),
-    **scatterkwargs
-)
-# limits
-limits = (
-    0,  # manually set std min to 0
-    max(ax.get_xlim()[1], ax.get_ylim()[1])
-)
-ax.set_xlim(limits)
-ax.set_ylim(limits)
-ax.set_aspect('equal', 'box')
-ax.set_xticks((0, 1, 2))
-ax.set_yticks((0, 1, 2))
-ax.spines['right'].set_visible(False)
-ax.spines['top'].set_visible(False)
-# titles
-ax.set_title('standard deviation', y=1.1, family='serif')
-ax.set_xlabel('target', family='serif')
-ax.set_ylabel('EP', family='serif')
-
-# K=64
-
-# mean
-ax = axes[1, 0]
-# diagonal line
-ax.plot([0, 1], [0, 1], lw=1, color=diagcolor, transform=ax.transAxes)
-# data
-ax.scatter(m_target, m_s_ep_s[-1][-1], **scatterkwargs)
-# limits
-limits = (
-    min(ax.get_xlim()[0], ax.get_ylim()[0]),
-    max(ax.get_xlim()[1], ax.get_ylim()[1])
-)
-ax.set_xlim(limits)
-ax.set_ylim(limits)
-ax.set_aspect('equal', 'box')
-ax.set_xticks((-2, 0, 2))
-ax.set_yticks((-2, 0, 2))
-ax.spines['right'].set_visible(False)
-ax.spines['top'].set_visible(False)
-# titles
-ax.text(
-    -0.75, 0.5, '$K=64$',
-    transform=ax.transAxes, rotation=0, ha='left'
-)
-ax.set_xlabel('target', family='serif')
-ax.set_ylabel('EP', family='serif')
-
-# std
-ax = axes[1, 1]
-# diagonal line
-ax.plot([0, 1], [0, 1], lw=1, color=diagcolor, transform=ax.transAxes)
-# data
-ax.scatter(
-    np.sqrt(np.diag(S_target)),
-    np.sqrt(np.diag(S_s_ep_s[-1][-1])),
-    **scatterkwargs
-)
-# limits
-limits = (
-    0,  # manually set std min to 0
-    max(ax.get_xlim()[1], ax.get_ylim()[1])
-)
-ax.set_xlim(limits)
-ax.set_ylim(limits)
-ax.set_aspect('equal', 'box')
-ax.set_xticks((0, 1, 2))
-ax.set_yticks((0, 1, 2))
-ax.spines['right'].set_visible(False)
-ax.spines['top'].set_visible(False)
-# titles
-ax.set_xlabel('target', family='serif')
-ax.set_ylabel('EP', family='serif')
-
-fig.tight_layout()
-
-plt.savefig("fig_ex1_comp.pdf")
-plt.savefig("fig_ex1_comp.pgf")
+plt.savefig("fig_ex1_timex_kld.pdf")
+plt.savefig("fig_ex1_timex_kld.pgf")

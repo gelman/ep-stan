@@ -51,7 +51,7 @@ def kl_mvn(m0, S0, m1, S1, sum_log_diag_cho_S0=None):
 # -------------
 
 # Load target file
-target_file = np.load('./results/target_{}.npz'.format(MODEL_NAME))
+target_file = np.load('./results_new/target_{}.npz'.format(MODEL_NAME))
 m_target = target_file['m_target']
 S_target = target_file['S_target']
 target_file.close()
@@ -65,12 +65,12 @@ mrhat_s_ep_s = []
 for k in KS:
     if EP_ID:
         res_d_file = np.load(
-            './results/res_d_{}_{}_K{}.npz'
+            './results_new/res_d_{}_{}_K{}.npz'
             .format(MODEL_NAME, EP_ID, k)
         )
     else:
         res_d_file = np.load(
-            './results/res_d_{}_K{}.npz'
+            './results_new/res_d_{}_K{}.npz'
             .format(MODEL_NAME, k)
         )
     m_s_ep_s.append(res_d_file['m_s_ep'])
@@ -90,12 +90,12 @@ snep_last_iter_s = []
 for k in KS:
     if SNEP_ID:
         res_s_file = np.load(
-            './results/res_s_{}_{}_K{}.npz'
+            './results_new/res_s_{}_{}_K{}.npz'
             .format(MODEL_NAME, SNEP_ID, k)
         )
     else:
         res_s_file = np.load(
-            './results/res_s_{}_K{}.npz'
+            './results_new/res_s_{}_K{}.npz'
             .format(MODEL_NAME, k)
         )
     m_s_snep_s.append(res_s_file['m_s_snep'])
@@ -125,12 +125,12 @@ mrhat_s_cons_s = []
 for k in KS:
     if CONS_ID:
         res_c_file = np.load(
-            './results/res_c_{}_{}_K{}.npz'
+            './results_new/res_c_{}_{}_K{}.npz'
             .format(MODEL_NAME, EP_ID, k)
         )
     else:
         res_c_file = np.load(
-            './results/res_c_{}_K{}.npz'
+            './results_new/res_c_{}_K{}.npz'
             .format(MODEL_NAME, k)
         )
     m_s_cons_s.append(res_c_file['m_s_cons'])
@@ -141,7 +141,7 @@ for k in KS:
     res_c_file.close()
 
 # Load full result file
-res_f_file = np.load('./results/res_f_{}.npz'.format(MODEL_NAME))
+res_f_file = np.load('./results_new/res_f_{}.npz'.format(MODEL_NAME))
 m_s_full = res_f_file['m_s_full']
 S_s_full = res_f_file['S_s_full']
 time_s_full = res_f_file['time_s_full']
@@ -260,6 +260,9 @@ for cur_k_i in range(len(KS)):
     #     np.mean(mse_snep_s[cur_k_i][-last_iters_n:]),
     #     color='C1', ls='--'
     # )
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.minorticks_off()
 
     ax = axes[1, cur_k_i]
     ax.semilogy(
@@ -280,6 +283,9 @@ for cur_k_i in range(len(KS)):
     #     np.mean(kl_snep_s[cur_k_i][-last_iters_n:]),
     #     color='C1', ls='--'
     # )
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.minorticks_off()
 
 for cur_k_i in range(len(KS)):
     axes[0, cur_k_i].set_title('K = {}'.format(KS[cur_k_i]))
@@ -287,11 +293,14 @@ axes[0, 0].set_ylabel('MSE')
 axes[1, 0].set_ylabel('KL')
 for cur_k_i in range(len(KS)):
     axes[-1, cur_k_i].set_xlabel('time (min)')
+plt.tight_layout()
 axes[-1,1].legend(
     loc='upper center',
-    bbox_to_anchor=(0.5, -0.25)
+    bbox_to_anchor=(1.08, -0.25),
+    framealpha=1.0,
+    fancybox=False,
 )
-plt.tight_layout()
+fig.subplots_adjust(bottom=0.21)
 
 
 
@@ -349,6 +358,8 @@ ax.text(
 ax.minorticks_off()
 # ax.set_xlabel('time (min)')
 ax.set_ylabel('MSE')
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
 
 # KL
 ax = axes[1]
@@ -377,6 +388,8 @@ ax.text(
 ax.minorticks_off()
 ax.set_xlabel('time (min)')
 ax.set_ylabel('KL')
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
 
 # legend
 legend_k_lines = tuple(

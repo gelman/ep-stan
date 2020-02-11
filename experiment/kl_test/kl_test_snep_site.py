@@ -65,7 +65,7 @@ from matplotlib.patches import Patch
 n_dim = 3
 seed = 11
 n_samp = 200
-n_trial = 400
+n_trial = 2000
 n_sites = 6
 
 # true site variance range
@@ -91,7 +91,7 @@ snep_n_inner = 1
 snep_outer_is = set()
 snep_damp = 1.0
 
-use_precalculated = False  # loads precalculated results
+use_precalculated = True  # loads precalculated results
 
 # ========================
 

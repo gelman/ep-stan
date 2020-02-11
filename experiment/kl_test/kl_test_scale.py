@@ -265,7 +265,9 @@ for ax, data, name in zip(axes, (kl_n, kl_t), ('normal', 't')):
     ax.axvline(n_samp/(n_samp-n_dim-2), color='C2', label='normal precision')
     ylab = name + r'$\qquad\mathrm{KL}$'
     ax.set_ylabel(ylab, rotation=0, ha='right')
-axes[0].legend()
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+axes[0].legend(fancybox=False, framealpha=1.0)
 axes[-1].set_xlabel('covariance estimate scale')
 plt.tight_layout()
 # plt.subplots_adjust(top=0.95, bottom=0.15, hspace=0.15)
